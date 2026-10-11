@@ -118,7 +118,7 @@ private struct TranscriptPane: View {
                 }
             }
 
-            ScrollView {
+            VerticalScrollView {
                 transcriptText
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -176,8 +176,9 @@ private struct TranscriptPane: View {
                 .textStyle(Tokens.Text.body)
                 .foregroundStyle(Tokens.Content.tertiary)
         } else {
-            (Text(finalText).foregroundStyle(Tokens.Content.primary)
-                + Text(pendingText).foregroundStyle(Tokens.Content.tertiary))
+            // Text interpolation (not `+`, deprecated in iOS 26) keeps both runs in ONE Text so
+            // wrapping + the paired auto-scroll geometry stay unchanged.
+            Text("\(Text(finalText).foregroundStyle(Tokens.Content.primary))\(Text(pendingText).foregroundStyle(Tokens.Content.tertiary))")
                 .textStyle(Tokens.Text.body)
         }
     }

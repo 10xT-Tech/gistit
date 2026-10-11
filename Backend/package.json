@@ -1,0 +1,16 @@
+{
+  "name": "gist-it-backend",
+  "private": true,
+  "type": "module",
+  "description": "Gist It backend: Claude proxy + Soniox temporary keys behind App Attest (AWS Lambda).",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1149.0",
+    "@aws-sdk/client-secrets-manager": "^3.1149.0"
+  }
+}

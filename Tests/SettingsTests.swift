@@ -2,7 +2,7 @@
 //  SettingsTests.swift
 //  EnglishHelperTests
 //
-//  Settings: live health check ok/failed mapping, and persisted theme preference.
+//  Settings: live health check ok/failed mapping + response-speed buckets, and persisted preferences.
 //
 
 import Testing
@@ -19,12 +19,17 @@ import Presentation
             connectionHealth: ConnectionHealthInteractor(llm: MockLLMClient()),
             transcriptionHealth: TranscriptionHealthInteractor(service: MockTranscriptionService()),
             cacheAdmin: TranslationCacheAdminInteractor(cache: nil),
-            appVersion: "1.0", modelName: "claude-sonnet-4-6", fastModelName: "claude-haiku-4-5",
-            sonioxModelName: "stt-rt-v5"
+            appVersion: "1.0"
         )
         await vm.check()
-        #expect(vm.health == .ok)
-        #expect(vm.sonioxHealth == .ok)   // the Soniox probe runs alongside the Claude ones
+        // Every probe is green and timed; an in-process mock answers well inside the "fast" bucket.
+        for health in [vm.translationHealth, vm.explanationHealth, vm.voiceHealth] {
+            guard case .ok(let speed) = health else {
+                Issue.record("expected .ok, got \(health)")
+                continue
+            }
+            #expect(speed.level == .fast)
+        }
     }
 
     /// Soniox failures surface independently: Claude can be green while Soniox reports its own error.
@@ -35,12 +40,15 @@ import Presentation
                 service: MockTranscriptionService(failure: .unauthorized)
             ),
             cacheAdmin: TranslationCacheAdminInteractor(cache: nil),
-            appVersion: "1.0", modelName: "m", fastModelName: "h", sonioxModelName: "s"
+            appVersion: "1.0"
         )
         await vm.check()
-        #expect(vm.health == .ok)
-        guard case .failed = vm.sonioxHealth else {
-            Issue.record("expected .failed sonioxHealth, got \(vm.sonioxHealth)")
+        guard case .ok = vm.explanationHealth, case .ok = vm.translationHealth else {
+            Issue.record("expected both Claude rows .ok")
+            return
+        }
+        guard case .failed = vm.voiceHealth else {
+            Issue.record("expected .failed voiceHealth, got \(vm.voiceHealth)")
             return
         }
     }
@@ -62,7 +70,7 @@ import Presentation
             connectionHealth: ConnectionHealthInteractor(llm: MockLLMClient()),
             transcriptionHealth: TranscriptionHealthInteractor(service: MockTranscriptionService()),
             cacheAdmin: TranslationCacheAdminInteractor(cache: cache),
-            appVersion: "1.0", modelName: "m", fastModelName: "h", sonioxModelName: "s"
+            appVersion: "1.0"
         )
         await vm.loadCacheStats()
         #expect(vm.cacheStats.entryCount == 2)
@@ -80,13 +88,25 @@ import Presentation
             ),
             transcriptionHealth: TranscriptionHealthInteractor(service: MockTranscriptionService()),
             cacheAdmin: TranslationCacheAdminInteractor(cache: nil),
-            appVersion: "1.0", modelName: "m", fastModelName: "h", sonioxModelName: "s"
+            appVersion: "1.0"
         )
         await vm.check()
-        guard case .failed = vm.health else {
-            Issue.record("expected .failed health, got \(vm.health)")
+        guard case .failed = vm.explanationHealth, case .failed = vm.translationHealth else {
+            Issue.record("expected .failed Claude rows, got \(vm.explanationHealth) / \(vm.translationHealth)")
             return
         }
+    }
+
+    /// Speed buckets: Claude models are judged on a ~1.5 s ping, the voice service on a ~0.5 s one.
+    @Test func responseSpeedBuckets() {
+        #expect(ResponseSpeed.model(.milliseconds(1400)).level == .fast)
+        #expect(ResponseSpeed.model(.milliseconds(2500)).level == .medium)
+        #expect(ResponseSpeed.model(.milliseconds(4999)).level == .medium)
+        #expect(ResponseSpeed.model(.seconds(5)).level == .slow)
+        #expect(ResponseSpeed.voice(.milliseconds(500)).level == .fast)
+        #expect(ResponseSpeed.voice(.milliseconds(1500)).level == .medium)
+        #expect(ResponseSpeed.voice(.seconds(3)).level == .slow)
+        #expect(ResponseSpeed.model(.milliseconds(1349)).secondsText == "1.3")
     }
 
     @Test func themePreferencePersists() {

@@ -2,7 +2,8 @@
 //  StudyListView.swift
 //  EnglishHelper — Presentation
 //
-//  "Изучаю" — flat study list: add (enrich-then-store), swipe-delete, toggle learned, export .xml.
+//  "Изучаю" — flat study list: add (enrich-then-store), swipe-delete, toggle learned, clean up
+//  learned (confirmed bulk delete), export .xml.
 //
 
 import SwiftUI
@@ -15,7 +16,7 @@ public struct StudyListView: View {
     @Environment(AppUIState.self) private var ui
 
     public init(model: StudyListViewModel) {
-        _model = State(initialValue: model)
+        self.model = model
     }
 
     public var body: some View {
@@ -39,9 +40,29 @@ public struct StudyListView: View {
                     .accessibilityLabel(Loc.t("Экспортировать список", "Export list"))
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Clean up: drop every card marked learned — behind a confirmation (no undo).
+                    Button { model.showCleanUpConfirmation = true } label: { Image(systemName: "eraser") }
+                        .disabled(model.learnedCount == 0)
+                        .accessibilityLabel(Loc.t("Убрать изученные", "Clean up learned"))
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { model.showAddSheet = true } label: { Image(systemName: "plus") }
                         .accessibilityLabel(Loc.t("Добавить выражение", "Add expression"))
                 }
+            }
+            .confirmationDialog(
+                Loc.t("Убрать изученные карточки?", "Remove learned cards?"),
+                isPresented: $model.showCleanUpConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button(role: .destructive) { model.cleanUpLearned() } label: {
+                    Text(Loc.t("Удалить изученные (\(model.learnedCount))",
+                               "Delete learned (\(model.learnedCount))"))
+                }
+                Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
+            } message: {
+                Text(Loc.t("Карточки, отмеченные как изученные, будут удалены из списка. Это нельзя отменить.",
+                           "Cards marked as learned will be removed from the list. This can't be undone."))
             }
             .task { await model.load() }
             .sheet(isPresented: $model.showAddSheet) { addSheet }
@@ -124,7 +145,7 @@ public struct StudyListView: View {
 
     private var addSheet: some View {
         NavigationStack {
-            ScrollView {
+            VerticalScrollView {
                 VStack(spacing: Tokens.Space.s16) {
                     if model.needsAPIKey {
                         HStack(spacing: Tokens.Space.s8) {

@@ -3,8 +3,10 @@
 //  EnglishHelper — Domain
 //
 //  v1 prompt templates. Each owns its system prompt, output schema, and typed decoder.
-//  All string fields are plain text ONLY (no markdown / emoji / decorative symbols) — enforced
-//  by the system prompts; verified by tests (Step 2).
+//  All string fields are plain text ONLY (no markdown / emoji / decorative symbols) — asked for by
+//  the system prompts and enforced by `PlainText.clean` in every decoder. Schemas are sent as
+//  structured-output formats: every object sets `additionalProperties: false`, and array-count
+//  limits live in the decoders (structured outputs don't support complex array constraints).
 //
 
 import Foundation
@@ -141,7 +143,7 @@ public struct HowToSayTemplate: PromptTemplate {
         each a DIFFERENT natural phrasing.
         Each variant has: "en" (the \(studiedLanguage) phrasing), "register" (use "\(toneRegister)"),
         and "context_ru" (one short note IN \(nativeLanguage) on when/why to use it).
-        Do not output more or fewer than three. \(plainTextRule)
+        \(plainTextRule)
         """
     }
 
@@ -159,11 +161,12 @@ public struct HowToSayTemplate: PromptTemplate {
 
     public var outputJSONSchema: String {
         """
-        {"type":"object","properties":{"variants":{"type":"array","minItems":3,"maxItems":3,
+        {"type":"object","properties":{"variants":{"type":"array",
         "items":{"type":"object","properties":{"en":{"type":"string"},
         "register":{"enum":["formal","neutral","casual","slang"]},
-        "context_ru":{"type":"string"}},"required":["en","register","context_ru"]}}},
-        "required":["variants"]}
+        "context_ru":{"type":"string"}},"required":["en","register","context_ru"],
+        "additionalProperties":false}}},
+        "required":["variants"],"additionalProperties":false}
         """
     }
 
@@ -238,11 +241,12 @@ public struct WhatToSayTemplate: PromptTemplate {
 
     public var outputJSONSchema: String {
         """
-        {"type":"object","properties":{"variants":{"type":"array","minItems":3,"maxItems":10,
+        {"type":"object","properties":{"variants":{"type":"array",
         "items":{"type":"object","properties":{"en":{"type":"string"},
         "register":{"enum":["formal","neutral","casual","slang"]},
-        "context_ru":{"type":"string"}},"required":["en","register","context_ru"]}}},
-        "required":["variants"]}
+        "context_ru":{"type":"string"}},"required":["en","register","context_ru"],
+        "additionalProperties":false}}},
+        "required":["variants"],"additionalProperties":false}
         """
     }
 
@@ -250,7 +254,7 @@ public struct WhatToSayTemplate: PromptTemplate {
 
     public func decode(_ rawJSON: String) throws -> HowToSayResult {
         let result = try decodeJSON(HowToSayResult.self, from: rawJSON)
-        // The schema/prompt ASK for 3–10 (a quality nudge for the model). The decoder is deliberately
+        // The prompt ASKS for 3–10 (a quality nudge for the model). The decoder is deliberately
         // lenient on the low end: if the model returns just 1–2 genuinely-useful phrases, show them
         // rather than hard-failing the whole request — only an EMPTY set is an error. The 10-max is
         // still enforced here in case the model overshoots. Sanitize to plain text like every template.
@@ -354,7 +358,7 @@ public struct ExplainExpressionTemplate: PromptTemplate {
         """
         {"type":"object","properties":{"studied":{"type":"string"},"meaning":{"type":"string"},
         "register":{"type":"string"},"context":{"type":"string"},"analogy":{"type":"string"}},
-        "required":["studied","meaning","register","context","analogy"]}
+        "required":["studied","meaning","register","context","analogy"],"additionalProperties":false}
         """
     }
 
@@ -433,7 +437,7 @@ public struct UnderstandTemplate: PromptTemplate {
     }
 
     public var outputJSONSchema: String {
-        #"{"type":"object","properties":{"studied":{"type":"string"},"variants":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"context":{"type":"string"}},"required":["text","context"]},"minItems":1,"maxItems":5}},"required":["studied","variants"]}"#
+        #"{"type":"object","properties":{"studied":{"type":"string"},"variants":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"context":{"type":"string"}},"required":["text","context"],"additionalProperties":false}}},"required":["studied","variants"],"additionalProperties":false}"#
     }
 
     public func userMessage(for input: String) -> String { input }
@@ -443,8 +447,9 @@ public struct UnderstandTemplate: PromptTemplate {
         let variants = raw.variants
             .map { TranslationVariant(text: PlainText.clean($0.text), context: PlainText.clean($0.context)) }
             .filter { !$0.text.isEmpty }
+            .prefix(5)
         guard !variants.isEmpty else { throw LLMError.invalidOutput("understand: no translation") }
-        return Understanding(studied: PlainText.clean(raw.studied), variants: variants)
+        return Understanding(studied: PlainText.clean(raw.studied), variants: Array(variants))
     }
 }
 
@@ -471,7 +476,7 @@ public struct PhotoBlocksTemplate: PromptTemplate {
 
     // A photo can contain a LOT of text (a full menu, a page) — each block emits en + ru, so the
     // response is far larger than the short text tasks. 2048 truncates it mid-JSON; give it room.
-    public var maxOutputTokens: Int { 8192 }
+    public var maxOutputTokens: Int { 16384 }
     // Vision OCR + translation of dense text: lean toward accuracy/headroom over raw speed.
     public var prefersFastResponse: Bool { false }
 
@@ -493,8 +498,9 @@ public struct PhotoBlocksTemplate: PromptTemplate {
     public var outputJSONSchema: String {
         """
         {"type":"object","properties":{"blocks":{"type":"array","items":{"type":"object",
-        "properties":{"en":{"type":"string"},"ru":{"type":"string"}},"required":["en","ru"]}}},
-        "required":["blocks"]}
+        "properties":{"en":{"type":"string"},"ru":{"type":"string"}},"required":["en","ru"],
+        "additionalProperties":false}}},
+        "required":["blocks"],"additionalProperties":false}
         """
     }
 
@@ -532,7 +538,7 @@ public struct PhotoExplainTemplate: PromptTemplate {
     }
 
     // Vision + a thoughtful multi-paragraph explanation: give it room and the balanced (not fast) profile.
-    public var maxOutputTokens: Int { 4096 }
+    public var maxOutputTokens: Int { 8192 }
     public var prefersFastResponse: Bool { false }
 
     public var systemPrompt: String {
@@ -561,7 +567,7 @@ public struct PhotoExplainTemplate: PromptTemplate {
     }
 
     public var outputJSONSchema: String {
-        #"{"type":"object","properties":{"title":{"type":"string"},"details":{"type":"string"}},"required":["title","details"]}"#
+        #"{"type":"object","properties":{"title":{"type":"string"},"details":{"type":"string"}},"required":["title","details"],"additionalProperties":false}"#
     }
 
     public func userMessage(for input: RecognizableImage) -> String {
@@ -599,8 +605,8 @@ public struct EnrichCardTemplate: PromptTemplate {
     public var outputJSONSchema: String {
         """
         {"type":"object","properties":{"ru":{"type":"string"},"example":{"type":"string"},
-        "synonyms":{"type":"array","items":{"type":"string"},"maxItems":3}},
-        "required":["ru","example","synonyms"]}
+        "synonyms":{"type":"array","items":{"type":"string"}}},
+        "required":["ru","example","synonyms"],"additionalProperties":false}
         """
     }
 
@@ -639,10 +645,13 @@ public struct HealthCheckTemplate: PromptTemplate {
     public let tier: ModelTier
     public init(tier: ModelTier = .standard) { self.tier = tier }
     public var modelTier: ModelTier { tier }
+    /// Small and fixed: the backend recognises this exact probe and never counts it against the free
+    /// plan's premium-model allowance (Backend/src/validate.mjs `isHealthCheck`) — keep them in sync.
+    public var maxOutputTokens: Int { 1024 }
 
-    public var systemPrompt: String { "Reply ONLY with the JSON object {\"ok\": true}." }
+    public var systemPrompt: String { "Reply with {\"ok\": true}." }
     public var outputJSONSchema: String {
-        #"{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}"#
+        #"{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}"#
     }
     public func userMessage(for input: Void) -> String { "ping" }
     public func decode(_ rawJSON: String) throws -> Bool {

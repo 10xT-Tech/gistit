@@ -18,14 +18,14 @@ public struct PhotoTranslateView: View {
     @Environment(AppUIState.self) private var ui
 
     public init(model: PhotoTranslateViewModel) {
-        _model = State(initialValue: model)
+        self.model = model
     }
 
     public var body: some View {
         NavigationStack {
             ZStack {
                 ScreenBackground()
-                ScrollView {
+                VerticalScrollView {
                     VStack(spacing: Tokens.Space.s20) {
                         if model.needsAPIKey { apiKeyBanner }
                         modeSelector
@@ -91,13 +91,23 @@ public struct PhotoTranslateView: View {
                         .frame(maxHeight: 220)
                         .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
                 }
-                StatusView(
-                    systemImage: model.isOffline ? "wifi.slash" : "exclamationmark.triangle",
-                    title: model.isOffline ? Loc.t("Нет соединения", "No connection") : Loc.t("Не получилось", "Something went wrong"),
-                    message: model.errorMessage,
-                    actionTitle: model.canRetry ? Loc.t("Повторить", "Retry") : nil,
-                    action: model.canRetry ? { model.retry() } : nil
-                )
+                if model.needsSubscription {
+                    StatusView(
+                        systemImage: "lock",
+                        title: Loc.t("Лимит бесплатного плана", "Free plan limit"),
+                        message: model.errorMessage,
+                        actionTitle: Loc.t("Оформить подписку", "Subscribe"),
+                        action: { ui.showPaywall = true }
+                    )
+                } else {
+                    StatusView(
+                        systemImage: model.isOffline ? "wifi.slash" : "exclamationmark.triangle",
+                        title: model.isOffline ? Loc.t("Нет соединения", "No connection") : Loc.t("Не получилось", "Something went wrong"),
+                        message: model.errorMessage,
+                        actionTitle: model.canRetry ? Loc.t("Повторить", "Retry") : nil,
+                        action: model.canRetry ? { model.retry() } : nil
+                    )
+                }
                 sourceButtons
             }
         }

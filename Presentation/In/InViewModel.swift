@@ -55,6 +55,8 @@ public final class InViewModel {
     /// only renders in `.failed`.
     public private(set) var saveError: String?
     public private(set) var isOffline = false
+    /// The free plan's limit stopped the request — the screen offers the subscription instead of Retry.
+    public private(set) var needsSubscription = false
     public private(set) var isPlaying = false
     public private(set) var isSaved = false
     /// Last observed "clipboard holds text" state (refreshed on appear / foreground / field clear).
@@ -129,6 +131,12 @@ public final class InViewModel {
     private let longTask: (any LongTaskCoordinating)?
     /// Clipboard access for the Paste affordance (injected so tests can can content).
     private let pasteboard: any PasteboardReading
+    /// Lock Screen presence of the running live session (Live Activity banner with pause/stop).
+    /// Nil in tests/previews — then no banner, everything else unchanged.
+    private let liveActivity: (any LiveSessionActivityPresenting)?
+    /// Tokens for the Live-Activity button commands. Kept in a Sendable bag whose own deinit
+    /// removes the observers — so this MainActor class needs no deinit that touches isolated state.
+    private let commandObservers = NotificationObserverBag()
 
     private var captureTask: Task<Void, Never>?
     private var requestTask: Task<Void, Never>?
@@ -148,7 +156,8 @@ public final class InViewModel {
         isConfigured: Bool,
         isLiveConfigured: Bool = true,
         longTask: (any LongTaskCoordinating)? = nil,
-        pasteboard: any PasteboardReading = SystemPasteboard()
+        pasteboard: any PasteboardReading = SystemPasteboard(),
+        liveActivity: (any LiveSessionActivityPresenting)? = nil
     ) {
         self.understand = understand
         self.explain = explain
@@ -161,6 +170,23 @@ public final class InViewModel {
         self.isLiveConfigured = isLiveConfigured
         self.longTask = longTask
         self.pasteboard = pasteboard
+        self.liveActivity = liveActivity
+        // The Live Activity's pause/stop buttons run their intents in the APP process and post
+        // these commands. Observed by the view model (not the view): with the screen locked no
+        // view is updating, but this object lives as long as the tab does. Main-queue delivery →
+        // hop back into MainActor isolation.
+        commandObservers.observers = [
+            NotificationCenter.default.addObserver(
+                forName: .liveTranslationPauseCommand, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.toggleLivePause() }
+            },
+            NotificationCenter.default.addObserver(
+                forName: .liveTranslationStopCommand, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.stopLive() }   // guarded: no-op unless listening
+            },
+        ]
     }
 
     // MARK: Derived
@@ -189,7 +215,24 @@ public final class InViewModel {
     /// screen appear, on returning to the foreground (the clipboard changes while backgrounded),
     /// and when the field is cleared.
     public func refreshClipboardState() {
-        clipboardHasText = pasteboard.hasText
+        let hasText = pasteboard.hasText
+        if hasText != clipboardHasText { clipboardHasText = hasText }   // equal → no @Observable churn
+    }
+
+    /// Keep `clipboardHasText` honest for as long as the screen is visible. iOS posts
+    /// `UIPasteboard.changedNotification` only for changes made by THIS app or when the app becomes
+    /// active — a change made by another process while we are already in the foreground (Universal
+    /// Clipboard from a Mac, a password manager's auto-clear, Shortcuts, a keyboard extension) is
+    /// silent. Left unrefreshed, the slot either kept a Paste control the system had already greyed
+    /// out (no Explain/Translate anywhere on the screen) or a disabled mode button with text one tap
+    /// away. `hasText` is a metadata read and never triggers the paste banner; the interval is a
+    /// parameter so tests can run the loop fast. Runs until cancelled — bind it to the screen with
+    /// `.task`.
+    public func monitorClipboard(every interval: Duration = .seconds(1)) async {
+        while !Task.isCancelled {
+            refreshClipboardState()
+            try? await Task.sleep(for: interval)
+        }
     }
 
     /// Fill the input with what the SYSTEM paste control delivered (its tap IS the pasteboard
@@ -302,6 +345,7 @@ public final class InViewModel {
         requestTask = nil
         errorMessage = nil
         isOffline = false
+        needsSubscription = false
         studied = nil
         translations = []
         explanation = nil
@@ -395,7 +439,8 @@ public final class InViewModel {
                                                                 nativeLanguage: to) {
                     switch event {
                     case .listening:
-                        break
+                        // Mic + socket are actually up → put the session on the Lock Screen.
+                        self.liveActivity?.sessionStarted(direction: self.liveDirectionLabel)
                     case .level(let level):
                         // Small-delta gate: the level arrives ~20×/s; skipping sub-visible changes
                         // keeps @Observable from re-rendering the whole screen on noise.
@@ -419,7 +464,15 @@ public final class InViewModel {
             self.liveClearPending = false
             self.liveLevel = 0
             self.liveTask = nil
+            self.liveActivity?.sessionEnded()   // stopped, failed, or auto-stopped — banner off
         }
+    }
+
+    /// "EN → RU"-style Live Activity label: the language LISTENED TO → the language produced.
+    private var liveDirectionLabel: String {
+        let studied = StudiedLanguage.current.abbreviation
+        let native = TargetLanguage.current.abbreviation
+        return isLiveReversed ? "\(native) → \(studied)" : "\(studied) → \(native)"
     }
 
     /// The Pause button: quickly mute the session (nothing recognized or recorded while paused;
@@ -429,6 +482,7 @@ public final class InViewModel {
         isLivePaused.toggle()
         liveLevel = 0
         let paused = isLivePaused
+        liveActivity?.sessionPaused(paused)
         Task { [weak self] in await self?.liveTranslate.setPaused(paused) }
     }
 
@@ -439,6 +493,7 @@ public final class InViewModel {
     public func toggleLiveDirection() {
         isLiveReversed.toggle()
         guard isLiveListening, !isLiveStopping else { return }
+        liveActivity?.directionChanged(liveDirectionLabel)
         Task { [weak self] in await self?.liveTranslate.switchLanguages() }
     }
 
@@ -486,6 +541,8 @@ public final class InViewModel {
         case .serviceUnavailable:
             return Loc.t("Сервис распознавания недоступен. Попробуйте позже.",
                          "The speech service is unavailable. Try later.")
+        case .subscriptionRequired:
+            return Loc.t("Онлайн-перевод доступен по подписке.", "Online translation is part of the subscription.")
         case .underlying(let detail):
             return Loc.t("Ошибка онлайн-перевода: \(detail)", "Online translation error: \(detail)",
                          "Erreur de traduction en direct : \(detail)", "Error de traducción en vivo: \(detail)",
@@ -545,6 +602,7 @@ public final class InViewModel {
         phase = .processing
         errorMessage = nil
         isOffline = false
+        needsSubscription = false
         requestTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -664,6 +722,7 @@ public final class InViewModel {
                 phase = .idle
                 errorMessage = nil
                 isOffline = false
+                needsSubscription = false
             }
         }
     }
@@ -692,6 +751,7 @@ public final class InViewModel {
         resultsGeneration += 1   // an in-flight save from the previous mode must not attach here
         errorMessage = nil
         isOffline = false
+        needsSubscription = false
         phase = .result
     }
 
@@ -745,6 +805,9 @@ public final class InViewModel {
                                  "Couldn't parse the response. Try again.")
         case .cancelled:
             errorMessage = Loc.t("Запрос отменён.", "Request cancelled.")
+        case .subscriptionRequired(let retryAfter):
+            needsSubscription = true
+            errorMessage = subscriptionLimitMessage(retryAfter: retryAfter)
         case .requestFailed:
             errorMessage = Loc.t("Сервис недоступен. Попробуйте позже.", "Service unavailable. Try later.")
         }
@@ -831,4 +894,11 @@ public final class InViewModel {
         explainAlternatives = []
         explainAlternativesText = nil
     }
+}
+
+/// Owns NotificationCenter observer tokens and removes them when deallocated. `@unchecked Sendable`:
+/// `observers` is written once (from the owner's init) and read only in `deinit` (exclusive access).
+private final class NotificationObserverBag: @unchecked Sendable {
+    var observers: [NSObjectProtocol] = []
+    deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
 }

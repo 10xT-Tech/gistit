@@ -14,7 +14,7 @@ actually learn.
 Built originally for learning **English from Russian**; the studied and native languages are now
 configurable, so it works between any pair of the six supported languages.
 
-- **Platform:** iOS 26 · Swift 6 · SwiftUI · SwiftData · async/await + actors · Xcode 26
+- **Platform:** iOS 26 · Swift 6 · SwiftUI · SwiftData · async/await + actors · Xcode 27 (iOS 27 SDK, deployment target iOS 26)
 - **Powered by Claude** (Anthropic Messages API) — online-first.
 - **Design:** monochrome "Liquid Glass"; color is reserved for functional signals (success / error / warning).
 
@@ -87,8 +87,8 @@ Russian · English · French · Spanish · German · Italian — available for t
 
 ### Under the hood
 
-Language work runs on **Claude Sonnet 5** for everything but plain translation, which uses the faster
-**Claude Haiku** tier for speed; you can override the model per scenario in Settings. Push-to-talk
+Language work runs on **Claude Sonnet 5.5** for everything but plain translation, which uses the faster
+**Claude Haiku 5.5** tier for speed; you can override the model per scenario in Settings. Push-to-talk
 dictation and all speech playback run **on-device**; the **Online** live interpreter streams 16 kHz
 PCM over a WebSocket to **Soniox** (`stt-rt-v5`), whose real-time model recognizes AND translates in
 the same stream (partial tokens render instantly; sessions auto-stop after 5 minutes of silence and
@@ -157,8 +157,10 @@ xcodebuild test  -scheme EnglishHelperUITests -destination 'platform=iOS Simulat
 interpreter; omit it and the mode simply shows a "no key" banner) from the app's Info.plist,
 populated at build time from `Secrets.xcconfig` (gitignored; layered in via `Config/Base.xcconfig`
 with `#include?`). The base URL defaults to `https://api.anthropic.com`; the model defaults to
-`claude-sonnet-5`. **A key embedded in a built app is extractable** — fine for personal/dev use;
-production would proxy Claude/Soniox through a backend (Soniox also offers temporary API keys).
+`claude-sonnet-5-5` (fast tier: `claude-haiku-5-5`). **A key embedded in a built app is extractable** — so for any
+build that leaves your hands set `BACKEND_URL` instead (see [`Backend/README.md`](Backend/README.md)): the AWS
+backend holds the keys and the app authenticates with App Attest; Release builds strip the direct keys. Direct keys are
+fine for personal/dev builds only.
 
 ---
 
@@ -207,7 +209,31 @@ CHANGELOG.md     user-facing release notes
 
 ## Status
 
-**v1.4.1 (build 1)** — **Online: a live interpreter inside Get it.** A third mode listens to the
+**v1.5.0 (build 3)** — **Gist It Pro + backend + new telemetry.** One monthly auto-renewable
+subscription. On the free plan translation stays unlimited, explanations and Say it share 1 request
+per 5 min, and Online is subscription-only. The backend enforces it from the StoreKit JWS, and the
+app mirrors it with `SubscriptionState` + `PaywallView` (StoreKit `SubscriptionStoreView`). Claude
+and Soniox now go through our AWS backend behind App Attest (`Backend/`), and Release builds carry no
+third-party keys. LLM output uses structured outputs (`output_config.format`). Analytics moved from
+TelemetryDeck to Amplitude (EU), Sentry crash reporting was added (project `10xt/gistit`), and both are
+split by build channel (`AppDistribution`: production / testflight / local). All page scrolling goes
+through `VerticalScrollView` (no sideways drift). Built with the iOS 27 SDK. Previously, in v1.4.3:
+**The live session on the Lock Screen + a See it → Explain fix.** A running
+Online session now shows as a **Live Activity** (Lock Screen banner + Dynamic Island): pulsing record
+indicator, direction label, self-ticking timer, and **Pause** / **Stop** buttons that run as
+`LiveActivityIntent`s inside the app process (alive thanks to the audio background mode), so they
+work without unlocking. `InViewModel` drives a `LiveSessionActivityPresenting` port (spy-tested);
+the ActivityKit controller lives in App; the attributes/intents file is compiled into BOTH the app
+and the LockWidgets extension. Separately, **See it → Explain** failed on every photo whose
+explanation ran to several paragraphs: the model put raw line breaks inside a JSON string and the
+strict decoder rejected the answer. `decodeJSON` now runs `JSONSanitizer` first (escapes control
+characters inside string literals only — a no-op on valid JSON) and the shared plain-text prompt
+rule asks for `\n` escapes. Study also gained a **Clean up** toolbar button (eraser, next to +):
+after a confirmation dialog it bulk-deletes every card marked learned (`cleanUpLearned`, optimistic
+with reload-on-failure). Previously, in v1.4.2: the **Paste** button became the system paste
+control (no "Allow Paste?" dialog), See it keeps each mode's result per photo, Settings got a
+**Disk usage** card, and button labels were fixed across all six languages. Previously, in
+v1.4.1: **Online: a live interpreter inside Get it.** A third mode listens to the
 speech around you and translates it in real time: tap **Listen** (a toggle with a live sound
 diagram) and the recognized speech streams into a small pane while its translation runs in the big
 one — partial words render instantly and firm up as Soniox (`stt-rt-v5`, one WebSocket stream for

@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "gist-it-backend"
+resolve_s3 = true
+s3_prefix = "gist-it-backend"
+region = "eu-west-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "AppId=\"TQJ35ER433.tech.10xt.englishhelper\" AllowDevelopmentAttestation=\"true\" AllowedModels=\"claude-sonnet-5-5,claude-haiku-5-5\" LlmPerMinute=\"20\" LlmPerDay=\"500\" SonioxKeysPerDay=\"200\""
+image_repositories = []
+
+[default.global.parameters]
+region = "eu-west-2"

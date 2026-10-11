@@ -61,6 +61,7 @@ public enum LiveTranslationError: Error, Sendable, Equatable {
     case balanceExhausted      // the service account has no funds — retrying can't help
     case offline
     case serviceUnavailable    // server-side failure / overload / rate limit
+    case subscriptionRequired  // live translation is a subscriber feature
     case underlying(String)
 }
 

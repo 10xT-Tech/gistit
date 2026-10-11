@@ -2,8 +2,8 @@
 //  ModelRoutingTests.swift
 //  EnglishHelper — Tests
 //
-//  Per-scenario model routing: the user-facing choice → tier mapping, the defaults (Haiku translate /
-//  Sonnet explain), templates honoring their tier, and the interactor passing the live tier through.
+//  Per-scenario model routing (fixed in AppContainer: Haiku translate / Sonnet explain + Say it):
+//  templates honoring their tier, and the interactor passing the provider's tier through.
 //
 
 import Testing
@@ -13,20 +13,6 @@ import Adapters
 import Presentation
 
 @Suite struct ModelRoutingTests {
-
-    @Test func modelChoiceMapsToTier() {
-        #expect(LLMModelChoice.haiku.tier == .fast)
-        #expect(LLMModelChoice.sonnet.tier == .standard)
-    }
-
-    @Test func defaultsAreHaikuTranslateSonnetExplainAndSayIt() {
-        UserDefaults.standard.removeObject(forKey: "translateModel")
-        UserDefaults.standard.removeObject(forKey: "explainModel")
-        UserDefaults.standard.removeObject(forKey: "sayItModel")
-        #expect(LLMModelChoice.currentTranslate == .haiku)
-        #expect(LLMModelChoice.currentExplain == .sonnet)
-        #expect(LLMModelChoice.currentSayIt == .sonnet)
-    }
 
     @Test func templatesRouteToTheirTier() {
         #expect(UnderstandTemplate(tier: .standard).modelTier == .standard)

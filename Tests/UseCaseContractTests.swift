@@ -25,9 +25,9 @@ import Adapters
     // MARK: Per-template model settings (output budget + speed profile)
 
     @Test func shortTextTemplatesUseFastDefaults() {
-        // Text tasks default to the small budget + fast profile so the adapter can pick low-effort,
-        // no-extended-reasoning settings — optimizing response speed.
-        #expect(HowToSayTemplate().maxOutputTokens == 2048)
+        // Text tasks default to the smaller budget + fast profile so the adapter can pick low effort
+        // — optimizing response speed (the budget still leaves room for adaptive thinking).
+        #expect(HowToSayTemplate().maxOutputTokens == 8192)
         #expect(HowToSayTemplate().prefersFastResponse)
         #expect(WhatToSayTemplate().prefersFastResponse)
         #expect(UnderstandTemplate().prefersFastResponse)
@@ -37,7 +37,7 @@ import Adapters
     @Test func photoTemplateGetsLargerBudgetAndAccuracyProfile() {
         // A photo can carry a LOT of text (a full menu) — it needs a bigger output budget so the JSON
         // isn't truncated, and leans toward accuracy rather than the fast text profile.
-        #expect(PhotoBlocksTemplate().maxOutputTokens == 8192)
+        #expect(PhotoBlocksTemplate().maxOutputTokens == 16384)
         #expect(PhotoBlocksTemplate().maxOutputTokens > HowToSayTemplate().maxOutputTokens)
         #expect(PhotoBlocksTemplate().prefersFastResponse == false)
     }
@@ -111,7 +111,7 @@ import Adapters
         #expect(prompt.contains("French speaker who is learning English"))   // native learner of studied
         #expect(prompt.contains("SITUATION"))                                // situation-driven, not one phrase
         #expect(prompt.contains("AT LEAST 3 and AT MOST 10"))                // relevance-driven count
-        #expect(template.outputJSONSchema.contains("\"maxItems\":10"))       // schema caps at ten
+        #expect(template.outputJSONSchema.contains("\"additionalProperties\":false"))   // structured-output ready
     }
 
     /// The decoder honors the 10-max even if the model overshoots.

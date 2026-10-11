@@ -49,6 +49,8 @@ public final class PhotoTranslateViewModel {
     /// only renders in `.failed`.
     public private(set) var saveError: String?
     public private(set) var isOffline = false
+    /// The free plan's limit stopped the request — the screen offers the subscription instead of Retry.
+    public private(set) var needsSubscription = false
 
     public var showCameraPriming = false
     public var presentCamera = false
@@ -118,6 +120,7 @@ public final class PhotoTranslateViewModel {
             requestTask?.cancel()   // an in-flight run of the OTHER mode must not overwrite phase/error
             errorMessage = nil
             isOffline = false
+            needsSubscription = false
             lastErrorRetryable = false
             phase = .result
         } else if let data = imageData {
@@ -198,6 +201,7 @@ public final class PhotoTranslateViewModel {
     public func imageLoadFailed() {
         requestTask?.cancel()
         isOffline = false
+        needsSubscription = false
         // `imageData` (if any) still holds the PREVIOUS photo — never offer to "retry" that one
         // when it's the newly picked image that failed to load.
         lastErrorRetryable = false
@@ -227,6 +231,7 @@ public final class PhotoTranslateViewModel {
         }
         errorMessage = nil
         isOffline = false
+        needsSubscription = false
         lastErrorRetryable = false
         phase = .processing
         let studied = StudiedLanguage.current.promptName   // the studied-language place/country context
@@ -278,17 +283,19 @@ public final class PhotoTranslateViewModel {
                 lastErrorRetryable = true    // recognizer failures are typically transient
             }
             isOffline = false
+            needsSubscription = false
         } else {
             let presented = presentableError(error)
             errorMessage = presented.message
             isOffline = presented.isOffline
+            needsSubscription = presented.needsSubscription
             // Offer to retry the SAME photo for network / transient / server failures (the photo is
             // kept). Not for "no key" or "too long", where re-running the same request can't help.
             if let llm = error as? LLMError {
                 switch llm {
                 case .offline, .timedOut, .overloaded, .requestFailed, .invalidOutput:
                     lastErrorRetryable = true
-                case .notConfigured, .responseTooLong, .cancelled:
+                case .notConfigured, .responseTooLong, .cancelled, .subscriptionRequired:
                     lastErrorRetryable = false
                 }
             } else {
@@ -363,5 +370,6 @@ public final class PhotoTranslateViewModel {
         playingBlockID = nil
         errorMessage = nil
         isOffline = false
+        needsSubscription = false
     }
 }

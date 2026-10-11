@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Gist It backend - Claude proxy and Soniox temporary keys for the iOS app, gated by Apple App
+  Attest. The Anthropic and Soniox API keys live only in Secrets Manager.
+
+Parameters:
+  AppId:
+    Type: String
+    Default: TQJ35ER433.tech.10xt.englishhelper
+    Description: App Attest app identifier, "<Team ID>.<bundle id>".
+  AllowDevelopmentAttestation:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Accept keys attested in the App Attest development environment (Xcode / debug builds).
+      Set to false once only TestFlight / App Store builds should get through.
+  AllowedModels:
+    Type: String
+    Default: claude-sonnet-5-5,claude-haiku-5-5
+    Description: Comma-separated Claude model ids the proxy will forward.
+  LlmPerMinute:
+    Type: Number
+    Default: 20
+  LlmPerDay:
+    Type: Number
+    Default: 500
+  SonioxKeysPerDay:
+    Type: Number
+    Default: 200
+  ProProductIds:
+    Type: String
+    Default: tech.10xt.englishhelper.pro.monthly
+    Description: App Store subscription product ids that unlock the pro tier (comma-separated).
+  FreeLimitCooldownSeconds:
+    Type: Number
+    Default: 300
+    Description: >
+      Free App Store users get one explanation / Say it request per this many seconds (translations
+      are always free).
+  MaxDevicesPerSubscription:
+    Type: Number
+    Default: 5
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+
+Resources:
+  Secrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Gist It backend secrets - fill anthropic_api_key and soniox_api_key after the first deploy.
+      GenerateSecretString:
+        # session_secret is generated once; the API keys start empty and are set by hand
+        # (see Backend/README.md). dev_token stays empty unless simulator access is wanted.
+        SecretStringTemplate: '{"anthropic_api_key":"","soniox_api_key":"","dev_token":""}'
+        GenerateStringKey: session_secret
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  Api:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: index.handler
+      MemorySize: 512
+      # LLM calls stream for up to ~90 s (dense photos); leave headroom.
+      Timeout: 300
+      FunctionUrlConfig:
+        AuthType: NONE        # authentication is App Attest + session tokens, inside the function
+        InvokeMode: RESPONSE_STREAM
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+          SECRET_ARN: !Ref Secrets
+          APP_ID: !Ref AppId
+          ALLOW_DEVELOPMENT_ATTESTATION: !Ref AllowDevelopmentAttestation
+          ALLOWED_MODELS: !Ref AllowedModels
+          LLM_PER_MINUTE: !Ref LlmPerMinute
+          LLM_PER_DAY: !Ref LlmPerDay
+          SONIOX_KEYS_PER_DAY: !Ref SonioxKeysPerDay
+          PRO_PRODUCT_IDS: !Ref ProProductIds
+          FREE_LIMIT_COOLDOWN_SECONDS: !Ref FreeLimitCooldownSeconds
+          MAX_DEVICES_PER_SUBSCRIPTION: !Ref MaxDevicesPerSubscription
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref Secrets
+
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Api}
+      RetentionInDays: 30
+
+Outputs:
+  BackendUrl:
+    Description: Put this in Secrets.xcconfig as BACKEND_URL.
+    Value: !GetAtt ApiUrl.FunctionUrl
+  SecretArn:
+    Description: Secrets Manager secret holding the API keys.
+    Value: !Ref Secrets

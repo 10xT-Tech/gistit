@@ -18,14 +18,12 @@ public struct RootView: View {
     @State private var library: StudyListViewModel
     @State private var history: HistoryViewModel
     @State private var settings: SettingsViewModel
+    @State private var subscription: SubscriptionState
 
     @State private var theme = ThemeStore()
     @State private var language = LanguageStore()
     @State private var studied = StudiedLanguageStore()
     @State private var target = TargetLanguageStore()
-    @State private var translateModel = TranslateModelStore()
-    @State private var explainModel = ExplainModelStore()
-    @State private var sayItModel = SayItModelStore()
     @State private var ui = AppUIState()
     @State private var onboarding = OnboardingStore()
     @State private var network: NetworkMonitor
@@ -48,19 +46,21 @@ public struct RootView: View {
         library: StudyListViewModel,
         history: HistoryViewModel,
         settings: SettingsViewModel,
+        subscription: SubscriptionState = SubscriptionState(),
         degradedStorage: Bool = false,
         network: NetworkMonitor = NetworkMonitor(),
         consumeShared: @escaping () -> SharedRoute? = { nil },
         consumeLaunchURL: @escaping () -> URL? = { nil }
     ) {
-        _out = State(initialValue: out)
-        _inbound = State(initialValue: inbound)
-        _photo = State(initialValue: photo)
-        _library = State(initialValue: library)
-        _history = State(initialValue: history)
-        _settings = State(initialValue: settings)
+        self.out = out
+        self.inbound = inbound
+        self.photo = photo
+        self.library = library
+        self.history = history
+        self.settings = settings
+        self.subscription = subscription
         self.degradedStorage = degradedStorage
-        _network = State(initialValue: network)
+        self.network = network
         self.consumeShared = consumeShared
         self.consumeLaunchURL = consumeLaunchURL
     }
@@ -104,7 +104,17 @@ public struct RootView: View {
                 // becoming active is the fallback if that launch was blocked. Single-consume either way.
                 .onOpenURL { handleURL($0) }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { handleShared() }   // warm foreground (already-running app)
+                    guard phase == .active else { return }
+                    handleShared()   // warm foreground (already-running app)
+                    Task { await subscription.refresh() }   // a renewal / expiry while we were away
+                }
+                .task {
+                    #if DEBUG
+                    // Screenshots / UI tests: open the subscription offer or Settings straight away.
+                    if ProcessInfo.processInfo.arguments.contains("-showPaywall") { ui.showPaywall = true }
+                    if ProcessInfo.processInfo.arguments.contains("-showSettings") { ui.showSettings = true }
+                    #endif
+                    await subscription.start()
                 }
                 .task {
                     // Cold launch (onChange won't fire for the initial active state). A widget URL
@@ -119,6 +129,7 @@ public struct RootView: View {
                 // export share) — acceptable since changing language mid-action is rare and deliberate.
                 .id(language.language)
                 .environment(ui)
+                .environment(subscription)
                 .environment(\.locale, language.locale)
                 // "Explain" from See it / History: switch to Get it and run it in Explain mode.
                 .onChange(of: ui.pendingExplain) { _, request in
@@ -129,11 +140,16 @@ public struct RootView: View {
                 }
                 .sheet(isPresented: $ui.showSettings) {
                     SettingsView(model: settings, theme: theme, language: language, studied: studied,
-                                 target: target, translateModel: translateModel, explainModel: explainModel,
-                                 sayItModel: sayItModel) {
+                                 target: target) {
                         ui.showSettings = false
                     }
                     .environment(\.locale, language.locale)
+                    .environment(subscription)
+                }
+                .sheet(isPresented: $ui.showPaywall) {
+                    PaywallView()
+                        .environment(subscription)
+                        .environment(\.locale, language.locale)
                 }
             } else {
                 // First launch: pick languages before the app opens. Starts in the system language

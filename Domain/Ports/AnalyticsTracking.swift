@@ -3,7 +3,7 @@
 //  EnglishHelper — Domain (port)
 //
 //  Product analytics port. Use cases report FEATURE-level events through this abstraction; the
-//  concrete backend (TelemetryDeck) lives in the Data layer and is wired at the composition root.
+//  concrete backend (Amplitude) lives in the Data layer and is wired at the composition root.
 //
 //  PRIVACY: events are a CLOSED enum with no payload, so no user content (intents, translations,
 //  photos) can ever leak into analytics — there is simply nowhere to put it.

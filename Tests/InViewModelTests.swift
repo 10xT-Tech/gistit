@@ -95,6 +95,21 @@ import Presentation
         #expect(vm.isOffline)
     }
 
+    /// The free plan's limit is not a failure to retry: the screen offers the subscription instead.
+    @Test func freePlanLimitOffersSubscription() async throws {
+        let vm = makeVM(llm: StubLLMClient(behavior: .failure(.subscriptionRequired(retryAfter: 240)),
+                                           latency: .milliseconds(1)))
+        vm.source = "hello"
+        vm.submit()
+        try await waitUntil { vm.phase == .failed }
+        #expect(vm.needsSubscription)
+        #expect(!vm.isOffline)
+        #expect(vm.errorMessage?.contains("4") == true)   // "next one in 4 min" (240 s)
+        vm.source = "hello again"
+        vm.submit()                               // a new request clears the flag
+        #expect(!vm.needsSubscription)
+    }
+
     /// The study card front is the STUDIED-language rendering (what you're learning), never the raw
     /// input or the native translation.
     @Test func saveStudiesTheStudiedRendering() async throws {
@@ -456,6 +471,27 @@ import Presentation
         #expect(vm.source.isEmpty)                        // nothing injected
         #expect(!vm.showsPasteAction)                     // affordance disarmed
         #expect(!vm.hasActionAvailable)                   // button disables
+    }
+
+    /// A clipboard change made by ANOTHER process while the app is in the foreground posts no
+    /// notification — the monitor must pick it up both ways: text gone → the (disabled) mode button
+    /// comes back instead of a greyed-out Paste; text arrives → Paste.
+    @Test func clipboardMonitorTracksExternalChanges() async throws {
+        let pasteboard = MockPasteboard(text: "hello")
+        let vm = makeVM(pasteboard: pasteboard)
+        let monitor = Task { await vm.monitorClipboard(every: .milliseconds(10)) }
+        defer { monitor.cancel() }
+        try await waitUntil { vm.showsPasteAction }
+        #expect(vm.showsPasteAction)
+
+        pasteboard.text = nil                       // cleared / replaced with an image elsewhere
+        try await waitUntil { !vm.showsPasteAction }
+        #expect(!vm.showsPasteAction)
+        #expect(!vm.hasActionAvailable)             // empty field + empty clipboard = disabled Explain
+
+        pasteboard.text = "arrived later"           // copied on the Mac (Universal Clipboard)
+        try await waitUntil { vm.showsPasteAction }
+        #expect(vm.showsPasteAction)
     }
 
     /// The Paste persona is suppressed mid-capture: while listening the (disabled) button keeps the

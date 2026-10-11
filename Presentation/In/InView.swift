@@ -20,9 +20,11 @@ public struct InView: View {
     @State private var actionTapCount = 0
     /// The clipboard can change while the app is backgrounded — re-check on return to foreground.
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(AppUIState.self) private var ui
+    @Environment(SubscriptionState.self) private var subscription
 
     public init(model: InViewModel) {
-        _model = State(initialValue: model)
+        self.model = model
     }
 
     public var body: some View {
@@ -37,16 +39,16 @@ public struct InView: View {
                     // stays fully expanded, IDENTICAL to the other screens, while the transcript
                     // panes scroll freely without dragging the header around.
                     GeometryReader { geometry in
-                        ScrollView {
+                        ScrollView(.vertical) {
                             onlineSection
                                 .padding(Tokens.Space.s20)
                                 .frame(width: geometry.size.width, height: geometry.size.height,
                                        alignment: .top)
                         }
-                        .scrollBounceBehavior(.basedOnSize)
+                        .scrollBounceBehavior(.basedOnSize)   // both axes: sized exactly, never moves
                     }
                 } else {
-                    ScrollView {
+                    VerticalScrollView {
                         VStack(spacing: Tokens.Space.s20) {
                             if model.needsAPIKey { apiKeyBanner }
                             inputSection
@@ -66,6 +68,9 @@ public struct InView: View {
             // the app returns to the foreground, or the clipboard changes while active — e.g. the
             // Copy button on THIS screen's result card (metadata check only — no iOS paste banner).
             .onAppear { model.refreshClipboardState() }
+            // …and poll while visible: another process changing the clipboard in the
+            // foreground (Universal Clipboard, a password manager) posts NO notification.
+            .task { await model.monitorClipboard() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { model.refreshClipboardState() }
             }
@@ -182,6 +187,7 @@ public struct InView: View {
         VStack(spacing: Tokens.Space.s12) {
             modeSelector
             if model.needsLiveAPIKey { sonioxKeyBanner }
+            else if liveNeedsSubscription { liveSubscriptionBanner }
             // The controls sit BETWEEN the two transcript panes (the view's middle slot):
             // Pause (mute/unmute the running session) · Listen (start/stop) · direction switch.
             LiveTranscriptView(text: model.liveText, isStreaming: model.isLiveListening,
@@ -204,7 +210,10 @@ public struct InView: View {
                         isStopping: model.isLiveStopping,
                         level: model.liveLevel,
                         idleTitle: Loc.t("Слушать", "Listen", "Écouter", "Escuchar", "Zuhören", "Ascolta"),
-                        action: { model.toggleLive() }
+                        action: {
+                            // Free plan: Listen opens the offer instead (a running session can always stop).
+                            if liveNeedsSubscription { ui.showPaywall = true } else { model.toggleLive() }
+                        }
                     )
                     .disabled(model.needsLiveAPIKey)
 
@@ -246,6 +255,27 @@ public struct InView: View {
         )
         .disabled(model.isLiveStopping)
         .sensoryFeedback(.impact(weight: .medium), trigger: model.isLiveReversed)
+    }
+
+    /// Online translation is a subscriber feature (App Store build, free plan). Never blocks stopping.
+    private var liveNeedsSubscription: Bool {
+        !subscription.tier.canUseLiveTranslation && !model.isLiveListening
+    }
+
+    private var liveSubscriptionBanner: some View {
+        HStack(spacing: Tokens.Space.s12) {
+            Image(systemName: "lock").foregroundStyle(Tokens.Content.secondary)
+            Text(Loc.t("Онлайн-перевод доступен по подписке Gist It Pro.",
+                       "Online translation is part of Gist It Pro."))
+                .textStyle(Tokens.Text.footnote)
+                .foregroundStyle(Tokens.Content.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(Loc.t("Оформить подписку", "Subscribe")) { ui.showPaywall = true }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(Tokens.Space.s12)
+        .glassPanel(cornerRadius: Tokens.Radius.control)
     }
 
     private var sonioxKeyBanner: some View {
@@ -343,13 +373,23 @@ public struct InView: View {
         case .failed:
             // No extra top padding: StatusView pads s24 internally; a second s24 pushed Retry under
             // the tab bar in the tallest (error + Retry) state. See VoiceView for the same fix.
-            StatusView(
-                systemImage: model.isOffline ? "wifi.slash" : "exclamationmark.triangle",
-                title: model.isOffline ? Loc.t("Нет соединения", "No connection") : Loc.t("Не получилось", "Something went wrong"),
-                message: model.errorMessage,
-                actionTitle: model.canSubmit ? Loc.t("Повторить", "Retry") : nil,
-                action: model.canSubmit ? { model.submit() } : nil
-            )
+            if model.needsSubscription {
+                StatusView(
+                    systemImage: "lock",
+                    title: Loc.t("Лимит бесплатного плана", "Free plan limit"),
+                    message: model.errorMessage,
+                    actionTitle: Loc.t("Оформить подписку", "Subscribe"),
+                    action: { ui.showPaywall = true }
+                )
+            } else {
+                StatusView(
+                    systemImage: model.isOffline ? "wifi.slash" : "exclamationmark.triangle",
+                    title: model.isOffline ? Loc.t("Нет соединения", "No connection") : Loc.t("Не получилось", "Something went wrong"),
+                    message: model.errorMessage,
+                    actionTitle: model.canSubmit ? Loc.t("Повторить", "Retry") : nil,
+                    action: model.canSubmit ? { model.submit() } : nil
+                )
+            }
         }
     }
 

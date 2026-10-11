@@ -2,11 +2,14 @@
 //  AppConfig.swift
 //  EnglishHelper — App
 //
-//  Reads the Claude API key + model from the app's Info.plist, which is populated at build time
-//  from `Secrets.xcconfig` (gitignored). See `Secrets.example.xcconfig`.
+//  Reads service config from the app's Info.plist, which is populated at build time from
+//  `Secrets.xcconfig` (gitignored). See `Secrets.example.xcconfig`.
 //
-//  SECURITY NOTE: an Anthropic key embedded in a distributed app IS extractable. That is fine for
-//  this personal/dev, single-user app; a production build would route requests through a backend proxy.
+//  Two modes:
+//  - BACKEND_URL set → production: Claude goes through our backend proxy and Soniox gets temporary
+//    keys from it (Backend/, gated by App Attest). No third-party key is in the app.
+//  - otherwise → development: CLAUDE_API_KEY / SONIOX_API_KEY are used directly. Those keys ARE
+//    extractable from a built app, so Release builds strip them (Config/Base.xcconfig).
 //
 
 import Foundation
@@ -21,40 +24,70 @@ public struct AppConfig: Sendable {
     public let sonioxAPIKey: String?
     /// Soniox real-time model — overridable in Secrets.xcconfig like the Claude models.
     public let sonioxModel: String
-    /// TelemetryDeck App ID (NOT a secret — it only routes signals to our dashboard). Lives in the
-    /// xcconfig alongside the Claude key for one-place config; nil (absent) just disables analytics.
-    public let telemetryDeckAppID: String?
+    /// Amplitude API key of the "GistIt" project (NOT a secret — Amplitude's client keys are
+    /// write-only ingestion ids). Lives in the xcconfig alongside the Claude key for one-place
+    /// config; nil (absent) just disables analytics.
+    public let amplitudeAPIKey: String?
+    /// Sentry DSN (crash & error reporting). NOT a secret — a DSN only lets a client SEND events.
+    /// nil (absent) just disables crash reporting.
+    public let sentryDSN: String?
+    /// Our backend (Backend/ — AWS Lambda Function URL). When set it replaces both API keys.
+    public let backendURL: URL?
+    /// DEBUG-only escape hatch for the Simulator, where App Attest doesn't exist. Never read in Release.
+    public let backendDevToken: String?
 
-    public static let defaultModel = "claude-sonnet-5"
-    public static let defaultFastModel = "claude-haiku-4-5"
+    public static let defaultModel = "claude-sonnet-5-5"
+    public static let defaultFastModel = "claude-haiku-5-5"
     public static let defaultSonioxModel = "stt-rt-v5"
     public static let defaultBaseURL = URL(string: "https://api.anthropic.com")!
+    /// The monthly subscription (App Store Connect → Subscriptions). Must match the backend's
+    /// `ProProductIds` stack parameter.
+    public static let subscriptionProductID = "tech.10xt.englishhelper.pro.monthly"
+    /// Shown on the paywall, required by App Review for auto-renewable subscriptions.
+    public static let privacyPolicyURL = URL(string: "https://gistit.10xt.tech/privacy")!
+    public static let termsOfUseURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
 
     public init(claudeAPIKey: String?, claudeModel: String,
                 claudeFastModel: String = defaultFastModel, claudeBaseURL: URL,
                 sonioxAPIKey: String? = nil,
                 sonioxModel: String = defaultSonioxModel,
-                telemetryDeckAppID: String? = nil) {
+                amplitudeAPIKey: String? = nil,
+                sentryDSN: String? = nil,
+                backendURL: URL? = nil,
+                backendDevToken: String? = nil) {
         self.claudeAPIKey = claudeAPIKey
         self.claudeModel = claudeModel
         self.claudeFastModel = claudeFastModel
         self.claudeBaseURL = claudeBaseURL
         self.sonioxAPIKey = sonioxAPIKey
         self.sonioxModel = sonioxModel
-        self.telemetryDeckAppID = telemetryDeckAppID
+        self.amplitudeAPIKey = amplitudeAPIKey
+        self.sentryDSN = sentryDSN
+        self.backendURL = backendURL
+        self.backendDevToken = backendDevToken
     }
 
-    /// `true` when a non-empty API key is present (the live LLM adapter can run).
-    public var isClaudeConfigured: Bool { (claudeAPIKey?.isEmpty == false) }
+    /// `true` when requests go through our backend instead of embedded keys.
+    public var usesBackend: Bool { backendURL != nil }
 
-    /// `true` when a non-empty Soniox key is present (online translation can run).
-    public var isSonioxConfigured: Bool { (sonioxAPIKey?.isEmpty == false) }
+    /// `true` when the live LLM adapter can run (backend, or a non-empty direct key).
+    public var isClaudeConfigured: Bool { usesBackend || (claudeAPIKey?.isEmpty == false) }
+
+    /// `true` when online translation can run (backend, or a non-empty direct key).
+    public var isSonioxConfigured: Bool { usesBackend || (sonioxAPIKey?.isEmpty == false) }
 
     public static func load(bundle: Bundle = .main) -> AppConfig {
         let info = bundle.infoDictionary
         func string(_ key: String) -> String? {
             guard let value = info?[key] as? String, !value.isEmpty else { return nil }
             return value
+        }
+        func devToken() -> String? {
+            #if DEBUG
+            return string("BACKEND_DEV_TOKEN")
+            #else
+            return nil
+            #endif
         }
         return AppConfig(
             claudeAPIKey: string("CLAUDE_API_KEY"),
@@ -63,7 +96,10 @@ public struct AppConfig: Sendable {
             claudeBaseURL: string("CLAUDE_BASE_URL").flatMap(URL.init(string:)) ?? defaultBaseURL,
             sonioxAPIKey: string("SONIOX_API_KEY"),
             sonioxModel: string("SONIOX_MODEL") ?? defaultSonioxModel,
-            telemetryDeckAppID: string("TELEMETRYDECK_APP_ID")
+            amplitudeAPIKey: string("AMPLITUDE_API_KEY"),
+            sentryDSN: string("SENTRY_DSN"),
+            backendURL: string("BACKEND_URL").flatMap(URL.init(string:)),
+            backendDevToken: devToken()
         )
     }
 }

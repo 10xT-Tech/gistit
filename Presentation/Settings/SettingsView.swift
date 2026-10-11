@@ -7,18 +7,20 @@
 //
 
 import SwiftUI
+import StoreKit
+import Domain
 import DesignSystem
 
 public struct SettingsView: View {
     @State private var model: SettingsViewModel
     @State private var showClearCacheConfirm = false
+    @State private var showPaywall = false
+    @State private var showManageSubscription = false
+    @Environment(SubscriptionState.self) private var subscription
     private let theme: ThemeStore
     private let language: LanguageStore
     private let studied: StudiedLanguageStore
     private let target: TargetLanguageStore
-    private let translateModel: TranslateModelStore
-    private let explainModel: ExplainModelStore
-    private let sayItModel: SayItModelStore
     private let onClose: () -> Void
 
     public init(
@@ -27,19 +29,13 @@ public struct SettingsView: View {
         language: LanguageStore,
         studied: StudiedLanguageStore,
         target: TargetLanguageStore,
-        translateModel: TranslateModelStore,
-        explainModel: ExplainModelStore,
-        sayItModel: SayItModelStore,
         onClose: @escaping () -> Void
     ) {
-        _model = State(initialValue: model)
+        self.model = model
         self.theme = theme
         self.language = language
         self.studied = studied
         self.target = target
-        self.translateModel = translateModel
-        self.explainModel = explainModel
-        self.sayItModel = sayItModel
         self.onClose = onClose
     }
 
@@ -51,10 +47,10 @@ public struct SettingsView: View {
         NavigationStack {
             ZStack {
                 ScreenBackground()
-                ScrollView {
+                VerticalScrollView {
                     VStack(spacing: Tokens.Space.s20) {
+                        subscriptionCard
                         connectionCard
-                        modelsCard
                         languageCard(language: $language.language)
                         studiedCard(studied: $studied.language)
                         targetCard(target: $target.language)
@@ -73,10 +69,91 @@ public struct SettingsView: View {
                     Button(Loc.t("Готово", "Done")) { onClose() }
                 }
             }
+            // Presented from here (not RootView): a second sheet can't stack on the Settings sheet.
+            .sheet(isPresented: $showPaywall) {
+                PaywallView().environment(subscription)
+            }
+            .manageSubscriptionsSheet(isPresented: $showManageSubscription)
             .task { await model.check() }
             .task { await model.loadCacheStats() }
             .task { await model.loadStorage() }
         }
+    }
+
+    // MARK: Subscription
+
+    private var subscriptionCard: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s12) {
+            sectionTitle(Loc.t("Подписка", "Subscription"))
+            switch subscription.tier {
+            case .unlimited:
+                Text(Loc.t("Тестовая сборка: все функции открыты без подписки.",
+                           "Test build: every feature is unlocked, no subscription needed."))
+                    .textStyle(Tokens.Text.body)
+                    .foregroundStyle(Tokens.Content.secondary)
+                // App Review runs in the same sandbox as TestFlight (indistinguishable here), so the
+                // offer must stay reachable; buying in a test build changes nothing — it's unlocked.
+                Divider().overlay(Tokens.Hairline.default)
+                subscriptionButton(Loc.t("Посмотреть подписку", "View subscription")) {
+                    showPaywall = true
+                }
+                .accessibilityIdentifier("settings.viewSubscription")
+            case .subscribed(let expires):
+                infoRow(Loc.t("План", "Plan"), "Gist It Pro")
+                if let expires {
+                    Divider().overlay(Tokens.Hairline.default)
+                    infoRow(Loc.t("Продлится", "Renews"), dateString(expires))
+                }
+                Divider().overlay(Tokens.Hairline.default)
+                subscriptionButton(Loc.t("Управление подпиской", "Manage subscription")) {
+                    showManageSubscription = true
+                }
+                restoreButton
+            case .free:
+                infoRow(Loc.t("План", "Plan"), Loc.t("Бесплатный", "Free"))
+                Text(Loc.t("Перевод — бесплатно. Объяснения и «Сказать» — один запрос в 5 минут, с подпиской без ограничений. Онлайн-перевод — по подписке.",
+                           "Translation: free. Explanations and Say it: one request every 5 minutes, unlimited with a subscription. Online translation: with a subscription."))
+                    .textStyle(Tokens.Text.footnote)
+                    .foregroundStyle(Tokens.Content.tertiary)
+                Button { showPaywall = true } label: {
+                    Text(Loc.t("Оформить подписку", "Subscribe"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                restoreButton
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Tokens.Space.s16)
+        .glassPanel(cornerRadius: Tokens.Radius.card)
+    }
+
+    private var restoreButton: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s4) {
+            subscriptionButton(Loc.t("Восстановить покупки", "Restore purchases")) {
+                Task { await subscription.restore() }
+            }
+            .disabled(subscription.isRestoring)
+            if let message = subscription.restoreMessage {
+                Text(message)
+                    .textStyle(Tokens.Text.footnote)
+                    .foregroundStyle(Tokens.Content.tertiary)
+            }
+        }
+    }
+
+    private func subscriptionButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .textStyle(Tokens.Text.body)
+                .foregroundStyle(Tokens.Content.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func dateString(_ date: Date) -> String {
+        date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: AppLocale.currentCode())))
     }
 
     // MARK: Connection
@@ -87,7 +164,8 @@ public struct SettingsView: View {
                 sectionTitle(Loc.t("Подключение к сервисам", "Service connections"))
                 Spacer()
                 // One re-check button covers every service (only once none is mid-check).
-                if model.health != .checking, model.fastHealth != .checking, model.sonioxHealth != .checking {
+                if model.translationHealth != .checking, model.explanationHealth != .checking,
+                   model.voiceHealth != .checking {
                     Button { Task { await model.check() } } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -96,21 +174,24 @@ public struct SettingsView: View {
                     .accessibilityLabel(Loc.t("Проверить снова", "Check again"))
                 }
             }
-            // Both Claude models the app routes to: standard (Sonnet, everything) + fast (Haiku,
-            // plain translate) — then the Soniox real-time model (online translation), shown by
-            // its model id exactly like the Claude rows.
-            modelStatusRow(model.modelName, health: model.health)
+            // Rows are named by job, not by model id: which concrete model serves a scenario is an
+            // implementation detail (and fixed — there is no per-scenario choice any more).
+            serviceStatusRow(Loc.t("Модель перевода", "Translation model"), health: model.translationHealth)
             Divider().overlay(Tokens.Hairline.default)
-            modelStatusRow(model.fastModelName, health: model.fastHealth)
+            serviceStatusRow(Loc.t("Модель объяснения", "Explanation model"), health: model.explanationHealth)
             Divider().overlay(Tokens.Hairline.default)
-            modelStatusRow("soniox · \(model.sonioxModelName)", health: model.sonioxHealth)
+            serviceStatusRow(Loc.t("Голосовая модель", "Voice model"), health: model.voiceHealth)
+            Text(Loc.t("Скорость — время ответа на проверочный запрос.",
+                       "Speed is how long a test request took to answer."))
+                .textStyle(Tokens.Text.footnote)
+                .foregroundStyle(Tokens.Content.tertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
     }
 
-    private func modelStatusRow(_ name: String, health: SettingsViewModel.Health) -> some View {
+    private func serviceStatusRow(_ name: String, health: SettingsViewModel.Health) -> some View {
         HStack(spacing: Tokens.Space.s12) {
             statusIcon(health)
             VStack(alignment: .leading, spacing: 2) {
@@ -122,9 +203,40 @@ public struct SettingsView: View {
                     .foregroundStyle(Tokens.Content.secondary)
             }
             Spacer()
+            if case .ok(let speed) = health {
+                speedIndicator(speed)
+            }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name): \(statusLine(health))")
+        .accessibilityLabel(accessibilityText(name, health: health))
+    }
+
+    /// Signal-strength bars (3 / 2 / 1 lit) + a one-word verdict. Monochrome: speed is information,
+    /// not an alarm, so it stays out of the system signal colors.
+    private func speedIndicator(_ speed: ResponseSpeed) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Image(systemName: "cellularbars", variableValue: barsValue(speed.level))
+                .foregroundStyle(Tokens.Content.primary)
+            Text(speedWord(speed.level))
+                .textStyle(Tokens.Text.footnote)
+                .foregroundStyle(Tokens.Content.secondary)
+        }
+    }
+
+    private func barsValue(_ level: ResponseSpeed.Level) -> Double {
+        switch level {
+        case .fast: 1.0
+        case .medium: 0.6
+        case .slow: 0.3
+        }
+    }
+
+    private func speedWord(_ level: ResponseSpeed.Level) -> String {
+        switch level {
+        case .fast: Loc.t("Быстро", "Fast")
+        case .medium: Loc.t("Средне", "Medium")
+        case .slow: Loc.t("Медленно", "Slow")
+        }
     }
 
     @ViewBuilder private func statusIcon(_ health: SettingsViewModel.Health) -> some View {
@@ -141,60 +253,19 @@ public struct SettingsView: View {
     private func statusLine(_ health: SettingsViewModel.Health) -> String {
         switch health {
         case .checking: Loc.t("Проверяю…", "Checking…")
-        case .ok: Loc.t("Подключено", "Connected")
+        case .ok(let speed): Loc.t("Подключено", "Connected") + " · " + seconds(speed)
         case .failed(let reason): reason
         }
     }
 
-    // MARK: Models per scenario
-
-    private var modelsCard: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.s16) {
-            sectionTitle(Loc.t("Модели по сценарию", "Models by scenario"))
-            modelPicker(
-                title: Loc.t("Фразы (Сказать)", "Phrases (Say it)"),
-                note: Loc.t("Экран «Сказать» — генерация вариантов.", "Say it — phrase generation."),
-                choice: sayItModel.choice,
-                onSelect: { sayItModel.choice = $0 }
-            )
-            Divider().overlay(Tokens.Hairline.default)
-            modelPicker(
-                title: Loc.t("Перевод", "Translate"),
-                note: Loc.t("Экран «Понять» → Перевод.", "Get it → Translate."),
-                choice: translateModel.choice,
-                onSelect: { translateModel.choice = $0 }
-            )
-            Divider().overlay(Tokens.Hairline.default)
-            modelPicker(
-                title: Loc.t("Объяснение", "Explain"),
-                note: Loc.t("Экран «Понять» → Объяснить (и все кнопки «объяснить»).",
-                            "Get it → Explain (and every \"explain\" button)."),
-                choice: explainModel.choice,
-                onSelect: { explainModel.choice = $0 }
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Tokens.Space.s16)
-        .glassPanel(cornerRadius: Tokens.Radius.card)
+    private func seconds(_ speed: ResponseSpeed) -> String {
+        let dot = speed.secondsText, comma = dot.replacingOccurrences(of: ".", with: ",")
+        return Loc.t("\(comma) с", "\(dot) s", "\(comma) s", "\(comma) s", "\(comma) s", "\(comma) s")
     }
 
-    private func modelPicker(title: String, note: String, choice: LLMModelChoice,
-                             onSelect: @escaping (LLMModelChoice) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.s8) {
-            Text(title)
-                .textStyle(Tokens.Text.body)
-                .foregroundStyle(Tokens.Content.primary)
-            SegmentedSelector(
-                LLMModelChoice.allCases,
-                selected: choice,
-                label: { $0.title },
-                onSelect: onSelect
-            )
-            .accessibilityLabel(title)
-            Text(note)
-                .textStyle(Tokens.Text.footnote)
-                .foregroundStyle(Tokens.Content.tertiary)
-        }
+    private func accessibilityText(_ name: String, health: SettingsViewModel.Health) -> String {
+        guard case .ok(let speed) = health else { return "\(name): \(statusLine(health))" }
+        return "\(name): \(statusLine(health)), \(speedWord(speed.level))"
     }
 
     // MARK: Interface language
@@ -349,12 +420,6 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: Tokens.Space.s12) {
             sectionTitle(Loc.t("О приложении", "About"))
             infoRow(Loc.t("Версия", "Version"), model.appVersion)
-            Divider().overlay(Tokens.Hairline.default)
-            infoRow(Loc.t("Модель", "Model"), model.modelName)
-            Divider().overlay(Tokens.Hairline.default)
-            infoRow(Loc.t("Быстрая модель", "Fast model"), model.fastModelName)
-            Divider().overlay(Tokens.Hairline.default)
-            infoRow(Loc.t("Модель распознавания", "Speech model"), model.sonioxModelName)
             Divider().overlay(Tokens.Hairline.default)
             infoRow(Loc.t("Голос озвучки", "Speech voice"), studied.language.title)
         }

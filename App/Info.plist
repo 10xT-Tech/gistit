@@ -39,6 +39,10 @@
 	<string>$(CLAUDE_FAST_MODEL)</string>
 	<key>SONIOX_API_KEY</key>
 	<string>$(SONIOX_API_KEY)</string>
+	<key>BACKEND_URL</key>
+	<string>$(BACKEND_URL)</string>
+	<key>BACKEND_DEV_TOKEN</key>
+	<string>$(BACKEND_DEV_TOKEN)</string>
 	<key>SONIOX_MODEL</key>
 	<string>$(SONIOX_MODEL)</string>
 	<!-- Online translation keeps listening with the app backgrounded / screen locked. -->
@@ -46,8 +50,14 @@
 	<array>
 		<string>audio</string>
 	</array>
-	<key>TELEMETRYDECK_APP_ID</key>
-	<string>$(TELEMETRYDECK_APP_ID)</string>
+	<!-- Live Activity: the running online-translation session on the Lock Screen (recording
+	     indicator + pause/stop), like Voice Memos. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>AMPLITUDE_API_KEY</key>
+	<string>$(AMPLITUDE_API_KEY)</string>
+	<key>SENTRY_DSN</key>
+	<string>$(SENTRY_DSN)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

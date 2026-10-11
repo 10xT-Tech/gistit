@@ -14,7 +14,7 @@ public struct HistoryView: View {
     @State private var model: HistoryViewModel
 
     public init(model: HistoryViewModel) {
-        _model = State(initialValue: model)
+        self.model = model
     }
 
     public var body: some View {
@@ -118,13 +118,13 @@ private struct HistoryDetailView: View {
     @Environment(AppUIState.self) private var ui
 
     init(model: HistoryDetailViewModel) {
-        _model = State(initialValue: model)
+        self.model = model
     }
 
     private var entry: HistoryEntry { model.entry }
 
     var body: some View {
-        ScrollView {
+        VerticalScrollView {
             VStack(alignment: .leading, spacing: Tokens.Space.s16) {
                 Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
                     .textStyle(Tokens.Text.footnote)

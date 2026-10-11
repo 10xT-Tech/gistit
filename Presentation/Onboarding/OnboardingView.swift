@@ -45,7 +45,7 @@ public struct OnboardingView: View {
         @Bindable var target = target
         ZStack {
             ScreenBackground()
-            ScrollView {
+            VerticalScrollView {
                 VStack(spacing: Tokens.Space.s24) {
                     hero
                     languageCard(

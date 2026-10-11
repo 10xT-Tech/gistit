@@ -11,6 +11,24 @@ import Domain
 struct PresentableError {
     let message: String
     let isOffline: Bool
+    /// The free plan's limit stopped this request: offer the subscription instead of Retry.
+    var needsSubscription = false
+}
+
+/// "Free plan: one explanation / Say it request per 5 minutes" — with the wait when the backend reported it.
+func subscriptionLimitMessage(retryAfter: Int?) -> String {
+    guard let seconds = retryAfter, seconds > 0 else {
+        return Loc.t("Бесплатный план: объяснения и «Сказать» — один запрос в 5 минут. С подпиской — без ограничений.",
+                     "Free plan: one explanation or Say it request every 5 minutes. Subscribe for unlimited.")
+    }
+    let minutes = max(1, Int((Double(seconds) / 60).rounded(.up)))
+    return Loc.t(
+        "Бесплатный план: объяснения и «Сказать» — один запрос в 5 минут. Следующий — через \(minutes) мин. С подпиской — без ограничений.",
+        "Free plan: one explanation or Say it request every 5 minutes. Next one in \(minutes) min. Subscribe for unlimited.",
+        "Offre gratuite : une explication ou une requête « Dire » toutes les 5 minutes. Prochaine dans \(minutes) min. Abonnez-vous pour un accès illimité.",
+        "Plan gratuito: una explicación o solicitud de «Decir» cada 5 minutos. La siguiente en \(minutes) min. Suscríbete para uso ilimitado.",
+        "Kostenloser Plan: eine Erklärung oder „Sagen“-Anfrage alle 5 Minuten. Nächste in \(minutes) Min. Abonniere für unbegrenzte Nutzung.",
+        "Piano gratuito: una spiegazione o richiesta «Dire» ogni 5 minuti. La prossima tra \(minutes) min. Abbonati per un uso illimitato.")
 }
 
 func presentableError(_ error: Error) -> PresentableError {
@@ -42,5 +60,8 @@ func presentableError(_ error: Error) -> PresentableError {
     case .requestFailed:
         return PresentableError(message: Loc.t("Сервис недоступен. Попробуйте позже.",
                                                "Service unavailable. Try later."), isOffline: false)
+    case .subscriptionRequired(let retryAfter):
+        return PresentableError(message: subscriptionLimitMessage(retryAfter: retryAfter), isOffline: false,
+                                needsSubscription: true)
     }
 }

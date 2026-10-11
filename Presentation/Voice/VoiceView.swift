@@ -25,7 +25,7 @@ public struct VoiceView: View {
     private let showsMic: Bool
 
     public init(model: VoiceViewModel, showsMic: Bool = true) {
-        _model = State(initialValue: model)
+        self.model = model
         self.showsMic = showsMic
     }
 
@@ -33,7 +33,7 @@ public struct VoiceView: View {
         NavigationStack {
             ZStack {
                 ScreenBackground()
-                ScrollView {
+                VerticalScrollView {
                     VStack(spacing: Tokens.Space.s20) {
                         if model.needsAPIKey { apiKeyBanner }
                         inputSection
@@ -53,6 +53,9 @@ public struct VoiceView: View {
             // the app returns to the foreground, or the clipboard changes while active — same
             // contract as the Get-it screen (metadata check only — no iOS paste banner).
             .onAppear { model.refreshClipboardState() }
+            // …and poll while visible: another process changing the clipboard in the
+            // foreground (Universal Clipboard, a password manager) posts NO notification.
+            .task { await model.monitorClipboard() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { model.refreshClipboardState() }
             }
@@ -281,13 +284,23 @@ public struct VoiceView: View {
         case .failed:
             // No extra top padding: StatusView already pads s24 internally, and the failed block is
             // the tallest state (icon + message + Retry) — a second s24 pushed Retry under the tab bar.
-            StatusView(
-                systemImage: model.isOffline ? "wifi.slash" : "exclamationmark.triangle",
-                title: model.isOffline ? Loc.t("Нет соединения", "No connection") : Loc.t("Не получилось", "Something went wrong"),
-                message: model.errorMessage,
-                actionTitle: model.canSubmit ? Loc.t("Повторить", "Retry") : nil,
-                action: model.canSubmit ? { model.submit() } : nil
-            )
+            if model.needsSubscription {
+                StatusView(
+                    systemImage: "lock",
+                    title: Loc.t("Лимит бесплатного плана", "Free plan limit"),
+                    message: model.errorMessage,
+                    actionTitle: Loc.t("Оформить подписку", "Subscribe"),
+                    action: { ui.showPaywall = true }
+                )
+            } else {
+                StatusView(
+                    systemImage: model.isOffline ? "wifi.slash" : "exclamationmark.triangle",
+                    title: model.isOffline ? Loc.t("Нет соединения", "No connection") : Loc.t("Не получилось", "Something went wrong"),
+                    message: model.errorMessage,
+                    actionTitle: model.canSubmit ? Loc.t("Повторить", "Retry") : nil,
+                    action: model.canSubmit ? { model.submit() } : nil
+                )
+            }
         }
     }
 

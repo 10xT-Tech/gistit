@@ -30,7 +30,7 @@ public protocol PromptTemplate<Input, Output>: Sendable {
     /// The system prompt that pins the model's behavior and output contract.
     var systemPrompt: String { get }
 
-    /// JSON schema (as text) the model output MUST satisfy. Used to force structured output.
+    /// JSON schema (as text) the model output must satisfy — sent as the structured-output format.
     var outputJSONSchema: String { get }
 
     /// Render the user-turn message from typed input.
@@ -56,11 +56,11 @@ public protocol PromptTemplate<Input, Output>: Sendable {
 public extension PromptTemplate {
     func image(for input: Input) -> Data? { nil }
 
-    /// Output token budget for THIS template. Short tasks (a few phrasings, one translation, an
-    /// explanation) need little; the photo translator can emit many text blocks and needs far more.
-    /// The LLM adapter caps the response at this value — too low truncates the JSON mid-stream, which
-    /// the adapter surfaces as `LLMError.responseTooLong`. Default suits the short text tasks.
-    var maxOutputTokens: Int { 2048 }
+    /// Output token budget for THIS template — thinking AND the answer both count toward it. Short
+    /// tasks (a few phrasings, one translation, an explanation) need little; the photo translator can
+    /// emit many text blocks and needs far more. The LLM adapter caps the response at this value — too
+    /// low truncates the JSON mid-stream, which the adapter surfaces as `LLMError.responseTooLong`.
+    var maxOutputTokens: Int { 8192 }
 
     /// True for short, latency-sensitive TEXT tasks (phrasings, translation, explanation): lets the
     /// adapter pick faster model settings (low effort, no extended reasoning) to optimize response

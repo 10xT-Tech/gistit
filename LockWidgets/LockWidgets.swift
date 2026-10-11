@@ -204,5 +204,6 @@ struct LockWidgetsBundle: WidgetBundle {
         GetItOnlineWidget()
         SayItHowWidget()
         SayItWhatWidget()
+        LiveTranslationActivityWidget()   // the running online session on the Lock Screen
     }
 }

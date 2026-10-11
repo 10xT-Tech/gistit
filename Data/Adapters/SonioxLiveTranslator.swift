@@ -27,23 +27,42 @@ import Domain
 
 private let liveLog = Logger(subsystem: "tech.10xt.englishhelper", category: "live-translation")
 
+/// Where the Soniox key comes from: a fixed key (development — it ships in the app) or a fresh
+/// single-use temporary key from our backend for every WebSocket the session opens (production).
+public struct SonioxCredential: Sendable {
+    public let isConfigured: Bool
+    let key: @Sendable () async throws -> String
+
+    public static func apiKey(_ apiKey: String) -> SonioxCredential {
+        SonioxCredential(isConfigured: !apiKey.isEmpty, key: { apiKey })
+    }
+
+    public static func temporaryKeys(from backend: BackendSession) -> SonioxCredential {
+        SonioxCredential(isConfigured: true, key: { try await backend.sonioxTemporaryKey() })
+    }
+}
+
 public final class SonioxLiveTranslator: LiveTranslating, @unchecked Sendable {
     public static let defaultEndpoint = URL(string: "wss://stt-rt.soniox.com/transcribe-websocket")!
     public static let defaultModel = "stt-rt-v5"
 
-    private let apiKey: String
+    private let credential: SonioxCredential
     private let model: String
     private let endpoint: URL
     @MainActor private var current: LiveSession?
 
-    public init(apiKey: String, model: String = defaultModel, endpoint: URL = defaultEndpoint) {
-        self.apiKey = apiKey
+    public convenience init(apiKey: String, model: String = defaultModel, endpoint: URL = defaultEndpoint) {
+        self.init(credential: .apiKey(apiKey), model: model, endpoint: endpoint)
+    }
+
+    public init(credential: SonioxCredential, model: String = defaultModel, endpoint: URL = defaultEndpoint) {
+        self.credential = credential
         self.model = model
         self.endpoint = endpoint
     }
 
     public func start(studiedLanguage: String, nativeLanguage: String) -> AsyncThrowingStream<LiveTranslationEvent, Error> {
-        let session = LiveSession(apiKey: apiKey, model: model, endpoint: endpoint,
+        let session = LiveSession(credential: credential, model: model, endpoint: endpoint,
                                   studied: studiedLanguage, native: nativeLanguage)
         return AsyncThrowingStream { continuation in
             continuation.onTermination = { @Sendable _ in session.abort() }
@@ -93,7 +112,7 @@ public enum LiveMicActivity {
 /// Control state is @MainActor (house style); the realtime audio tap touches only the lock-guarded
 /// `TapState` and thread-confined converter/file objects.
 private final class LiveSession: @unchecked Sendable {
-    private let apiKey: String
+    private let credential: SonioxCredential
     private let model: String
     private let endpoint: URL
     // `var`: the language-direction toggle swaps these mid-session (socket rotation).
@@ -131,8 +150,8 @@ private final class LiveSession: @unchecked Sendable {
     private static let beginCueID: SystemSoundID = 1113
     private static let endCueID: SystemSoundID = 1114
 
-    init(apiKey: String, model: String, endpoint: URL, studied: String, native: String) {
-        self.apiKey = apiKey
+    init(credential: SonioxCredential, model: String, endpoint: URL, studied: String, native: String) {
+        self.credential = credential
         self.model = model
         self.endpoint = endpoint
         self.studied = studied
@@ -144,7 +163,7 @@ private final class LiveSession: @unchecked Sendable {
     func start(yielding continuation: AsyncThrowingStream<LiveTranslationEvent, Error>.Continuation) {
         Task { [self] in
             await MainActor.run { self.continuation = continuation }
-            guard !apiKey.isEmpty else {
+            guard credential.isConfigured else {
                 await fail(.notConfigured); return
             }
             guard await requestMicPermission() else {
@@ -220,8 +239,8 @@ private final class LiveSession: @unchecked Sendable {
 
         // @Sendable: AVAudioEngine calls this on the realtime audio thread. All touched state is
         // inside the lock-guarded TapState / thread-confined converter+file (see TapState docs).
-        nonisolated(unsafe) let tapState = tap
-        nonisolated(unsafe) let cont = continuation
+        let tapState = tap   // TapState is @unchecked Sendable — no nonisolated(unsafe) needed
+        let cont = continuation   // AsyncThrowingStream.Continuation is Sendable
         inputNode.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { @Sendable buffer, _ in
             let level = tapState.ingest(buffer)
             cont?.yield(.level(level))
@@ -253,9 +272,13 @@ private final class LiveSession: @unchecked Sendable {
         webSocket = socket
         socket.resume()
 
-        let config = SonioxSessionConfig(apiKey: apiKey, model: model, studied: studied, native: native)
+        let (credential, model, studied, native) = (credential, model, studied, native)
         receiveTask = Task { [weak self] in
             do {
+                // Fetched per socket: a backend temporary key is single-use and lives ~60 s, so a
+                // direction rotation needs a fresh one too.
+                let config = SonioxSessionConfig(apiKey: try await credential.key(), model: model,
+                                                 studied: studied, native: native)
                 let data = try JSONEncoder().encode(config)
                 try await socket.send(.string(String(decoding: data, as: UTF8.self)))
                 await MainActor.run { self?.socketConfigured = true }   // buffered audio may flush now
@@ -286,7 +309,7 @@ private final class LiveSession: @unchecked Sendable {
                         accumulator.ingest(tokens)
                         return accumulator.snapshot
                     }
-                    await MainActor.run { continuation?.yield(.text(snapshot)) }
+                    _ = await MainActor.run { continuation?.yield(.text(snapshot)) }   // continuation is MainActor-isolated
                     // A language switch waits for the old socket's finalize marker: everything up
                     // to the switch is now final — rotate. This loop belongs to the OLD socket; end it.
                     if tokens.contains(where: { $0.text == "<fin>" }) {
@@ -323,7 +346,7 @@ private final class LiveSession: @unchecked Sendable {
     private func startSender() {
         senderTask = Task { [weak self] in
             var idleCycles = 0
-            while let self, await !self.isStopped() {
+            while let self, !self.isStopped() {
                 let (ready, socket, isPaused) = await MainActor.run {
                     (self.socketConfigured, self.webSocket, self.paused)
                 }
@@ -357,7 +380,7 @@ private final class LiveSession: @unchecked Sendable {
     @MainActor
     private func startWatchdog() {
         watchdogTask = Task { [weak self] in
-            while let self, await !self.isStopped() {
+            while let self, !self.isStopped() {
                 try? await Task.sleep(for: .seconds(15))
                 if Task.isCancelled { return }
                 if Date().timeIntervalSince(self.tap.lastLoudAt) > Self.silenceLimit {
@@ -604,6 +627,7 @@ private final class LiveSession: @unchecked Sendable {
     ]
 
     private static func map(_ error: Error) -> LiveTranslationError {
+        if let backendError = error as? BackendError { return backendError.liveTranslationError }
         if let urlError = error as? URLError {
             if offlineCodes.contains(urlError.code) { return .offline }
             if urlError.code == .timedOut { return .serviceUnavailable }

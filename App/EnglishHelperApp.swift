@@ -5,6 +5,7 @@
 
 import SwiftUI
 import WidgetKit
+import Domain
 import Adapters
 import DesignSystem
 import Presentation
@@ -21,26 +22,39 @@ struct EnglishHelperApp: App {
     /// thread-safe `isReachable` backs the LLM client's fast-offline pre-check, and its updates are
     /// forwarded to `network` for the UI.
     private let reachability: ReachabilityMonitor
+    /// Product analytics (Amplitude). Created here — the SDK starts its session / app-lifecycle
+    /// observers on init, so it must exist from launch — and handed to `bootLive`. Nil = off.
+    private let analytics: AmplitudeTracker?
 
     init() {
+        let config = AppConfig.load()
+        // Sentry (crash & error reporting) first, so a crash anywhere below is caught. Off without a
+        // DSN (fresh clone / CI) and under tests (UI + unit) — test runs must never page anyone.
+        if !Self.isUITest, !Self.isUnitTestHost, let dsn = config.sentryDSN {
+            SentryCrashReporter.start(dsn: dsn)
+        }
         let networkUI = NetworkMonitor()
         network = networkUI
         // NWPathMonitor (Adapters) pushes every path change to the UI monitor on the main actor.
         reachability = ReachabilityMonitor { online, constrained in
             Task { @MainActor in networkUI.update(isOnline: online, isConstrained: constrained) }
         }
-        // TelemetryDeck (product analytics) must be initialized before the first signal; the entry
-        // point is the documented place. Skipped when the App ID isn't configured (analytics stays
-        // off — AppContainer.bootLive then wires no tracker) and under XCUITest (deterministic runs).
-        if !Self.isUITest, let appID = AppConfig.load().telemetryDeckAppID {
-            TelemetryDeckTracker.initialize(appID: appID)
-        }
+        // Off when the API key isn't configured (fresh clone / CI), under XCUITest (deterministic
+        // runs), and when hosting unit tests — test runs must never land in the GistIt dashboard.
+        analytics = Self.isUITest || Self.isUnitTestHost
+            ? nil
+            : config.amplitudeAPIKey.map(AmplitudeTracker.init(apiKey:))
     }
 
     /// True when launched by the XCUITest suite (`-uiTestStubs`): boot deterministic stubs and skip
     /// the launch side effects that could pop system dialogs mid-test (notification permission).
     private static var isUITest: Bool {
         ProcessInfo.processInfo.arguments.contains("-uiTestStubs")
+    }
+
+    /// True when the app is only the host process for the unit-test bundle.
+    private static var isUnitTestHost: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
     var body: some Scene {
@@ -53,6 +67,7 @@ struct EnglishHelperApp: App {
                     library: deps.library,
                     history: deps.history,
                     settings: deps.settings,
+                    subscription: deps.subscription,
                     degradedStorage: deps.degradedStorage,
                     network: network,
                     consumeShared: {
@@ -88,6 +103,7 @@ struct EnglishHelperApp: App {
                         let probe = reachability
                         await boot.start(
                             uiTestStubs: Self.isUITest,
+                            analytics: analytics,
                             isReachable: { [weak probe] in probe?.isReachable ?? true }
                         )
                     }
@@ -108,6 +124,7 @@ private final class AppBoot {
         let library: StudyListViewModel
         let history: HistoryViewModel
         let settings: SettingsViewModel
+        let subscription: SubscriptionState
         let degradedStorage: Bool
     }
 
@@ -120,7 +137,8 @@ private final class AppBoot {
         return pendingURL
     }
 
-    func start(uiTestStubs: Bool, isReachable: @escaping @Sendable () -> Bool) async {
+    func start(uiTestStubs: Bool, analytics: (any AnalyticsTracking)?,
+               isReachable: @escaping @Sendable () -> Bool) async {
         guard deps == nil else { return }
         let container: AppContainer
         if uiTestStubs {
@@ -132,7 +150,7 @@ private final class AppBoot {
             // any migration) must not block the main thread behind the launch screen.
             container = await Task.detached(priority: .userInitiated) {
                 do {
-                    return try AppContainer.bootLive(isReachable: isReachable)
+                    return try AppContainer.bootLive(isReachable: isReachable, analytics: analytics)
                 } catch {
                     return AppContainer.bootMock()
                 }
@@ -145,6 +163,7 @@ private final class AppBoot {
             library: container.makeStudyListViewModel(),
             history: container.makeHistoryViewModel(),
             settings: container.makeSettingsViewModel(),
+            subscription: container.makeSubscriptionState(),
             degradedStorage: container.usingFallbackStore
         )
         // Best-effort, off the launch path: delete session recordings no history row references

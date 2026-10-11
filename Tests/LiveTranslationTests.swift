@@ -292,7 +292,8 @@ struct SessionRecordingsPlayerTests {
 
     private func makeVM(
         live: any LiveTranslating = MockLiveTranslating(),
-        history: MockHistoryRepository = MockHistoryRepository()
+        history: MockHistoryRepository = MockHistoryRepository(),
+        liveActivity: (any LiveSessionActivityPresenting)? = nil
     ) -> InViewModel {
         let llm = MockLLMClient()
         let repo = MockExpressionRepository(seed: [])
@@ -307,7 +308,8 @@ struct SessionRecordingsPlayerTests {
             ),
             studyList: StudyListInteractor(repository: repo),
             isConfigured: true,
-            pasteboard: EmptyPasteboard()
+            pasteboard: EmptyPasteboard(),
+            liveActivity: liveActivity
         )
     }
 
@@ -481,6 +483,77 @@ struct SessionRecordingsPlayerTests {
         vm.confirmPriming()
         #expect(vm.isLiveListening)
     }
+
+    /// The Live Activity mirrors the session lifecycle: banner up when listening actually starts
+    /// (with the direction label), pause/resume and direction flips pushed as updates, banner down
+    /// when the session ends.
+    @Test func liveActivityFollowsSessionLifecycle() async throws {
+        let spy = SpyLiveActivity()
+        let vm = makeVM(liveActivity: spy)
+        vm.routeMode(.online)
+        vm.toggleLive()
+        try await waitUntil { spy.events.first == "start EN → RU" }
+        #expect(spy.events == ["start EN → RU"])
+
+        vm.toggleLivePause()
+        #expect(spy.events.last == "paused")
+        vm.toggleLivePause()
+        #expect(spy.events.last == "resumed")
+
+        vm.toggleLiveDirection()
+        #expect(spy.events.last == "direction RU → EN")
+
+        vm.toggleLive()   // graceful stop → stream finishes → banner comes down
+        try await waitUntil { spy.events.last == "end" }
+        #expect(spy.events.last == "end")
+    }
+
+    /// A session that FAILS mid-run must still take the banner down — a dead session may not keep
+    /// a live "recording" indicator on the Lock Screen.
+    @Test func liveActivityEndsOnFailure() async throws {
+        let spy = SpyLiveActivity()
+        let vm = makeVM(live: MockLiveTranslating(script: .init(failure: .underlying("boom"))),
+                        liveActivity: spy)
+        vm.routeMode(.online)
+        vm.toggleLive()
+        try await waitUntil { spy.events.last == "end" }
+        #expect(spy.events.last == "end")
+        #expect(!vm.isLiveListening)
+    }
+
+    /// The Live Activity buttons: their intents post command notifications from the app process;
+    /// the view model must act on them — pause toggles, stop ends (and stop while idle is a no-op).
+    @Test func liveActivityCommandsControlTheSession() async throws {
+        let vm = makeVM()
+        vm.routeMode(.online)
+
+        // Stop while idle: must NOT start a session (unlike the Listen toggle).
+        NotificationCenter.default.post(name: .liveTranslationStopCommand, object: nil)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!vm.isLiveListening)
+
+        vm.toggleLive()
+        try await waitUntil { vm.isLiveListening }
+
+        NotificationCenter.default.post(name: .liveTranslationPauseCommand, object: nil)
+        try await waitUntil { vm.isLivePaused }
+        #expect(vm.isLivePaused)
+
+        NotificationCenter.default.post(name: .liveTranslationStopCommand, object: nil)
+        try await waitUntil { !vm.isLiveListening }
+        #expect(!vm.isLiveListening)
+    }
+}
+
+/// Records the Live Activity calls the view model makes (the ActivityKit controller lives in the
+/// App layer and can't run under unit tests).
+@MainActor
+private final class SpyLiveActivity: LiveSessionActivityPresenting {
+    var events: [String] = []
+    func sessionStarted(direction: String) { events.append("start \(direction)") }
+    func sessionPaused(_ isPaused: Bool) { events.append(isPaused ? "paused" : "resumed") }
+    func directionChanged(_ direction: String) { events.append("direction \(direction)") }
+    func sessionEnded() { events.append("end") }
 }
 
 /// Deterministic empty clipboard (never reads the simulator's real one).

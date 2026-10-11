@@ -131,6 +131,33 @@ public final class StudyListViewModel {
         }
     }
 
+    /// Cards marked learned — what Clean up removes; 0 disables the button.
+    public var learnedCount: Int { expressions.filter(\.learned).count }
+    /// Clean up is a bulk delete with no undo, so the view asks for confirmation first.
+    public var showCleanUpConfirmation = false
+
+    /// Remove EVERY card marked learned. Optimistic like `delete`: the rows vanish at once; if any
+    /// persisted delete fails the list is reloaded from the store so what's shown never diverges
+    /// from it, and the failure is reported.
+    public func cleanUpLearned() {
+        let learned = expressions.filter(\.learned)
+        guard !learned.isEmpty else { return }
+        expressions.removeAll(where: \.learned)
+        if expressions.isEmpty { phase = .empty }
+        Task { [weak self] in
+            guard let self else { return }
+            var failed = false
+            for expression in learned {
+                do { try await self.studyList.delete(id: expression.id) } catch { failed = true }
+            }
+            if failed {
+                await self.load()
+                self.actionError = Loc.t("Не удалось удалить часть карточек. Попробуйте ещё раз.",
+                                         "Couldn't delete some cards. Try again.")
+            }
+        }
+    }
+
     public func toggleLearned(_ expression: Domain.Expression) {
         let newValue = !expression.learned
         if let index = expressions.firstIndex(where: { $0.id == expression.id }) {

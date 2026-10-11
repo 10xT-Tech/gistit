@@ -6,6 +6,12 @@
 // composition root stays on mocks until one is provided.
 // Default fast (plain-translation) model — Haiku, for speed. Overridable in Secrets.xcconfig.
 // Declared before the include so the Info.plist `$(CLAUDE_FAST_MODEL)` always resolves to a real value.
-CLAUDE_FAST_MODEL = claude-haiku-4-5
+CLAUDE_FAST_MODEL = claude-haiku-5-5
 
 #include? "../Secrets.xcconfig"
+
+// Release builds never carry third-party keys: anything in a shipped app is extractable. They talk
+// to the backend (BACKEND_URL) instead. The dev token is a Simulator-only escape hatch — stripped too.
+CLAUDE_API_KEY[config=Release] =
+SONIOX_API_KEY[config=Release] =
+BACKEND_DEV_TOKEN[config=Release] =

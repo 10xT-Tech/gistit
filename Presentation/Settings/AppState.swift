@@ -75,64 +75,6 @@ public final class ThemeStore {
     }
 }
 
-// MARK: - Per-scenario model selection (Translate / Explain)
-
-/// The model a scenario routes to. Maps a user-facing choice to the abstract `ModelTier` the LLM
-/// adapter resolves to a concrete model string (fast = Haiku, standard = Sonnet).
-public enum LLMModelChoice: String, CaseIterable, Sendable {
-    case haiku, sonnet
-    public var tier: ModelTier { self == .haiku ? .fast : .standard }
-    public var title: String { self == .haiku ? "Haiku" : "Sonnet" }
-
-    static let translateKey = "translateModel"
-    static let explainKey = "explainModel"
-    static let sayItKey = "sayItModel"
-
-    /// Live reads for the routing providers the App wires into the interactors. Defaults: translate →
-    /// Haiku (speed), explain → Sonnet (quality), Say it → Sonnet. Read off the main actor, plain statics.
-    public static var currentTranslate: LLMModelChoice {
-        LLMModelChoice(rawValue: UserDefaults.standard.string(forKey: translateKey) ?? "") ?? .haiku
-    }
-    public static var currentExplain: LLMModelChoice {
-        LLMModelChoice(rawValue: UserDefaults.standard.string(forKey: explainKey) ?? "") ?? .sonnet
-    }
-    public static var currentSayIt: LLMModelChoice {
-        LLMModelChoice(rawValue: UserDefaults.standard.string(forKey: sayItKey) ?? "") ?? .sonnet
-    }
-}
-
-/// Persisted model choice for the Translate scenario (Get it → Translate). Default: Haiku.
-@MainActor
-@Observable
-public final class TranslateModelStore {
-    public var choice: LLMModelChoice {
-        didSet { UserDefaults.standard.set(choice.rawValue, forKey: LLMModelChoice.translateKey) }
-    }
-    public init() { choice = LLMModelChoice.currentTranslate }
-}
-
-/// Persisted model choice for the Explain scenario (Get it → Explain, and every "explain" affordance
-/// that routes into it). Default: Sonnet.
-@MainActor
-@Observable
-public final class ExplainModelStore {
-    public var choice: LLMModelChoice {
-        didSet { UserDefaults.standard.set(choice.rawValue, forKey: LLMModelChoice.explainKey) }
-    }
-    public init() { choice = LLMModelChoice.currentExplain }
-}
-
-/// Persisted model choice for the Say it scenario (phrase generation: how-to-say / what-to-say).
-/// Default: Sonnet.
-@MainActor
-@Observable
-public final class SayItModelStore {
-    public var choice: LLMModelChoice {
-        didSet { UserDefaults.standard.set(choice.rawValue, forKey: LLMModelChoice.sayItKey) }
-    }
-    public init() { choice = LLMModelChoice.currentSayIt }
-}
-
 /// A request to open the "Понять"/Get it screen in Explain mode for a specific phrase. Used to route
 /// the "Explain" action from See it / History / Say it straight to the real Get it screen (no extra
 /// sheet). The phrase is explained in its OWN right — never in a source-photo's context.
@@ -157,6 +99,8 @@ public enum SharedRoute: Equatable, Sendable {
 @Observable
 public final class AppUIState {
     public var showSettings = false
+    /// The subscription offer (from a free-plan limit, Online mode, or Settings).
+    public var showPaywall = false
     /// Set to route to Get it (Explain mode) with this phrase; RootView consumes it and clears it.
     public var pendingExplain: ExplainRequest?
     public init() {}

@@ -7,8 +7,8 @@ and translates it in real time via Soniox), **See it** (photo → explain or tra
 (flat list, exported to AlgoApp/Anki), **History** (every request; live sessions keep their audio;
 swipe-to-delete). Curated phrases go into the study list for the external SRS app.
 
-- iOS 26 · Swift 6 · SwiftUI · Xcode 26 · SwiftData (persistence) · async/await + actors.
-- Online-first; the LLM is Claude (Sonnet/Haiku) via the Anthropic API; live speech translation is
+- iOS 26 · Swift 6 · SwiftUI · Xcode 27 (iOS 27 SDK; deployment target stays iOS 26) · SwiftData (persistence) · async/await + actors.
+- Online-first; the LLM is Claude (Sonnet 5.5 / Haiku 5.5) via the Anthropic API; live speech translation is
   Soniox `stt-rt-v5` over WebSocket.
 - Monochrome "Liquid Glass" design system; system colors are functional signals only.
 
@@ -31,7 +31,8 @@ Each layer is a **separate framework module**, so the compiler enforces the depe
 
 - **Domain** — entities, port protocols, prompt-template definitions, use cases. Foundation ONLY;
   zero platform/UI/transport frameworks (enforced by `ForbiddenImportTests`).
-- **Data** — adapters implementing Domain ports. Currently `Mock*` only; live adapters land in v1.
+- **Data** — adapters implementing Domain ports: live adapters (`Adapters/`, `Persistence/`) plus
+  `Mock*` / `Stub*` doubles (`Mocks/`, `Stubs/`).
   Folder is `Data/`; the **Swift module is named `Adapters`** (a module named `Data` would shadow
   `Foundation.Data` in every consumer) — so import it as `import Adapters`.
 - **DesignSystem** — `Tokens.swift` (single source of truth) + components built on it. No Domain dep.
@@ -46,19 +47,23 @@ Each layer is a **separate framework module**, so the compiler enforces the depe
 are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 
 ### Prompt templates (Domain)
-`PromptTemplate` owns a system prompt + output JSON schema + typed decoder. v1 templates:
-`howToSay` (3 variants), `translateText`, `photoTranslate`, `enrichCard`. Adding a use case = adding
+`PromptTemplate` owns a system prompt + output JSON schema + typed decoder. Templates (all in
+`Domain/Prompts/Templates.swift`): `howToSay` (3 variants), `whatToSay`, `explainExpression`,
+`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `healthCheck`. Adding a use case = adding
 a template; the LLM adapter never changes.
 
 ## Folder layout
 
 ```
 Domain/          Entities · Ports · Prompts · UseCases · DomainErrors
-Data/Mocks/      Mock* impl for every port   (compiled as the `Adapters` module)
-DesignSystem/    Tokens.swift · Components/
-Presentation/    Root/ (RootView, RootViewModel) · Placeholder/
+Data/            Adapters/ · Persistence/ · Mocks/ · Stubs/   (compiled as the `Adapters` module)
+DesignSystem/    Tokens.swift · Loc*.swift · Components/
+Presentation/    Root/ · Voice/ · In/ · Photo/ · Library/ · History/ · Settings/ · Onboarding/ · Support/
 App/             EnglishHelperApp · AppContainer (DI) · AppConfig · Info.plist · Assets.xcassets
-Tests/           ForbiddenImportTests · DIBootTests
+Shared/          code compiled into both the app and LockWidgets
+LockWidgets/ · ShareExtension/   extension targets
+Tests/ · UITests/   unit tests (incl. ForbiddenImportTests, DIBootTests) · XCUI suite
+Backend/         AWS Lambda (Node, SAM): Claude proxy + Soniox temp keys behind App Attest — see Backend/README.md
 Config/Base.xcconfig   project.yml   Secrets.example.xcconfig
 design_system/   archived design handoff bundle (HTML/CSS/JSX) — NO LONGER the source of truth
 docs/            RUN.md + prompts 00–02
@@ -73,24 +78,80 @@ cp Secrets.example.xcconfig Secrets.xcconfig   # then fill in CLAUDE_API_KEY (fi
 brew install xcodegen                          # if needed
 xcodegen generate
 xcodebuild -scheme EnglishHelper \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' build
 open EnglishHelper.xcodeproj                    # or ⌘R in Xcode
 ```
 
-Tests: `xcodebuild test -scheme EnglishHelper -destination 'platform=iOS Simulator,name=iPhone 17 Pro'`
+Tests: `xcodebuild test -scheme EnglishHelper -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'`
 (unit tests only — fast). The XCUI suite is a separate, slow scheme:
-`xcodebuild test -scheme EnglishHelperUITests -destination 'platform=iOS Simulator,name=iPhone 17 Pro'`
+`xcodebuild test -scheme EnglishHelperUITests -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'`
 
 ## Config & secrets
-`AppConfig` reads `CLAUDE_API_KEY` + `CLAUDE_MODEL` (+ optional `CLAUDE_FAST_MODEL`,
-`SONIOX_API_KEY` — live online translation, `SONIOX_MODEL` — defaults to `stt-rt-v5`,
-`TELEMETRYDECK_APP_ID` — analytics) from the app's
-Info.plist, populated at build time from `Secrets.xcconfig` (gitignored; layered in via
-`Config/Base.xcconfig` with `#include?`). Base URL defaults to `https://api.anthropic.com`.
-**An API key embedded in a built app is extractable** — acceptable for this personal/dev app;
-a production build would proxy via a backend.
+`AppConfig` reads `CLAUDE_MODEL` (+ optional `CLAUDE_FAST_MODEL`, `SONIOX_MODEL` — defaults to
+`stt-rt-v5`, `AMPLITUDE_API_KEY` — analytics, Amplitude project "GistIt", EU data center, `SENTRY_DSN` — crash reporting, Sentry project `10xt/gistit`, started first in `EnglishHelperApp.init`). Both are split by build channel: `AppDistribution` (Data) resolves `production` (App Store) / `testflight` / `local` (Xcode: DEBUG, Simulator or a build with `embedded.mobileprovision`) → Sentry `environment` + release `bundle@version+build`; Amplitude event + user properties `environment`, `app_build` (`app_version` comes from the SDK). It also reads the credentials from the app's Info.plist,
+populated at build time from `Secrets.xcconfig` (gitignored; layered in via `Config/Base.xcconfig`
+with `#include?`). Two credential modes:
+- **`BACKEND_URL` set (production):** Claude goes through our backend (`Backend/`, same
+  `/v1/messages` path) and Soniox gets a single-use temporary key per WebSocket. The app proves
+  itself with App Attest (`Data/Adapters/Backend/BackendSession.swift`; key id in UserDefaults).
+  No third-party key is in the app.
+- **Otherwise (development):** `CLAUDE_API_KEY` / `SONIOX_API_KEY` are used directly. They are
+  extractable from a built app, so **Release builds blank them** (`Config/Base.xcconfig`
+  `[config=Release]` overrides) — a Release build without `BACKEND_URL` has no live Claude/Soniox.
+**Subscription (App Store version only).** One monthly auto-renewable product
+(`AppConfig.subscriptionProductID`). Free plan, by SCENARIO not model: translations (Get it/See it →
+Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode.
+Subscribers and every TestFlight / Xcode build: unlimited, no paywall. The backend recognises
+translations by their system prompt's fixed opening — changing the first sentence of
+`UnderstandTemplate` / `PhotoBlocksTemplate` / `EnrichCardTemplate` must be mirrored in
+`Backend/src/validate.mjs` (`SubscriptionTierTests` pins it). The **backend enforces
+it** (tier in the session token from StoreKit JWS — see Backend/README.md "Access tiers"); the app
+mirrors it for UX: Domain port `SubscriptionManaging` + `AccessTier`; Data
+`StoreKitSubscriptionService` (finishes `Transaction.updates`, sends `EntitlementProofs` to
+`BackendSession`, which re-opens its session on any plan change); Presentation `SubscriptionState`
+(environment) + `PaywallView` (StoreKit `SubscriptionStoreView`, `AppUIState.showPaywall`). A plan
+refusal is `LLMError.subscriptionRequired(retryAfter:)` / `LiveTranslationError.subscriptionRequired`;
+request screens then show "Subscribe" instead of Retry (`needsSubscription`).
+`HealthCheckTemplate` must keep its exact shape (backend `isHealthCheck` exempts it). DEBUG launch
+argument `-simulateAppStore` shows the free-plan UI in an Xcode build.
+`BACKEND_DEV_TOKEN` is a DEBUG-only Simulator escape hatch (App Attest doesn't run there); never
+read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude) and
+`SonioxCredential` (Soniox) — the adapters don't know which mode they're in.
 
 ## Current Status
+
+**v1.5.0 (2026-10-11) — Gist It Pro subscription, backend proxy (App Attest), Amplitude + Sentry
+split by build channel (`AppDistribution`), structured outputs, `VerticalScrollView`.** User-facing
+notes are in `CHANGELOG.md`. 215/215 tests green.
+
+**Xcode 27 / iOS 27 SDK readiness (2026-09-15).** Builds + 208/208 tests green on Xcode 27 (iOS 27.0
+simulator). iOS 27 SDK hard requirements already met: scene-based lifecycle (SwiftUI `App`),
+`UILaunchScreen`, `TabView` selection always names an existing tab. Changes made for it: every view that
+takes a view model in `init` now assigns the wrapped property directly (`self.model = model`, no default
+value at the `@State` declaration) — Apple's documented form for the macro-based `@State` in Xcode 27;
+never write `_model = State(initialValue:)` again. `PrivacyInfo.xcprivacy` added to EVERY bundle that
+touches `UserDefaults` (app: CA92.1 + 1C8F.1 App Group; ShareExtension: 1C8F.1; Presentation /
+Adapters / DesignSystem frameworks: CA92.1) — xcodegen picks them up as resources automatically; a new
+required-reason API (file timestamps, disk space, boot time…) needs a new entry there. `LastUpgradeCheck`
+pinned to 2700. Simulator names are ambiguous across runtimes now — pass `OS=27.0` or a device id.
+
+**v1.4.3 — Lock Screen Live Activity for Online sessions + Explain parse fix.** A running Online
+session is mirrored as an ActivityKit Live Activity (banner + Dynamic Island: record indicator,
+direction label, timer, Pause/Stop). `InViewModel` talks to a `LiveSessionActivityPresenting` port
+(Presentation/Support/LiveSessionActivity.swift); `LiveTranslationActivityController` (App) is the
+only ActivityKit user; `Shared/LiveTranslationActivity.swift` (attributes + `LiveActivityIntent`s)
+is compiled into BOTH the app and LockWidgets — the intents run in the app process and post
+`liveTranslationPauseCommand` / `liveTranslationStopCommand` notifications (names duplicated as
+literals in the Shared file — keep in sync). Info.plist: `NSSupportsLiveActivities`. Stale banners
+are cleared at boot. LLM output is schema-constrained via structured outputs (`output_config.format`), so
+responses are always valid JSON for the template's schema. Study: **Clean up** toolbar button (eraser, next to +) → `confirmationDialog` →
+`StudyListViewModel.cleanUpLearned()` bulk-deletes learned cards (optimistic; reload + actionError
+on any failed persisted delete). Paste slot (Say it + Get it): `UIPasteboard.changedNotification` is NOT
+posted for other-process changes while the app is foreground (Universal Clipboard etc.), which left
+a greyed-out `UIPasteControl` and no Explain/Translate — `monitorClipboard()` (1 s `hasStrings`
+metadata poll bound to the screen via `.task`) keeps `clipboardHasText` honest; XCUI
+`PasteAffordanceUITests` covers both directions. 208/208 tests green. v1.4.2 (2026-08-15) shipped the system Paste control, per-mode See it
+result cache, the Disk-usage card, and multilingual button-label fixes.
 
 **v1.4.1 — Online translation (live interpreter).** "Get it" gained a third mode, **Online**: a
 Listen TOGGLE (pill with a live sound diagram) streams the mic (AVAudioEngine → AVAudioConverter →
@@ -119,67 +180,10 @@ session best-effort, even on a mid-session failure). Soniox key + Settings healt
 same release. 175/175 tests green. **The live streaming path needs on-device verification** (mic +
 real WebSocket; the Simulator run only proves UI/wiring).
 
-Historical build log (v1 scaffold → v1.3.3) follows.
-
-**Scaffold (Prompt 1): COMPLETE.** Clean-architecture skeleton, mocks, DI, tests.
-
-**v1 (Prompt 2) — Build order:**
-- ✅ **1. Adapters + forbidden-import guardrail.** Live adapters wired; app boots LIVE with a mock
-  fallback, builds + launches on iOS 26, 24/24 tests green.
-  - `ClaudeLLMClient` (Messages API; fence-strip + typed decode + timeout/malformed/offline paths).
-  - `NativeSpeechRecognizer` (`SFSpeechRecognizer`, ru-RU, (text,isFinal) stream, cancel). NB: the
-    iOS 26 `SpeechAnalyzer`/`SpeechTranscriber` has NO on-device Russian model on current devices
-    (`AssetInventory.status` = `.unsupported`), so we use `SFSpeechRecognizer` — Russian works
-    server-backed (needs network). Engine swap was one file (the port is unchanged).
-  - `NativeSpeechSynthesizer` (`AVSpeechSynthesizer`, EN, state + stop).
-  - `VisionTextRecognizer` (`RecognizeTextRequest` → text + normalized top-left boxes).
-  - `SwiftDataExpressionRepository` / `SwiftDataHistoryRepository` (`@ModelActor`) + `@Model` types.
-  - `AlgoAppXMLExporter` (deterministic 4-line cards → escaped XML, validated by `XMLParser`).
-  - OCR port evolved: `TextRecognizing` now returns `RecognizedText` (text + boxes).
-  - `Stub*` (latency + failure) for LLM/ASR/TTS/OCR alongside `Mock*`.
-  - Engine swap = ONE line in `AppContainer.bootLive` (see README).
-- ✅ **2. "Как сказать"** (Voice: mic→STT→Claude→TTS→save→enrich). Root screen = `VoiceView`.
-  - Voice OR typed RU → editable transcript → 3 register-tagged variants (tap = play TTS,
-    bookmark = save). "Другие варианты" = regenerate (prior set stays in history).
-  - States: idle / listening / processing / results / error / offline + API-key banner.
-  - Mic permission PRIMING sheet before the system dialog (`didPrimeMic` in UserDefaults).
-  - New use cases: `RegenerateHowToSay`, `SaveExpression` (enrich-then-store), `VoiceCapture`,
-    `PlayPronunciation`. New DS components: `MicButton`, `PhraseVariantCard`, `EHButton`,
-    `GlassField`, `StatusView`/`LoadingView`, `glassPanel` (Reduce-Transparency→solid).
-  - 29/29 tests green; builds + launches.
-- ✅ **3. "Перевод"** (EN→RU). Typed English → single Russian translation; play EN source; save
-  (enrich-then-store, toggle). States idle/processing/result/error/offline + API-key banner.
-  Introduced the app shell: native `TabView` (Liquid-Glass tab bar) with **Голос** + **Перевод**
-  tabs (grows each step). `AppContainer.makeTranslateViewModel`; shared `presentableError` mapper.
-  32/32 tests green; builds + launches.
-- ✅ **4. "Фото-перевод"** (EN→RU). Camera (UIKit `UIImagePickerController`, guarded by
-  `isSourceTypeAvailable` — hidden on Simulator) + library (`PhotosPicker`, no permission needed)
-  → OCR (+ boxes) → RU translation. Boxes drawn over the photo; translation panel sits on a
-  **SOLID scrim** (white text, AA contrast — never glass under text). Play source / save.
-  Camera permission priming before the system dialog. New tab **Камера**. 35/35 tests green.
-- ✅ **5. "Список" + AlgoApp export** (tab **Изучаю**). Flat study list of `Expression`s: manual
-  add (enrich-then-store), swipe-delete, leading swipe toggle-learned, glass rows. Export via
-  `ExportDeck` → `AlgoAppXMLExporter` → temp .xml file → system share sheet (`UIActivityViewController`).
-  States loading/empty/loaded/failed. 42/42 tests green.
-- ✅ **6. "История"** (tab **История**). Read-only chronological log of every request; rows show
-  kind/input/result snippet/timestamp; tap → detail rendering the full result by kind (howToSay
-  variants / translate+photo RU). States loading/empty/loaded/failed. 44/44 tests green.
-- ✅ **7. "Настройки"** (gear on every screen → sheet; not a tab). LIVE API health check
-  (checking/ok/failed via a cheap `HealthCheckTemplate` round-trip through `ClaudeLLMClient`),
-  theme toggle (system/light/dark, persisted in `ThemeStore` → `preferredColorScheme`), and
-  app/voice info (version, model, voice). 47/47 tests green.
-
-**v1 COMPLETE.** All 7 build-order steps done; 47 tests green; builds + launches on iOS 26.
-Tabs: Изучаю · Текст · Голос (center, default) · Камера · История (+ Settings gear). Final notes:
-- **«Текст» = «Голос» без микрофона**: the former EN→RU "Перевод" screen was repurposed — it now
-  runs the SAME flow as Voice (RU → 3 register-tagged English variants, play/save/regenerate) but
-  text-input only. Both tabs use `VoiceView` (`showsMic:` flag) + a `VoiceViewModel`. The old
-  `translateText` use case/template remain in Domain but are no longer surfaced by a screen.
-- Navigation: Голос is centered and the default tab; История as a tab, Settings as a gear/sheet.
-- The Settings health check makes a real (tiny) Claude call each time it runs — intended.
-- Still device-only: live mic→STT and the camera capture path (Simulator hides the camera button).
-
-**Notes / trade-offs so far:**
+**Notes / trade-offs** (v1 build history: `docs/02-v1-development.md`, `CHANGELOG.md`):
+- **Speech recognition:** iOS 26 `SpeechAnalyzer`/`SpeechTranscriber` has NO on-device Russian model
+  (`AssetInventory.status` = `.unsupported`), so `NativeSpeechRecognizer` uses `SFSpeechRecognizer`
+  (server-backed, needs network). Engine swap = one line in `AppContainer.bootLive`.
 - **Liquid Glass vs readability:** all glass goes through `glassPanel`, which swaps to a SOLID
   surface under Reduce Transparency; `MicButton` rings/`symbolEffect` disable under Reduce Motion.
 - **Iconography:** using SF Symbols (the design's icon names were SF-Symbol-style) for native

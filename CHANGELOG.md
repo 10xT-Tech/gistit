@@ -2,6 +2,87 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
+## 1.5.0 — 2026-10-11
+
+**Gist It Pro.** Gist It now has a free plan and a monthly subscription. **Translation stays free
+for everyone, with no limits**: Get it → Translate, See it → Translate, and the cards you save to
+Study. On the free plan, **explanations and Say it** (both phrasings and phrases for a situation)
+share **one request every 5 minutes**. When you hit that limit, the screen says so and offers
+**Subscribe** instead of Retry. **Online translation** (the live interpreter) is part of the
+subscription. Gist It Pro removes every limit. The offer comes from the App Store itself, with the
+price, the renewal period, **Restore Purchases** and the terms right there. Settings has a new
+**Subscription** card showing your plan and renewal date, with **Manage subscription** and
+**Restore purchases**. TestFlight testers keep every feature unlocked, with no subscription needed.
+
+**Your requests go through Gist It's own server.** Explanations, translations and the live
+interpreter now reach Claude and the speech service through our server, and the app proves it's
+the genuine Gist It on a real iPhone before it's let in. The app no longer carries any service
+keys, so nobody can lift them from it. You won't see any difference in how the app works.
+
+**Screens no longer drift sideways.** A wide photo, a long word with nowhere to break, or a long
+status line could make a page slightly wider than the screen, and it would then slide left and right
+under your thumb. Every screen now scrolls only up and down.
+
+**Answers are better formed.** Answers are now constrained to the exact shape the app expects
+before they leave the model, so "Couldn't parse the response" should be a thing of the past. Long photo explanations also get more room before they're cut off.
+
+**Settings show how fast each model answers.** The **Service connections** card now lists the
+**Translation model**, the **Explanation model** and the **Voice model** by what they do, not by
+technical model names. Next to each one, signal-style bars and a word (**Fast** / **Medium** /
+**Slow**) show how quickly it answered a test request, and the exact time in seconds is shown too.
+Tap the refresh arrow to measure again. The **Models by scenario** section is gone: each task now
+always uses the model that suits it best (the quick one for translation, the stronger one for
+explanations and Say it), so there is nothing to tune.
+
+**A new analytics service, and crash reports.** Feature counts ("translation completed", "phrase
+saved") now go to [Amplitude](https://amplitude.com), stored in the EU, instead of TelemetryDeck.
+The rule hasn't changed: bare event names only, **never** what you type, say or photograph, and no
+advertising identifier, so there is still no tracking-consent pop-up. Gist It now also sends
+**crash reports** through [Sentry](https://sentry.io), so crashes and freezes get fixed without you
+having to report them. A crash report contains the technical trace, the device model and the iOS
+version. It never contains screenshots or your content. Both now tell the App Store version apart
+from test builds, so test runs never skew the numbers.
+
+**Ready for iOS 27.** Built with the iOS 27 SDK, and still runs on iOS 26.
+
+## 1.4.3 — 2026-09-08
+
+**Your live session stays on the Lock Screen.** Start **Get it → Online**, lock the phone, and the
+session shows up as a Live Activity banner (and in the Dynamic Island on phones that have one), the
+way Voice Memos shows a recording: a pulsing record indicator, the translation direction
+(**EN → RU**), a running timer, and **Pause** / **Stop** buttons that work right there — no unlock,
+no switching apps. Pause turns the indicator orange; Stop ends the session and saves it to History
+as usual. Flipping the direction mid-session updates the banner, and a session that ends on its own
+(silence auto-stop, a call, an error) takes the banner down with it. Tapping the banner opens the
+Online screen. Live Activities can be switched off for Gist It in iOS Settings; the session itself
+is unaffected either way.
+
+**Clean up the Study list in one go.** Next to **+** there is a new **Clean up** button (an
+eraser). Tap it and, after a confirmation that shows how many cards are affected, every card you
+have marked as **learned** is removed from the list at once — no more swiping them away one by one
+after an export. The button is greyed out while nothing is marked learned, and the confirmation is
+there because this can't be undone.
+
+**The Paste button no longer gets stuck.** On Say it and Get it the action button turns into
+**Paste** while the field is empty and the clipboard holds text. If the clipboard then changed
+*outside* the app while it was on screen — you copied something on your Mac (Universal Clipboard),
+a password manager wiped it, a Shortcut ran — the app didn't notice: the greyed-out Paste stayed
+put with **no Explain / Translate button anywhere**, or, the other way round, the button stayed a
+disabled Explain although text was one tap away. The screen now keeps an eye on the clipboard while
+it's visible and follows three simple rules: text in the field → Explain / Translate; empty field
+and text on the clipboard → Paste; nothing in either → a disabled Explain / Translate. As before,
+it only checks *whether* there is text — the clipboard is read solely when you tap Paste.
+
+**See it → Explain no longer fails on photos that deserve a long answer.** When a photo had a lot
+to explain (a landmark on a banner, a shop front, an interior with several objects), the explanation
+came back in several paragraphs — and the app answered **"Couldn't parse the response. Try again."**
+every single time, retries included. The model was separating those paragraphs with raw line breaks
+inside its structured reply, and the app's strict reader rejected the whole thing. The reader now
+repairs exactly that before decoding, and the prompt asks for properly escaped line breaks up front.
+The same fix protects every other answer type (Say it, Get it, cards), which use the same reader.
+The photo itself was never the problem: HEIC from the camera roll, orientation, and size were all
+handled correctly.
+
 ## 1.4.2 — 2026-08-15
 
 **Paste without the pop-up.** The **Paste** button (on Say it and Get it, whenever the field is

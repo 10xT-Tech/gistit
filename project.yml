@@ -18,7 +18,7 @@ options:
   generateEmptyDirectories: true
   # Bump LastUpgradeCheck to the current Xcode so the IDE doesn't nag "Update to recommended
   # settings" (xcodegen hardcodes 1430). Runs after the project is written.
-  postGenCommand: sed -i '' -E 's/LastUpgradeCheck = [0-9]+;/LastUpgradeCheck = 2640;/' EnglishHelper.xcodeproj/project.pbxproj
+  postGenCommand: sed -i '' -E 's/LastUpgradeCheck = [0-9]+;/LastUpgradeCheck = 2700;/' EnglishHelper.xcodeproj/project.pbxproj
 
 # Common build settings for every target.
 settings:
@@ -26,8 +26,8 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-    MARKETING_VERSION: "1.4.2"        # user-visible version — bump for a new release
-    CURRENT_PROJECT_VERSION: "1"      # build number — MUST be unique per App Store upload; bump every upload
+    MARKETING_VERSION: "1.5.0"        # user-visible version — bump for a new release
+    CURRENT_PROJECT_VERSION: "3"      # build number — MUST be unique per App Store upload; bump every upload
     # Frameworks let Xcode synthesize their Info.plist; the app overrides with an explicit file.
     GENERATE_INFOPLIST_FILE: "YES"
     # Device signing for every target (the app + the embedded ShareExtension both need a team for the
@@ -36,7 +36,7 @@ settings:
     DEVELOPMENT_TEAM: TQJ35ER433
     CODE_SIGN_STYLE: Automatic
     # iPhone-ONLY: no Mac Catalyst, no Mac "Designed for iPhone", no Apple Vision — project-wide.
-    # NOTE: TARGETED_DEVICE_FAMILY ("1" = iPhone, no iPad) is pinned PER-TARGET on the app + extension
+    # NOTE: TARGETED_DEVICE_FAMILY ("1" = iPhone, no iPad) is pinned PER-TARGET on EVERY target
     # instead — xcodegen injects a per-target "1,2" default that overrides a project-level value, so it
     # must live on each shippable target to win.
     SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
@@ -56,19 +56,35 @@ configFiles:
   Debug: Config/Base.xcconfig
   Release: Config/Base.xcconfig
 
-# SPM dependencies. TelemetryDeck (privacy-first product analytics — no ATT/IDFA) is linked into
+# SPM dependencies. Amplitude (product analytics — no ATT/IDFA; EU data center) is linked into
 # the Adapters framework ONLY: the SDK is static, so linking it into a second image (the app)
-# would duplicate it; the composition root initializes it via `TelemetryDeckTracker.initialize`.
+# would duplicate it; the composition root creates it via `AmplitudeTracker(apiKey:)`.
+# Sentry (crash & error reporting) follows the same rule — static, Adapters only, started via
+# `SentryCrashReporter.start(dsn:)`.
+# EXCEPTION: Amplitude's own dependency AmplitudeCore ships as a prebuilt DYNAMIC xcframework.
+# Xcode does not embed a framework target's transitive dynamic binaries into the app, so the app
+# links it directly (`AmplitudeCoreFramework` below), which makes Xcode embed it. Without that, dyld
+# kills the app at launch on a device ("Library not loaded: @rpath/AmplitudeCore.framework"). The
+# Simulator hides the problem because Xcode resolves frameworks from the build folder there.
 packages:
-  TelemetryDeck:
-    url: https://github.com/TelemetryDeck/SwiftClient
-    from: 2.0.0
+  Amplitude:
+    url: https://github.com/amplitude/Amplitude-Swift
+    from: 1.19.3
+  AmplitudeCore:
+    url: https://github.com/amplitude/AmplitudeCore-Swift
+    from: 1.5.3
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: 9.30.1
 
 targets:
 
   Domain:
     type: framework
     platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only — overrides xcodegen's per-target "1,2" default
     sources: [Domain]
 
   # Module is named `Adapters` (not `Data`) so it never shadows Foundation.Data in consumers.
@@ -76,20 +92,31 @@ targets:
   Adapters:
     type: framework
     platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only — overrides xcodegen's per-target "1,2" default
     sources: [Data]
     dependencies:
       - target: Domain
-      - package: TelemetryDeck
-        product: TelemetryDeck   # 2.x product name (`TelemetryClient` is the deprecated 1.x shim)
+      - package: Amplitude
+        product: AmplitudeSwift
+      - package: Sentry
+        product: Sentry
 
   DesignSystem:
     type: framework
     platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only — overrides xcodegen's per-target "1,2" default
     sources: [DesignSystem]
 
   Presentation:
     type: framework
     platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only — overrides xcodegen's per-target "1,2" default
     sources: [Presentation]
     dependencies:
       - target: Domain
@@ -104,6 +131,10 @@ targets:
       - target: Adapters
       - target: DesignSystem
       - target: Presentation
+      # Dynamic binary used by Adapters (Amplitude). Linking it from the app makes Xcode embed it;
+      # an explicit `embed: true` breaks the build ("AmplitudeCoreFramework-product" not found).
+      - package: AmplitudeCore
+        product: AmplitudeCoreFramework
       - target: ShareExtension   # embedded into the app's PlugIns (auto-embed for app-extension deps)
       - target: LockWidgets      # Lock Screen WidgetKit extension — auto-embedded into PlugIns too
     settings:
@@ -138,10 +169,17 @@ targets:
   LockWidgets:
     type: app-extension
     platform: iOS
-    sources: [LockWidgets]
+    # Shared/LiveTranslationActivity.swift (ONLY that file, not the whole Shared/ folder) is compiled
+    # into BOTH the app and this extension: Live Activity attributes and intents must be the same
+    # type name + encoding on both sides of the process boundary.
+    sources:
+      - LockWidgets
+      - Shared/LiveTranslationActivity.swift
     dependencies:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
+      - sdk: ActivityKit.framework
+      - sdk: AppIntents.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: tech.10xt.englishhelper.LockWidgets
@@ -152,6 +190,9 @@ targets:
   EnglishHelperTests:
     type: bundle.unit-test
     platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only — overrides xcodegen's per-target "1,2" default
     sources: [Tests, Shared]   # Shared/SharedInbox.swift is exercised by SharedInboxTests
     dependencies:
       - target: Domain
@@ -164,6 +205,9 @@ targets:
   EnglishHelperUITests:
     type: bundle.ui-testing
     platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only — overrides xcodegen's per-target "1,2" default
     sources: [UITests]
     dependencies:
       - target: EnglishHelper

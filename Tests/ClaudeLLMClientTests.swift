@@ -20,6 +20,12 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     /// Simulate a transport failure: fail the first `failTimes` attempts with `failCode`, then serve normally.
     nonisolated(unsafe) static var failCode: URLError.Code? = nil
     nonisolated(unsafe) static var failTimes = 0
+    /// Per-call status codes (call 1 → [0], …); calls past the end use `statusCode`.
+    nonisolated(unsafe) static var statusSequence: [Int] = []
+    /// Captures the LAST request's credential headers.
+    nonisolated(unsafe) static var lastAuthorization: String? = nil
+    nonisolated(unsafe) static var lastAPIKey: String? = nil
+    nonisolated(unsafe) static var responseHeaders: [String: String]? = nil
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -44,14 +50,19 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         StubURLProtocol.lastBody = StubURLProtocol.bodyData(of: request)
+        StubURLProtocol.lastAuthorization = request.value(forHTTPHeaderField: "Authorization")
+        StubURLProtocol.lastAPIKey = request.value(forHTTPHeaderField: "x-api-key")
         StubURLProtocol.callCount += 1
         if let code = StubURLProtocol.failCode, StubURLProtocol.callCount <= StubURLProtocol.failTimes {
             client?.urlProtocol(self, didFailWithError: URLError(code))
             return
         }
+        let index = StubURLProtocol.callCount - 1
+        let status = index < StubURLProtocol.statusSequence.count
+            ? StubURLProtocol.statusSequence[index] : StubURLProtocol.statusCode
         let response = HTTPURLResponse(
-            url: request.url!, statusCode: StubURLProtocol.statusCode,
-            httpVersion: "HTTP/1.1", headerFields: nil
+            url: request.url!, statusCode: status,
+            httpVersion: "HTTP/1.1", headerFields: StubURLProtocol.responseHeaders
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         let body = StubURLProtocol.responseBody
@@ -67,7 +78,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
         return ClaudeLLMClient(
-            apiKey: "sk-test", model: "claude-sonnet-4-6",
+            apiKey: "sk-test", model: "claude-sonnet-5-5",
             baseURL: URL(string: "https://api.anthropic.com")!,
             session: URLSession(configuration: config),
             maxRetries: maxRetries, baseRetryDelay: 0.001
@@ -115,28 +126,6 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(StubURLProtocol.callCount == 2)   // 1 initial + 1 retry
     }
 
-    /// On broad inputs the model sometimes restates the schema and "thinks out loud" BEFORE the real
-    /// JSON object. The client must skip that preamble and decode the actual answer (the last object),
-    /// not merge everything between the first "{" and last "}" into one unparseable blob.
-    @Test func decodesRealObjectDespiteSchemaEchoAndPreamble() async throws {
-        let real = #"{"variants":[{"en":"How much does this cost?","register":"formal","context_ru":"Уточнить цену"},{"en":"Do you accept cards?","register":"formal","context_ru":"Способ оплаты"},{"en":"Could I have a receipt?","register":"formal","context_ru":"Попросить чек"}]}"#
-        let schemaEcho = #"{"variants":{"type":"array","minItems":3},"required":["variants"]}"#
-        let modelText = "\(schemaEcho)\n\nHmm, \"Покупка\" is very general. Let me list useful phrases.\n\n\(real)"
-
-        StubURLProtocol.statusCode = 200
-        StubURLProtocol.callCount = 0
-        StubURLProtocol.responseBody = try sse(modelText)
-        defer { StubURLProtocol.responseBody = nil; StubURLProtocol.statusCode = 529 }
-
-        let client = makeClient()
-        let result = try await client.run(
-            WhatToSayTemplate(tone: .formal, studiedLanguage: "English", nativeLanguage: "Russian"),
-            input: "Покупка"
-        )
-        #expect(result.variants.count == 3)
-        #expect(result.variants.first?.en == "How much does this cost?")
-    }
-
     /// A transient transport blip (e.g. the connection drops mid-request) must be RETRIED with backoff,
     /// not surfaced immediately — so a momentary mobile-network hiccup recovers silently.
     @Test func retriesTransientTransportErrorThenSucceeds() async throws {
@@ -171,40 +160,141 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(StubURLProtocol.callCount == 3)       // 1 initial + 2 retries, THEN the error
     }
 
-    /// Regression: `output_config.effort` must NOT be sent to Haiku — Haiku 4.5 hard-400s on it ("does
-    /// not support the effort parameter"), which would break EVERY request routed to the fast model
-    /// (plain translate defaults to Haiku). Sonnet (and other reasoning tiers) still receive it.
-    @Test func omitsEffortForHaikuButSendsItForSonnet() async throws {
+    /// A backend session that expired server-side (401) is renewed ONCE and the request retried with
+    /// the new token; the backend path never sends an Anthropic key.
+    @Test func renewsRejectedBackendSessionOnceAndRetries() async throws {
+        actor FakeSession: RequestAuthorizing {
+            private var issued = 0
+            private(set) var rejections = 0
+            nonisolated var isConfigured: Bool { true }
+            func authorize(_ request: inout URLRequest) async throws {
+                issued += 1
+                request.setValue("Bearer token-\(issued)", forHTTPHeaderField: "Authorization")
+            }
+            func credentialRejected() async -> Bool { rejections += 1; return true }
+        }
+        StubURLProtocol.statusCode = 200
+        StubURLProtocol.statusSequence = [401]
+        StubURLProtocol.callCount = 0
+        StubURLProtocol.responseBody = try sse(#"{"ok":true}"#)
+        defer {
+            StubURLProtocol.responseBody = nil; StubURLProtocol.statusCode = 529
+            StubURLProtocol.statusSequence = []; StubURLProtocol.lastAuthorization = nil
+        }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        let session = FakeSession()
+        let client = ClaudeLLMClient(
+            authorizer: session, model: "claude-sonnet-5-5",
+            baseURL: URL(string: "https://backend.example")!,
+            session: URLSession(configuration: config), maxRetries: 1, baseRetryDelay: 0.001
+        )
+        let ok = try await client.run(HealthCheckTemplate(), input: ())
+        #expect(ok)
+        #expect(StubURLProtocol.callCount == 2)                       // 401, then the retry
+        #expect(StubURLProtocol.lastAuthorization == "Bearer token-2")  // with the RENEWED token
+        #expect(StubURLProtocol.lastAPIKey == nil)                     // no Anthropic key on the wire
+        #expect(await session.rejections == 1)
+    }
+
+    /// HTTP 402 from our backend = the free plan's limit: surfaced with its wait, and NEVER retried.
+    @Test func freePlanLimitIsNotRetried() async throws {
+        StubURLProtocol.statusCode = 402
+        StubURLProtocol.callCount = 0
+        StubURLProtocol.responseHeaders = ["Retry-After": "240"]
+        StubURLProtocol.responseBody = Data(#"{"error":{"type":"subscription_required","retry_after":240}}"#.utf8)
+        defer {
+            StubURLProtocol.statusCode = 529; StubURLProtocol.responseHeaders = nil; StubURLProtocol.responseBody = nil
+        }
+        do {
+            _ = try await makeClient().run(HealthCheckTemplate(), input: ())
+            Issue.record("expected subscriptionRequired")
+        } catch {
+            #expect(error as? LLMError == .subscriptionRequired(retryAfter: 240))
+        }
+        #expect(StubURLProtocol.callCount == 1)
+    }
+
+    /// The Settings probe is small and fixed — the backend's `isHealthCheck` relies on this shape.
+    @Test func healthProbeMatchesTheBackendExemption() async throws {
+        StubURLProtocol.statusCode = 200
+        StubURLProtocol.callCount = 0
+        StubURLProtocol.responseBody = try sse(#"{"ok":true}"#)
+        defer { StubURLProtocol.statusCode = 529; StubURLProtocol.responseBody = nil; StubURLProtocol.lastBody = nil }
+        _ = try await makeClient().run(HealthCheckTemplate(), input: ())
+        let body = try #require(StubURLProtocol.lastBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["system"] as? String == #"Reply with {"ok": true}."#)
+        #expect((json["max_tokens"] as? Int ?? .max) <= 1024)
+        let content = try #require(((json["messages"] as? [[String: Any]])?.first)?["content"] as? [[String: Any]])
+        #expect(content.count == 1)
+        #expect(content.first?["text"] as? String == "ping")
+    }
+
+    /// A rejected DIRECT key can't get better by retrying: one call, then `.notConfigured`.
+    @Test func doesNotRetryRejectedDirectKey() async throws {
+        StubURLProtocol.statusCode = 401
+        StubURLProtocol.callCount = 0
+        defer { StubURLProtocol.statusCode = 529 }
+        do {
+            _ = try await makeClient().run(HealthCheckTemplate(), input: ())
+            Issue.record("expected notConfigured")
+        } catch {
+            #expect(error as? LLMError == .notConfigured)
+        }
+        #expect(StubURLProtocol.callCount == 1)
+    }
+
+    /// Regression: `output_config.effort` must NOT be sent to a legacy Haiku — Haiku 4.5 hard-400s on it
+    /// ("does not support the effort parameter"), which would break EVERY request routed to the fast
+    /// model. Haiku 5.5 and Sonnet 5.5 DO receive it (without it Haiku 5.5 runs at its slower `medium`
+    /// default). Every request carries the template schema as the structured-output format, and no
+    /// `thinking` field (neither 5.5 model accepts "disabled").
+    @Test func sendsEffortToCurrentModelsButNotLegacyHaiku() async throws {
         StubURLProtocol.statusCode = 200
         StubURLProtocol.responseBody = try sse(#"{"ok":true}"#)
         defer {
             StubURLProtocol.responseBody = nil; StubURLProtocol.statusCode = 529; StubURLProtocol.lastBody = nil
         }
 
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [StubURLProtocol.self]
-        let client = ClaudeLLMClient(
-            apiKey: "sk-test", model: "claude-sonnet-4-6", fastModel: "claude-haiku-4-5",
-            baseURL: URL(string: "https://api.anthropic.com")!,
-            session: URLSession(configuration: config), maxRetries: 1, baseRetryDelay: 0.001
-        )
+        func wireJSON(model: String, fastModel: String, tier: ModelTier) async throws -> [String: Any] {
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [StubURLProtocol.self]
+            let client = ClaudeLLMClient(
+                apiKey: "sk-test", model: model, fastModel: fastModel,
+                baseURL: URL(string: "https://api.anthropic.com")!,
+                session: URLSession(configuration: config), maxRetries: 1, baseRetryDelay: 0.001
+            )
+            StubURLProtocol.callCount = 0; StubURLProtocol.lastBody = nil
+            _ = try await client.run(HealthCheckTemplate(tier: tier), input: ())
+            let body = try #require(StubURLProtocol.lastBody)
+            return try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        }
+        func effort(_ json: [String: Any]) -> String? {
+            (json["output_config"] as? [String: Any])?["effort"] as? String
+        }
 
-        // Fast tier → routes to Haiku → output_config OMITTED entirely.
-        StubURLProtocol.callCount = 0; StubURLProtocol.lastBody = nil
-        _ = try await client.run(HealthCheckTemplate(tier: .fast), input: ())
-        let haikuBody = try #require(StubURLProtocol.lastBody)
-        let haikuJSON = try #require(try JSONSerialization.jsonObject(with: haikuBody) as? [String: Any])
-        #expect(haikuJSON["model"] as? String == "claude-haiku-4-5")   // .fast tier really reached the wire
-        #expect(haikuJSON["output_config"] == nil)             // ← the fix: no effort to Haiku
+        // Fast tier → Haiku 5.5 → effort present, schema as the structured-output format.
+        let haiku = try await wireJSON(model: "claude-sonnet-5-5", fastModel: "claude-haiku-5-5", tier: .fast)
+        #expect(haiku["model"] as? String == "claude-haiku-5-5")   // .fast tier really reached the wire
+        #expect(effort(haiku) == "low")
+        let format = try #require((haiku["output_config"] as? [String: Any])?["format"] as? [String: Any])
+        #expect(format["type"] as? String == "json_schema")
+        #expect((format["schema"] as? [String: Any])?["additionalProperties"] as? Bool == false)
+        #expect(haiku["thinking"] == nil)
 
-        // Standard tier → routes to Sonnet → output_config.effort present.
-        StubURLProtocol.callCount = 0; StubURLProtocol.lastBody = nil
-        _ = try await client.run(HealthCheckTemplate(tier: .standard), input: ())
-        let sonnetBody = try #require(StubURLProtocol.lastBody)
-        let sonnetJSON = try #require(try JSONSerialization.jsonObject(with: sonnetBody) as? [String: Any])
-        #expect(sonnetJSON["model"] as? String == "claude-sonnet-4-6")
-        let effort = (sonnetJSON["output_config"] as? [String: Any])?["effort"] as? String
-        #expect(effort == "low")                               // Sonnet still gets effort
+        // Standard tier → Sonnet 5.5 → effort present.
+        let sonnet = try await wireJSON(model: "claude-sonnet-5-5", fastModel: "claude-haiku-5-5", tier: .standard)
+        #expect(sonnet["model"] as? String == "claude-sonnet-5-5")
+        #expect(effort(sonnet) == "low")
+
+        // A legacy Haiku 4.5 configured as the fast model → effort omitted, format still sent.
+        let legacy = try await wireJSON(model: "claude-sonnet-5-5", fastModel: "claude-haiku-4-5", tier: .fast)
+        #expect(legacy["model"] as? String == "claude-haiku-4-5")
+        let legacyConfig = try #require(legacy["output_config"] as? [String: Any])
+        #expect(legacyConfig["effort"] == nil)                 // ← no effort to Haiku 4.5
+        #expect(legacyConfig["format"] != nil)
     }
 
     /// Regression for the same root cause: per-template tuning (`maxOutputTokens` / `prefersFastResponse`)
@@ -250,7 +340,7 @@ private struct TuningProbeTemplate: PromptTemplate {
     typealias Output = Bool
     let id = "tuningProbe"
     var systemPrompt: String { "probe" }
-    var outputJSONSchema: String { #"{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}"# }
+    var outputJSONSchema: String { #"{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}"# }
     func userMessage(for input: Void) -> String { "ping" }
     func decode(_ rawJSON: String) throws -> Bool { true }
     var maxOutputTokens: Int { 7777 }

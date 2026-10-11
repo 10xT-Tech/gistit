@@ -2,21 +2,25 @@
 //  ClaudeLLMClient.swift
 //  EnglishHelper — Data (adapter for LLMClient)
 //
-//  Anthropic Messages API. Executes any PromptTemplate: injects the system prompt + the template's
-//  strict JSON schema, sends the input, then strips fences and typed-decodes via the template.
-//  Takes plain config (key/model/url) — NOT AppConfig — so Data stays independent of App.
+//  Anthropic Messages API. Executes any PromptTemplate: sends the system prompt + input with the
+//  template's JSON schema as a structured-output format, then typed-decodes via the template.
+//  Takes plain config (credential/model/url) — NOT AppConfig — so Data stays independent of App.
+//  The credential is a `RequestAuthorizing`: our backend's session (production — the Anthropic key
+//  stays on the server, which exposes the same /v1/messages path) or a direct key (development).
 //
 
 import Foundation
 import Domain
+import os
+
+private let llmLog = Logger(subsystem: "tech.10xt.englishhelper", category: "llm")
 
 public final class ClaudeLLMClient: LLMClient {
-    private let apiKey: String
+    private let authorizer: any RequestAuthorizing
     private let model: String          // standard tier (e.g. Sonnet)
     private let fastModel: String      // fast tier (e.g. Haiku) — for simple translation
     private let endpoint: URL
     private let session: URLSession
-    private let anthropicVersion = "2023-06-01"
     /// Retries on transient 429/529/5xx with exponential backoff (Anthropic's recommendation).
     private let maxRetries: Int
     private let baseRetryDelay: Double   // seconds
@@ -25,7 +29,8 @@ public final class ClaudeLLMClient: LLMClient {
     /// Nil ⇒ no pre-check (the previous behaviour; used by tests). Wired to NWPathMonitor in the app.
     private let isReachable: (@Sendable () -> Bool)?
 
-    public init(
+    /// Direct Anthropic access with an embedded key (development / tests).
+    public convenience init(
         apiKey: String,
         model: String,
         fastModel: String? = nil,
@@ -35,7 +40,22 @@ public final class ClaudeLLMClient: LLMClient {
         baseRetryDelay: Double = 0.5,
         isReachable: (@Sendable () -> Bool)? = nil
     ) {
-        self.apiKey = apiKey
+        self.init(authorizer: DirectAPIKeyAuthorizer(apiKey: apiKey), model: model, fastModel: fastModel,
+                  baseURL: baseURL, session: session, maxRetries: maxRetries,
+                  baseRetryDelay: baseRetryDelay, isReachable: isReachable)
+    }
+
+    public init(
+        authorizer: any RequestAuthorizing,
+        model: String,
+        fastModel: String? = nil,
+        baseURL: URL,
+        session: URLSession? = nil,
+        maxRetries: Int = 3,
+        baseRetryDelay: Double = 0.5,
+        isReachable: (@Sendable () -> Bool)? = nil
+    ) {
+        self.authorizer = authorizer
         self.model = model
         self.fastModel = fastModel ?? model   // no fast model configured ⇒ everything on the standard one
         self.endpoint = baseURL.appending(path: "v1/messages")
@@ -68,15 +88,14 @@ public final class ClaudeLLMClient: LLMClient {
         _ template: Template,
         input: Template.Input
     ) async throws -> Template.Output {
-        guard !apiKey.isEmpty else { throw LLMError.notConfigured }
+        guard authorizer.isConfigured else { throw LLMError.notConfigured }
 
-        let system = """
-        \(template.systemPrompt)
-
-        Respond with ONLY a single JSON object that satisfies this schema. No prose, no explanation,
-        no markdown code fences:
-        \(template.outputJSONSchema)
-        """
+        let schema: JSONValue
+        do {
+            schema = try JSONDecoder().decode(JSONValue.self, from: Data(template.outputJSONSchema.utf8))
+        } catch {
+            throw LLMError.invalidOutput("template \(template.id) has an invalid output schema")
+        }
         var content: [ContentBlock] = []
         if let imageData = template.image(for: input) {
             // Claude's vision API rejects HEIC (the default iPhone format) and oversized images, so
@@ -88,36 +107,36 @@ public final class ClaudeLLMClient: LLMClient {
         }
         content.append(.text(template.userMessage(for: input)))
 
-        // Per-template tuning. None of these tasks need chain-of-thought, so thinking is disabled
-        // everywhere — that alone is the big latency win (extended reasoning on a dense photo blew
-        // the response out to ~50s+). Short TEXT tasks then run at LOW effort with a tight 30s
-        // timeout (fast). The photo translator runs at MEDIUM effort with a larger output budget and
-        // a much longer timeout, because OCR-ing + translating a dense page is genuinely a 30–60s job.
+        // Per-template tuning. `thinking` is left to the model default (adaptive on Sonnet 5.5 and Haiku
+        // 5.5 — neither accepts "disabled"); depth and latency are controlled by `effort`. Short TEXT
+        // tasks run at LOW effort with a tight 30s timeout (fast). The photo translator runs at MEDIUM
+        // effort with a larger output budget and a much longer timeout, because OCR-ing + translating a
+        // dense page is genuinely a 30–60s job.
         let fast = template.prefersFastResponse
         // Route to the model tier the template asks for: plain translation → fast model (Haiku),
         // everything else → standard (Sonnet). Falls back to the standard model if no fast one is set.
         let modelName = template.modelTier == .fast ? fastModel : model
-        // The `effort` knob is only honoured by the reasoning-capable tiers (Opus / Sonnet 4.6+). Haiku
-        // 4.5 hard-REJECTS it with HTTP 400 "This model does not support the effort parameter", which
-        // would 400 EVERY request routed to the fast model (plain translate defaults to Haiku) — so omit
-        // `output_config` entirely whenever the resolved model is Haiku. Locale-independent compare:
-        // a machine identifier must match the same way on a Turkish-locale device (dotless-I casing).
-        let supportsEffort = !modelName.lowercased().contains("haiku")
+        // Every current model honours `effort` (Haiku 5.5 included — without it Haiku runs at its
+        // `medium` default, slower than the `low` we want for translation). Only the LEGACY Haikus (4.5
+        // and 3.x) hard-REJECT it with HTTP 400 "This model does not support the effort parameter" —
+        // so omit `effort` for those if one is configured via CLAUDE_FAST_MODEL. Locale-independent
+        // compare: a machine identifier must match the same way on a Turkish-locale device.
+        let supportsEffort = !Self.isLegacyHaiku(modelName)
         let body = RequestBody(
             model: modelName,
             max_tokens: template.maxOutputTokens,
-            system: system,
+            system: template.systemPrompt,
             messages: [.init(role: "user", content: content)],
-            thinking: .init(type: "disabled"),
-            output_config: supportsEffort ? .init(effort: fast ? "low" : "medium") : nil
+            output_config: .init(
+                effort: supportsEffort ? (fast ? "low" : "medium") : nil,
+                format: .init(type: "json_schema", schema: schema)
+            )
         )
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = fast ? 30 : 90
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(anthropicVersion, forHTTPHeaderField: "anthropic-version")
         // Compress the upload when it's big enough to benefit — the photo's base64 image is the win on
         // a slow uplink. Only swap in the gzip body if it's actually SMALLER (tiny text bodies inflate
         // by the gzip envelope). The Anthropic API accepts `Content-Encoding: gzip` request bodies.
@@ -129,34 +148,49 @@ public final class ClaudeLLMClient: LLMClient {
             request.httpBody = bodyData
         }
 
-        let message = try await send(request, fast: fast)
+        let message: StreamedMessage
+        do {
+            message = try await send(authorized(request), fast: fast)
+        } catch LLMError.notConfigured {
+            // 401/403: a backend session can expire server-side — renew it once and retry.
+            guard await authorizer.credentialRejected() else { throw LLMError.notConfigured }
+            message = try await send(authorized(request), fast: fast)
+        }
+        llmLog.info("\(template.id, privacy: .public) \(modelName, privacy: .public) in=\(message.inputTokens) out=\(message.outputTokens)")
 
         // The model hit its output-token budget and the JSON is truncated mid-stream — surface a
         // clear, actionable error instead of a generic "couldn't parse the response".
         if message.stopReason == "max_tokens" { throw LLMError.responseTooLong }
+        // A safety refusal is not bound by the output schema.
+        if message.stopReason == "refusal" { throw LLMError.invalidOutput("model declined the request") }
         let text = message.text
         guard !text.isEmpty else { throw LLMError.invalidOutput("empty model response") }
+        // Structured outputs constrain the text to the template's schema — decode it as-is.
+        return try template.decode(text)
+    }
 
-        // The model can wrap the answer in a preamble before the real object — markdown fences, a
-        // restated copy of the schema, or a line of "thinking out loud" (seen on broad inputs). Decode
-        // every top-level JSON object found, LAST first (the real answer comes last; an echoed schema
-        // or preamble comes first), and return the first that fits the template's type.
-        let candidates = Self.jsonObjects(in: text)
-        guard !candidates.isEmpty else {
-            throw LLMError.invalidOutput("no JSON object in response")
+    private func authorized(_ request: URLRequest) async throws -> URLRequest {
+        var request = request
+        do {
+            try await authorizer.authorize(&request)
+        } catch let error as BackendError {
+            throw error.llmError
+        } catch is CancellationError {
+            throw LLMError.cancelled
+        } catch let error as LLMError {
+            throw error
+        } catch {
+            throw LLMError.requestFailed("app attestation failed: \(error.localizedDescription)")
         }
-        var lastError: Error = LLMError.invalidOutput("no decodable JSON object in response")
-        for candidate in candidates.reversed() {
-            do { return try template.decode(candidate) }
-            catch { lastError = error }
-        }
-        throw lastError
+        return request
     }
 
     /// The assembled result of one streamed Messages call.
     private struct StreamedMessage {
         let text: String
         let stopReason: String?
+        let inputTokens: Int
+        let outputTokens: Int
     }
 
     /// Sends the request (streaming) and assembles the response, retrying TRANSIENT failures — both
@@ -201,6 +235,11 @@ public final class ClaudeLLMClient: LLMClient {
                 }
                 // 401 (missing/invalid key) and 403 (revoked/forbidden key) both mean "fix your key".
                 if http.statusCode == 401 || http.statusCode == 403 { throw LLMError.notConfigured }
+                // Our backend: the free plan's allowance for this model is used up. Never retried.
+                if http.statusCode == 402 {
+                    let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
+                    throw LLMError.subscriptionRequired(retryAfter: retryAfter)
+                }
                 let isOverload = http.statusCode == 429 || http.statusCode == 529
                 let isRetryable = isOverload || http.statusCode >= 500
                 if isRetryable && attempt < maxRetries {
@@ -258,27 +297,33 @@ public final class ClaudeLLMClient: LLMClient {
     }
 
     /// Assembles the streamed SSE response: accumulates `content_block_delta` text and captures the
-    /// final `stop_reason`. A server-sent `error` event surfaces as `.requestFailed`.
+    /// final `stop_reason` and token usage. A server-sent `error` event surfaces as `.requestFailed`.
     private static func readStream(_ bytes: URLSession.AsyncBytes) async throws -> StreamedMessage {
         var text = ""
         var stopReason: String?
+        var inputTokens = 0
+        var outputTokens = 0
         for try await line in bytes.lines {
             guard line.hasPrefix("data:") else { continue }
             let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
             guard let data = payload.data(using: .utf8),
                   let event = try? JSONDecoder().decode(StreamEvent.self, from: data) else { continue }
             switch event.type {
+            case "message_start":
+                inputTokens = event.message?.usage?.input_tokens ?? 0
             case "content_block_delta":
                 if let chunk = event.delta?.text { text += chunk }
             case "message_delta":
                 if let reason = event.delta?.stop_reason { stopReason = reason }
+                if let out = event.usage?.output_tokens { outputTokens = out }
             case "error":
                 throw LLMError.requestFailed(event.error?.message ?? "stream error")
             default:
-                break   // message_start / content_block_start / content_block_stop / ping / message_stop
+                break   // content_block_start / content_block_stop / ping / message_stop
             }
         }
-        return StreamedMessage(text: text, stopReason: stopReason)
+        return StreamedMessage(text: text, stopReason: stopReason,
+                               inputTokens: inputTokens, outputTokens: outputTokens)
     }
 
     /// Wait before a retry: honor `Retry-After` if present (HTTP retries), else exponential backoff.
@@ -311,48 +356,18 @@ public final class ClaudeLLMClient: LLMClient {
         }
     }
 
-    /// Every top-level, brace-balanced JSON object in `text`, in order of appearance. String-aware —
-    /// braces inside string values don't affect nesting — so prose, markdown fences, or a restated
-    /// schema surrounding the real object are skipped rather than merged into one unparseable blob (the
-    /// old "first `{` … last `}`" did the latter). Returns [] if there is no complete object.
-    static func jsonObjects(in text: String) -> [String] {
-        var objects: [String] = []
-        var depth = 0
-        var start: String.Index?
-        var inString = false
-        var escaped = false
-        for i in text.indices {
-            let c = text[i]
-            if inString {
-                if escaped { escaped = false }
-                else if c == "\\" { escaped = true }
-                else if c == "\"" { inString = false }
-                continue
-            }
-            switch c {
-            case "\"": inString = true
-            case "{":
-                if depth == 0 { start = i }
-                depth += 1
-            case "}":
-                guard depth > 0 else { break }
-                depth -= 1
-                if depth == 0, let s = start {
-                    objects.append(String(text[s...i]))
-                    start = nil
-                }
-            default: break
-            }
-        }
-        return objects
-    }
-
     /// URLError codes that mean "no usable network path" — all mapped to LLMError.offline so every
     /// consumer can react identically instead of sniffing localized strings.
     private static let offlineCodes: Set<URLError.Code> = [
         .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
         .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
     ]
+
+    /// Haiku 4.5 / 3.5 / 3 — the models that reject `output_config.effort` (any platform prefix/suffix).
+    static func isLegacyHaiku(_ modelName: String) -> Bool {
+        let id = modelName.lowercased()
+        return id.contains("haiku-4") || id.contains("3-5-haiku") || id.contains("3-haiku")
+    }
 
     private static func mediaType(for data: Data) -> String {
         data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"   // PNG magic else JPEG
@@ -364,17 +379,18 @@ public final class ClaudeLLMClient: LLMClient {
         let max_tokens: Int
         let system: String
         let messages: [Message]
-        /// Omitted when nil (synthesized `encodeIfPresent`). `{"type":"disabled"}` skips extended
-        /// reasoning for fast text tasks; left off for vision so the model can think a little.
-        let thinking: Thinking?
-        /// Output config — currently just `effort` (low for fast text, medium for vision/long tasks).
-        let output_config: OutputConfig?
+        /// `effort` (low for fast text, medium for vision/long tasks; omitted for legacy Haiku) and the
+        /// structured-output `format` carrying the template's JSON schema.
+        let output_config: OutputConfig
         /// Always stream: chunks arriving continuously turn the per-request timeout into an
         /// inter-chunk IDLE bound, so a long-but-healthy generation is never killed for total time.
         let stream = true
         struct Message: Encodable { let role: String; let content: [ContentBlock] }
-        struct Thinking: Encodable { let type: String }
-        struct OutputConfig: Encodable { let effort: String }
+        struct OutputConfig: Encodable {
+            let effort: String?   // nil ⇒ omitted (synthesized `encodeIfPresent`)
+            let format: Format
+        }
+        struct Format: Encodable { let type: String; let schema: JSONValue }
     }
 
     private enum ContentBlock: Encodable {
@@ -401,16 +417,47 @@ public final class ClaudeLLMClient: LLMClient {
         }
     }
 
+    /// Arbitrary JSON, so a template's schema text can be embedded in the request body as an object.
+    private enum JSONValue: Codable {
+        case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if c.decodeNil() { self = .null }
+            else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+            else if let v = try? c.decode(Double.self) { self = .number(v) }
+            else if let v = try? c.decode(String.self) { self = .string(v) }
+            else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
+            else { self = .object(try c.decode([String: JSONValue].self)) }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.singleValueContainer()
+            switch self {
+            case .null: try c.encodeNil()
+            case .bool(let v): try c.encode(v)
+            case .number(let v): try c.encode(v)
+            case .string(let v): try c.encode(v)
+            case .array(let v): try c.encode(v)
+            case .object(let v): try c.encode(v)
+            }
+        }
+    }
+
     /// One SSE event from the streaming Messages API (only the fields we consume).
     private struct StreamEvent: Decodable {
         let type: String
         let delta: Delta?
+        let usage: Usage?        // message_delta (cumulative output tokens)
+        let message: Start?      // message_start
         let error: APIError?
         struct Delta: Decodable {
             let type: String?
             let text: String?          // content_block_delta (text_delta)
             let stop_reason: String?   // message_delta
         }
+        struct Usage: Decodable { let input_tokens: Int?; let output_tokens: Int? }
+        struct Start: Decodable { let usage: Usage? }
         struct APIError: Decodable { let type: String?; let message: String? }
     }
 }

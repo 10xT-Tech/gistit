@@ -18,13 +18,13 @@ import Foundation
         "SwiftUI", "UIKit", "AppKit", "AVFoundation", "AVFAudio", "Speech", "Vision",
         "CoreData", "SwiftData", "Combine", "Photos", "PhotosUI",
         "UniformTypeIdentifiers", "CoreImage", "CoreGraphics", "Network",
-        "TelemetryDeck", "TelemetryClient",
+        "AmplitudeSwift", "Sentry",
     ]
 
     /// Presentation may use SwiftUI/UIKit but never an engine/transport backend.
     static let presentationForbidden: Set<String> = [
         "AVFoundation", "AVFAudio", "Speech", "Vision", "CoreData", "SwiftData", "Network",
-        "TelemetryDeck", "TelemetryClient",
+        "AmplitudeSwift", "Sentry",
     ]
 
     static func directory(_ layer: String) -> URL {

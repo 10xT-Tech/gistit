@@ -3,7 +3,7 @@
 //  EnglishHelperTests
 //
 //  Use cases report the RIGHT AnalyticsEvent through the AnalyticsTracking port on success — and
-//  nothing on failure. The TelemetryDeck SDK itself is third-party code and is NOT tested here;
+//  nothing on failure. The Amplitude SDK itself is third-party code and is NOT tested here;
 //  everything runs against MockAnalyticsTracker.
 //
 

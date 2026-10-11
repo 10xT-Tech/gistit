@@ -56,6 +56,8 @@ public final class VoiceViewModel {
     /// `errorMessage` only renders in `.failed`, so a background save error needs its own channel.
     public private(set) var saveError: String?
     public private(set) var isOffline = false
+    /// The free plan's limit stopped the request — the screen offers the subscription instead of Retry.
+    public private(set) var needsSubscription = false
     public private(set) var playingVariantID: UUID?
     public var showMicPriming = false {
         // The sheet can close WITHOUT confirm/cancelPriming (interactive swipe-down just flips the
@@ -136,7 +138,24 @@ public final class VoiceViewModel {
     /// Re-read the clipboard's has-text METADATA (never triggers the iOS paste banner). Called on
     /// screen appear, on returning to the foreground, and when the field is cleared.
     public func refreshClipboardState() {
-        clipboardHasText = pasteboard.hasText
+        let hasText = pasteboard.hasText
+        if hasText != clipboardHasText { clipboardHasText = hasText }   // equal → no @Observable churn
+    }
+
+    /// Keep `clipboardHasText` honest for as long as the screen is visible. iOS posts
+    /// `UIPasteboard.changedNotification` only for changes made by THIS app or when the app becomes
+    /// active — a change made by another process while we are already in the foreground (Universal
+    /// Clipboard from a Mac, a password manager's auto-clear, Shortcuts, a keyboard extension) is
+    /// silent. Left unrefreshed, the slot either kept a Paste control the system had already greyed
+    /// out (no Explain/Translate anywhere on the screen) or a disabled mode button with text one tap
+    /// away. `hasText` is a metadata read and never triggers the paste banner; the interval is a
+    /// parameter so tests can run the loop fast. Runs until cancelled — bind it to the screen with
+    /// `.task`.
+    public func monitorClipboard(every interval: Duration = .seconds(1)) async {
+        while !Task.isCancelled {
+            refreshClipboardState()
+            try? await Task.sleep(for: interval)
+        }
     }
 
     /// Fill the input with what the SYSTEM paste control delivered (its tap IS the pasteboard
@@ -239,6 +258,7 @@ public final class VoiceViewModel {
         requestTask = nil
         errorMessage = nil
         isOffline = false
+        needsSubscription = false
         variants = []
         generatedIntent = nil
         intent = ""
@@ -366,6 +386,7 @@ public final class VoiceViewModel {
             generatedIntent = nil
             errorMessage = nil                // a stale error's Retry would otherwise re-run the NEW mode
             isOffline = false
+            needsSubscription = false
             phase = .idle
         }
     }
@@ -406,6 +427,7 @@ public final class VoiceViewModel {
         phase = .processing
         errorMessage = nil
         isOffline = false
+        needsSubscription = false
         requestTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -460,6 +482,9 @@ public final class VoiceViewModel {
                                  "Couldn't parse the response. Try again.")
         case .cancelled:
             errorMessage = Loc.t("Запрос отменён.", "Request cancelled.")
+        case .subscriptionRequired(let retryAfter):
+            needsSubscription = true
+            errorMessage = subscriptionLimitMessage(retryAfter: retryAfter)
         case .requestFailed:
             errorMessage = Loc.t("Сервис недоступен. Попробуйте позже.", "Service unavailable. Try later.")
         }

@@ -59,6 +59,8 @@ public final class AppContainer: Sendable {
     public let cacheAdmin: any TranslationCacheAdminUseCase   // translation-cache stats + clear (Settings)
     public let storageUsage: any StorageUsageUseCase          // disk usage of cache/history/audio (Settings)
     public let explainExpression: any ExplainExpressionUseCase
+    /// The user's plan (App Store subscription). Drives the paywall; the backend enforces it.
+    public let subscriptions: any SubscriptionManaging
 
     public init(
         config: AppConfig,
@@ -76,7 +78,8 @@ public final class AppContainer: Sendable {
         analytics: (any AnalyticsTracking)? = nil,
         transcriptionService: any TranscriptionServiceChecking = MockTranscriptionService(),
         liveTranslating: any LiveTranslating = MockLiveTranslating(),
-        recordings: any SessionRecordingsManaging = MockSessionRecordings()
+        recordings: any SessionRecordingsManaging = MockSessionRecordings(),
+        subscriptions: any SubscriptionManaging = UnlimitedAccess()
     ) {
         self.config = config
         self.usingFallbackStore = usingFallbackStore
@@ -89,14 +92,16 @@ public final class AppContainer: Sendable {
         self.history = history
         self.exporter = exporter
         self.analytics = analytics
+        self.subscriptions = subscriptions
 
         // Wire use cases onto the ports.
-        // "Say it" phrase generation routes to the user-selected model (default Sonnet).
+        // Fixed per-scenario routing (not user-selectable): Say it + Explain → standard (Sonnet,
+        // quality); plain Translate → fast (Haiku, speed).
         self.howToSay = HowToSayInteractor(llm: llm, history: history, cache: cache,
-                                           tier: { LLMModelChoice.currentSayIt.tier },
+                                           tier: { .standard },
                                            analytics: analytics)
         self.whatToSay = WhatToSayInteractor(llm: llm, history: history, cache: cache,
-                                             tier: { LLMModelChoice.currentSayIt.tier },
+                                             tier: { .standard },
                                              analytics: analytics)
         self.photoTranslate = PhotoTranslateInteractor(llm: llm, history: history,
                                                        analytics: analytics)          // LLM vision (no local OCR)
@@ -111,7 +116,7 @@ public final class AppContainer: Sendable {
         self.exportAnkiDeck = ExportDeckInteractor(repository: expressions, exporter: AnkiExporter(),
                                                    analytics: analytics)
         self.regenerateHowToSay = RegenerateHowToSayInteractor(llm: llm, history: history, cache: cache,
-                                                               tier: { LLMModelChoice.currentSayIt.tier },
+                                                               tier: { .standard },
                                                                analytics: analytics)
         self.saveExpression = SaveExpressionInteractor(
             enrich: EnrichExpressionInteractor(llm: llm), repository: expressions,
@@ -125,13 +130,11 @@ public final class AppContainer: Sendable {
         self.liveTranslate = LiveTranslateInteractor(live: liveTranslating, history: history,
                                                      recordings: recordings, analytics: analytics)
         self.recordings = recordings
-        // Route translate / explain to the user-selected model (live read each request). Defaults:
-        // translate → Haiku (speed), explain → Sonnet (quality).
         self.understand = UnderstandInteractor(llm: llm, history: history, cache: cache,
-                                               tier: { LLMModelChoice.currentTranslate.tier },
+                                               tier: { .fast },
                                                analytics: analytics)
         self.explainExpression = ExplainExpressionInteractor(llm: llm,
-                                                             tier: { LLMModelChoice.currentExplain.tier },
+                                                             tier: { .standard },
                                                              analytics: analytics)
         self.cacheAdmin = TranslationCacheAdminInteractor(cache: cache)
         self.storageUsage = StorageUsageInteractor(reader: storageReader)
@@ -140,18 +143,43 @@ public final class AppContainer: Sendable {
     /// v1: the whole graph on LIVE adapters. Swapping any engine is exactly ONE line below
     /// (see README "Swapping an engine"). The Domain/Presentation never learn which one is wired.
     public static func bootLive(config: AppConfig = .load(),
-                                isReachable: (@Sendable () -> Bool)? = nil) throws -> AppContainer {
+                                isReachable: (@Sendable () -> Bool)? = nil,
+                                analytics: (any AnalyticsTracking)? = nil) throws -> AppContainer {
         let (modelContainer, usingFallbackStore) = try makePersistentContainer()
         // Shared by the live translator (writes), History playback (reads), and the history
         // repository's pruning (deletes audio of pruned rows).
         let recordings = SessionRecordingsPlayer()
+        // Credentials: our backend (production — no third-party key in the app) or, without
+        // BACKEND_URL, the embedded development keys.
+        // Subscription (App Store version only — see StoreKitSubscriptionService). Without a backend
+        // the app talks to the services directly (development), so everything stays unlocked.
+        let storeKit = config.backendURL.map { _ in StoreKitSubscriptionService(productIDs: [AppConfig.subscriptionProductID]) }
+        let backend = config.backendURL.map { url in
+            BackendSession(baseURL: url, devToken: config.backendDevToken,
+                           proofs: { await storeKit?.entitlementProofs() ?? .none })
+        }
+        if let storeKit {
+            Task {
+                await storeKit.start()
+                // A plan change (purchase, renewal, expiry, refund) re-opens the backend session so
+                // the server re-reads the tier.
+                for await _ in storeKit.tierUpdates() {
+                    await backend?.refreshEntitlements()
+                }
+            }
+        }
+        let claudeAuth: any RequestAuthorizing = backend ?? DirectAPIKeyAuthorizer(apiKey: config.claudeAPIKey ?? "")
+        let sonioxCredential: SonioxCredential = backend.map { .temporaryKeys(from: $0) }
+            ?? .apiKey(config.sonioxAPIKey ?? "")
+        let transcriptionService: any TranscriptionServiceChecking = backend.map { BackendTranscriptionHealth(backend: $0) }
+            ?? SonioxClient(apiKey: config.sonioxAPIKey ?? "")
         return AppContainer(
             config: config,
             usingFallbackStore: usingFallbackStore,
-            llm: ClaudeLLMClient(apiKey: config.claudeAPIKey ?? "",
+            llm: ClaudeLLMClient(authorizer: claudeAuth,
                                  model: config.claudeModel,
                                  fastModel: config.claudeFastModel,
-                                 baseURL: config.claudeBaseURL,
+                                 baseURL: config.backendURL ?? config.claudeBaseURL,
                                  isReachable: isReachable),
             // "Say it": the microphone follows the user's chosen native language (resolved per capture).
             speechRecognizer: NativeSpeechRecognizer(localeProvider: {
@@ -173,16 +201,16 @@ public final class AppContainer: Sendable {
             cache: SwiftDataTranslationCache(modelContainer: modelContainer),
             // Disk usage shown in Settings (cache/history row contents + session-audio file sizes).
             storageReader: StorageUsageReader(modelContainer: modelContainer, recordingsDirectory: nil),
-            // Live product analytics — wired ONLY when the App ID is configured: the SDK asserts (in
-            // debug) if a signal is sent before `initialize`, which the entry point calls iff the ID
-            // is present. No ID (fresh clone / CI) → analytics is simply off, like the API key.
-            analytics: config.telemetryDeckAppID != nil ? TelemetryDeckTracker() : nil,
-            // Soniox (online translation). No key → the client reports .notConfigured, which Settings
-            // shows as a "no key" status — same graceful degradation as the Claude key.
-            transcriptionService: SonioxClient(apiKey: config.sonioxAPIKey ?? ""),
-            liveTranslating: SonioxLiveTranslator(apiKey: config.sonioxAPIKey ?? "",
+            // Live product analytics (AmplitudeTracker) — created by the entry point, which owns the
+            // single SDK instance; nil (no API key / tests) → analytics is simply off, like the API key.
+            analytics: analytics,
+            // Soniox (online translation). No key and no backend → the client reports .notConfigured,
+            // which Settings shows as a "no key" status — same graceful degradation as the Claude key.
+            transcriptionService: transcriptionService,
+            liveTranslating: SonioxLiveTranslator(credential: sonioxCredential,
                                                   model: config.sonioxModel),   // ← swap live engine here
-            recordings: recordings
+            recordings: recordings,
+            subscriptions: storeKit ?? UnlimitedAccess()
         )
     }
 
@@ -265,7 +293,9 @@ public final class AppContainer: Sendable {
             studyList: studyList,
             isConfigured: config.isClaudeConfigured,
             isLiveConfigured: config.isSonioxConfigured,
-            longTask: LongTaskCoordinator()
+            longTask: LongTaskCoordinator(),
+            // Lock Screen Live Activity for the running online session (pause/stop from the banner).
+            liveActivity: LiveTranslationActivityController()
         )
     }
 
@@ -316,6 +346,12 @@ public final class AppContainer: Sendable {
     }
 
     @MainActor
+    public func makeSubscriptionState() -> SubscriptionState {
+        SubscriptionState(service: subscriptions, productID: AppConfig.subscriptionProductID,
+                          privacyPolicyURL: AppConfig.privacyPolicyURL, termsOfUseURL: AppConfig.termsOfUseURL)
+    }
+
+    @MainActor
     public func makeSettingsViewModel() -> SettingsViewModel {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
         return SettingsViewModel(
@@ -323,10 +359,7 @@ public final class AppContainer: Sendable {
             transcriptionHealth: transcriptionHealth,
             cacheAdmin: cacheAdmin,
             storageUsage: storageUsage,
-            appVersion: version,
-            modelName: config.claudeModel,
-            fastModelName: config.claudeFastModel,
-            sonioxModelName: config.sonioxModel
+            appVersion: version
         )
     }
 }

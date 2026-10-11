@@ -78,6 +78,39 @@ import Presentation
         #expect(updated.learned == !before)
     }
 
+    @Test func cleanUpRemovesOnlyLearnedAndPersists() async throws {
+        let vm = makeVM(seed: MockExpressionRepository.defaultSeed)
+        await vm.load()
+        let total = vm.expressions.count
+        let first = try #require(vm.expressions.first)
+        if !first.learned { vm.toggleLearned(first) }
+        let learnedBefore = vm.learnedCount
+        #expect(learnedBefore >= 1)
+
+        vm.cleanUpLearned()
+        // Optimistic: the learned rows are gone at once, nothing else is touched.
+        #expect(vm.learnedCount == 0)
+        #expect(vm.expressions.count == total - learnedBefore)
+        #expect(vm.expressions.contains { $0.id == first.id } == false)
+
+        // Persisted: a fresh load from the store agrees.
+        try await Task.sleep(for: .milliseconds(100))
+        await vm.load()
+        #expect(vm.expressions.count == total - learnedBefore)
+        #expect(vm.expressions.contains { $0.id == first.id } == false)
+    }
+
+    @Test func cleanUpWithNothingLearnedIsNoOp() async throws {
+        let vm = makeVM(seed: MockExpressionRepository.defaultSeed)
+        await vm.load()
+        for e in vm.expressions where e.learned { vm.toggleLearned(e) }
+        let count = vm.expressions.count
+        #expect(vm.learnedCount == 0)
+        vm.cleanUpLearned()
+        #expect(vm.expressions.count == count)
+        #expect(vm.phase == .loaded)
+    }
+
     @Test func exportProducesXMLDeck() async throws {
         let vm = makeVM(seed: MockExpressionRepository.defaultSeed)
         await vm.load()

@@ -47,6 +47,7 @@ public struct ConnectionHealthInteractor: ConnectionHealthUseCase {
             case .requestFailed: return .failed(.unavailable)
             case .invalidOutput: return .failed(.badResponse)
             case .cancelled: return .cancelled   // sheet dismissed mid-check — not a connectivity fault
+            case .subscriptionRequired: return .ok   // reachable and authorised; only the plan limits it
             }
         } catch {
             return .failed(.unknown)

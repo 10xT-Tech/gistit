@@ -17,6 +17,9 @@ public enum LLMError: Error, Sendable, Equatable {
     case requestFailed(String)      // any other transport/HTTP failure (detail is diagnostic, NOT a category)
     case invalidOutput(String)      // model output did not satisfy the template schema
     case cancelled                  // superseded / task cancelled — never a real failure
+    /// The free plan's allowance for this model is used up (App Store build without a subscription).
+    /// `retryAfter`: seconds until the next free request, when the limit is time-based.
+    case subscriptionRequired(retryAfter: Int?)
 }
 
 public enum SpeechRecognitionError: Error, Sendable, Equatable {
