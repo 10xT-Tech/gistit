@@ -7,6 +7,9 @@
 //  can make the page wider than the screen and let it drift left/right; horizontal bounce is off.
 //  Scroll modifiers (`scrollPosition`, `onScrollGeometryChange`, `scrollDismissesKeyboard`, …)
 //  applied to it reach the inner ScrollView as usual.
+//  PAGE-level only: `containerRelativeFrame` sizes the content to the nearest container, which for a
+//  scroll view nested inside a card (not itself the page) can be the whole screen — use a plain
+//  `ScrollView(.vertical)` there.
 //
 
 import SwiftUI

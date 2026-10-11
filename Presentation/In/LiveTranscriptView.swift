@@ -118,11 +118,16 @@ private struct TranscriptPane: View {
                 }
             }
 
-            VerticalScrollView {
+            // A plain vertical ScrollView, NOT `VerticalScrollView`: that one pins its content to the
+            // nearest container's width (`containerRelativeFrame`), which for a pane nested in a
+            // non-scrolling layout is the whole screen — the text then outgrew the card and pushed both
+            // panes past the screen edges. Here the pane's own width already bounds the text.
+            ScrollView(.vertical) {
                 transcriptText
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             // The headerless (Original) pane gets a floating copy icon in its top-right corner.
             .overlay(alignment: .topTrailing) {
                 if !showsTitle, !copyText.isEmpty {
