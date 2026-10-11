@@ -209,7 +209,7 @@ CHANGELOG.md     user-facing release notes
 
 ## Status
 
-**v1.5.0 (build 4)** — **Gist It Pro + backend + new telemetry.** One monthly auto-renewable
+**v1.5.0 (build 5)** — **Gist It Pro + backend + new telemetry.** One monthly auto-renewable
 subscription. On the free plan translation stays unlimited, explanations and Say it share 1 request
 per 5 min, and Online is subscription-only. The backend enforces it from the StoreKit JWS, and the
 app mirrors it with `SubscriptionState` + `PaywallView` (StoreKit `SubscriptionStoreView`). Claude
