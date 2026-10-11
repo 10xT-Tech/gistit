@@ -27,7 +27,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     IPHONEOS_DEPLOYMENT_TARGET: "26.0"
     MARKETING_VERSION: "1.5.0"        # user-visible version — bump for a new release
-    CURRENT_PROJECT_VERSION: "3"      # build number — MUST be unique per App Store upload; bump every upload
+    CURRENT_PROJECT_VERSION: "4"      # build number — MUST be unique per App Store upload; bump every upload
     # Frameworks let Xcode synthesize their Info.plist; the app overrides with an explicit file.
     GENERATE_INFOPLIST_FILE: "YES"
     # Device signing for every target (the app + the embedded ShareExtension both need a team for the

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support — Gist It</title>
+<meta name="description" content="Help with the Gist It iPhone app: contact us, the subscription, the free plan, Online translation and your data.">
+<link rel="canonical" href="https://gistit.10xt.tech/support/">
+<meta name="theme-color" content="#f4f4f6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23111114'/%3E%3Ctext x='32' y='44' font-family='-apple-system,Arial,sans-serif' font-size='34' font-weight='800' fill='%23fff' text-anchor='middle'%3EG%3C/text%3E%3Ccircle cx='52' cy='14' r='6' fill='%2334c759'/%3E%3C/svg%3E">
+<style>
+  /* Same tokens as the landing (../index.html): strict mono + live-green line */
+  :root {
+    --ink: #111114; --ink2: #55555c; --ink3: #8a8a92;
+    --hair: #e3e3e8; --bg: #f4f4f6; --card: #ffffff; --green: #34c759;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 0 24px; }
+
+  header { padding: 26px 0; }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+  .mark { width: 42px; height: 42px; border-radius: 11px; background: var(--ink); color: #fff;
+          display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; }
+  .brand .name { font-size: 23px; font-weight: 800; letter-spacing: -0.5px; }
+  .brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+
+  .hero { padding: 30px 0 6px; }
+  .hero h1 { font-size: clamp(30px, 4.6vw, 48px); line-height: 1.12; font-weight: 800; letter-spacing: -0.02em; }
+  .rule { width: min(360px, 60%); height: 7px; border-radius: 4px; background: var(--green); margin-top: 16px; }
+  .meta { margin-top: 16px; font-size: 14px; color: var(--ink3); font-weight: 600; }
+
+  .summary { margin-top: 30px; background: var(--card); border: 1px solid var(--hair); border-radius: 22px;
+             padding: 22px 24px; box-shadow: 0 1px 2px rgba(17,17,20,.04); }
+  .summary h2 { font-size: 12.5px; font-weight: 700; letter-spacing: 2px; color: var(--ink3); text-transform: uppercase; }
+  .summary ul { list-style: none; margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .summary li { font-size: 16px; line-height: 1.5; padding-left: 24px; position: relative; }
+  .summary li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 800; }
+
+  main section { margin-top: 38px; }
+  main h2 { font-size: clamp(21px, 2.4vw, 26px); font-weight: 800; letter-spacing: -0.4px; }
+  main h3 { font-size: 16.5px; font-weight: 700; margin-top: 20px; }
+  main p, main li { font-size: 16px; line-height: 1.6; color: var(--ink2); }
+  main p { margin-top: 10px; }
+  main ul { margin-top: 10px; padding-left: 22px; }
+  main li { margin-top: 6px; }
+  main b { color: var(--ink); font-weight: 650; }
+  main a { color: var(--ink); font-weight: 650; text-decoration: underline; text-underline-offset: 2px; }
+
+  .table { margin-top: 14px; background: var(--card); border: 1px solid var(--hair); border-radius: 18px; overflow: hidden; }
+  .table .row { display: grid; grid-template-columns: 180px 1fr; gap: 16px; padding: 14px 18px; border-top: 1px solid var(--hair); }
+  .table .row:first-child { border-top: 0; }
+  .table .k { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+  .table .v { font-size: 14.5px; line-height: 1.55; color: var(--ink2); }
+
+  .contact { margin-top: 30px; background: var(--ink); color: #fff; border-radius: 22px; padding: 26px; }
+  .contact h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.3px; }
+  .contact p { color: rgba(255,255,255,.72); font-size: 16px; line-height: 1.55; margin-top: 8px; }
+  .mailbtn { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; background: #fff; color: var(--ink);
+             border-radius: 999px; padding: 14px 24px; font-size: 17px; font-weight: 750; text-decoration: none; }
+  .mailbtn .arrow { color: var(--green); font-weight: 800; }
+
+  details { background: var(--card); border: 1px solid var(--hair); border-radius: 16px; padding: 0 18px; margin-top: 10px; }
+  summary { cursor: pointer; list-style: none; padding: 16px 0; font-size: 16.5px; font-weight: 700; color: var(--ink);
+            display: flex; justify-content: space-between; gap: 12px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--ink3); font-weight: 700; }
+  details[open] summary::after { content: "–"; }
+  details > div { padding: 0 0 16px; }
+  details > div p:first-child { margin-top: 0; }
+
+  footer { padding: 48px 0 44px; }
+  .fineprint { font-size: 12.5px; color: var(--ink3); font-weight: 550; }
+  .fineprint a { color: var(--ink2); font-weight: 650; text-decoration: none; }
+  .fineprint a:hover { text-decoration: underline; color: var(--ink); }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 18px; }
+    header { padding: 18px 0; }
+    .brand .name { font-size: 20px; }
+    .mark { width: 36px; height: 36px; border-radius: 10px; font-size: 19px; }
+    .hero { padding: 20px 0 4px; }
+    .rule { width: 72%; height: 6px; }
+    .summary { padding: 18px; border-radius: 18px; }
+    .table .row { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="/">
+      <div class="mark">G</div>
+      <span class="name">Gist It</span>
+      <span class="dot"></span>
+    </a>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>Support</h1>
+    <div class="rule"></div>
+    <p class="meta">Help with the Gist It app for iPhone</p>
+  </div>
+
+  <div class="contact">
+    <h2>Write to us</h2>
+    <p>Questions, problems, ideas or feedback: we read every message.
+      If something went wrong, tell us what you did, what you expected and your iPhone and iOS version.</p>
+    <a class="mailbtn" href="mailto:info@10xt.tech?subject=Gist%20It%20support">info@10xt.tech <span class="arrow">→</span></a>
+  </div>
+
+  <main>
+    <section>
+      <h2>Subscription</h2>
+      <details>
+        <summary>What is free, and what does Gist It Pro add?</summary>
+        <div>
+          <p>Translation is free for everyone, with no limits: Get it → Translate, See it → Translate, and the cards you
+            save to Study. On the free plan, explanations and Say it share <b>one request every 5 minutes</b>.</p>
+          <p><b>Gist It Pro</b> is a monthly auto-renewable subscription. It removes every limit and adds Online
+            translation, the live interpreter.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How do I cancel or change my subscription?</summary>
+        <div>
+          <p>In the app: <b>Settings → Subscription → Manage subscription</b>. Or in iOS: <b>Settings → your name →
+            Subscriptions → Gist It</b>. Cancel at least 24 hours before the end of the current period to avoid the next
+            renewal; Pro stays active until the period ends.</p>
+        </div>
+      </details>
+      <details>
+        <summary>I paid but the app still shows the free plan</summary>
+        <div>
+          <p>Open <b>Settings → Subscription → Restore purchases</b>, make sure you are signed in with the same Apple Account
+            you used to subscribe, and check that the iPhone is online. If it still doesn't unlock, write to us.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How do I get a refund?</summary>
+        <div>
+          <p>Payments are handled by Apple, so refunds are requested from Apple at
+            <a href="https://reportaproblem.apple.com">reportaproblem.apple.com</a>. We don't see or process your payment details.</p>
+        </div>
+      </details>
+    </section>
+
+    <section>
+      <h2>Using the app</h2>
+      <details>
+        <summary>Which languages are supported?</summary>
+        <div>
+          <p>English, Russian, French, Spanish, German and Italian, in any pair. Choose the language you are learning and
+            your native language in <b>Settings</b>. The interface is available in all six.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Online translation doesn't start or stops by itself</summary>
+        <div>
+          <p>Online needs an internet connection, microphone access (iOS <b>Settings → Gist It → Microphone</b>) and Gist It
+            Pro. It keeps listening with the screen locked, and stops on its own after 5 minutes of silence or when a phone
+            call comes in. The session is saved to History either way.</p>
+        </div>
+      </details>
+      <details>
+        <summary>“Something went wrong” or “No connection”</summary>
+        <div>
+          <p>Gist It needs the internet for explanations, translations and Online. Check your connection and tap
+            <b>Retry</b>. <b>Settings → Service connections</b> shows whether each service is reachable and how fast it
+            answers. If one stays red, write to us.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How do I move my study list to Anki?</summary>
+        <div>
+          <p>Open <b>Study</b> and tap <b>Export list</b>. Choose Anki or AlgoApp, then send the file to the app or save it
+            to Files.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Which devices does Gist It run on?</summary>
+        <div>
+          <p>iPhone with iOS 26 or later.</p>
+        </div>
+      </details>
+    </section>
+
+    <section>
+      <h2>Your data</h2>
+      <details>
+        <summary>Where is my history stored, and how do I delete it?</summary>
+        <div>
+          <p>Your history, study list, session recordings and translation cache are stored only on your iPhone. Swipe left on
+            an item in History to delete it, use <b>Clean up</b> in Study to remove learned cards, and <b>Clear cache</b> in
+            Settings. Deleting the app removes everything.</p>
+          <p>Details are in our <a href="/privacy/">Privacy Policy</a>.</p>
+        </div>
+      </details>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="fineprint"><a href="/">Gist It</a> · © 2026 <a href="https://10xt.tech">10XT LIMITED</a> · <a href="/privacy/">Privacy Policy</a> · <a href="mailto:info@10xt.tech">info@10xt.tech</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

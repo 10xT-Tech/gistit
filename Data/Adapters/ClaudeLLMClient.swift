@@ -90,10 +90,13 @@ public final class ClaudeLLMClient: LLMClient {
     ) async throws -> Template.Output {
         guard authorizer.isConfigured else { throw LLMError.notConfigured }
 
-        let schema: JSONValue
-        do {
-            schema = try JSONDecoder().decode(JSONValue.self, from: Data(template.outputJSONSchema.utf8))
-        } catch {
+        // The schema goes on the wire VERBATIM (spliced in by `encodeBody`), never through a Swift
+        // dictionary: property ORDER is part of the contract. The model fills fields in schema order,
+        // and with a note key ahead of the phrase key (`context_ru` before `en`) Sonnet answers with a
+        // single empty placeholder item. `Dictionary` order is randomised per process, so a decode →
+        // re-encode round-trip broke Say it for a whole app session at random.
+        let schemaText = template.outputJSONSchema
+        guard (try? JSONSerialization.jsonObject(with: Data(schemaText.utf8))) is [String: Any] else {
             throw LLMError.invalidOutput("template \(template.id) has an invalid output schema")
         }
         var content: [ContentBlock] = []
@@ -129,7 +132,7 @@ public final class ClaudeLLMClient: LLMClient {
             messages: [.init(role: "user", content: content)],
             output_config: .init(
                 effort: supportsEffort ? (fast ? "low" : "medium") : nil,
-                format: .init(type: "json_schema", schema: schema)
+                format: .init(type: "json_schema")
             )
         )
 
@@ -140,7 +143,7 @@ public final class ClaudeLLMClient: LLMClient {
         // Compress the upload when it's big enough to benefit — the photo's base64 image is the win on
         // a slow uplink. Only swap in the gzip body if it's actually SMALLER (tiny text bodies inflate
         // by the gzip envelope). The Anthropic API accepts `Content-Encoding: gzip` request bodies.
-        let bodyData = try JSONEncoder().encode(body)
+        let bodyData = try Self.encodeBody(body, schemaJSON: schemaText)
         if bodyData.count >= 1024, let gzipped = bodyData.gzipped(), gzipped.count < bodyData.count {
             request.httpBody = gzipped
             request.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
@@ -373,6 +376,18 @@ public final class ClaudeLLMClient: LLMClient {
         data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"   // PNG magic else JPEG
     }
 
+    /// Encode the request with the template's schema text spliced in as-is (see `run`): the encoder
+    /// writes a marker string where the schema goes, which is then replaced by the raw JSON.
+    private static func encodeBody(_ body: some Encodable, schemaJSON: String) throws -> Data {
+        var data = try JSONEncoder().encode(body)
+        let marker = Data("\"\(RequestBody.schemaMarker)\"".utf8)
+        guard let range = data.range(of: marker) else {
+            throw LLMError.invalidOutput("output schema missing from the request body")
+        }
+        data.replaceSubrange(range, with: Data(schemaJSON.utf8))
+        return data
+    }
+
     // MARK: Wire types
     private struct RequestBody: Encodable {
         let model: String
@@ -390,7 +405,12 @@ public final class ClaudeLLMClient: LLMClient {
             let effort: String?   // nil ⇒ omitted (synthesized `encodeIfPresent`)
             let format: Format
         }
-        struct Format: Encodable { let type: String; let schema: JSONValue }
+        struct Format: Encodable {
+            let type: String
+            /// Placeholder only — `encodeBody` swaps it for the template's schema text.
+            let schema = RequestBody.schemaMarker
+        }
+        static let schemaMarker = "__GISTIT_OUTPUT_SCHEMA__"
     }
 
     private enum ContentBlock: Encodable {
@@ -413,33 +433,6 @@ public final class ClaudeLLMClient: LLMClient {
             case .image(let mediaType, let base64):
                 try c.encode("image", forKey: .type)
                 try c.encode(ImageSource(media_type: mediaType, data: base64), forKey: .source)
-            }
-        }
-    }
-
-    /// Arbitrary JSON, so a template's schema text can be embedded in the request body as an object.
-    private enum JSONValue: Codable {
-        case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
-
-        init(from decoder: Decoder) throws {
-            let c = try decoder.singleValueContainer()
-            if c.decodeNil() { self = .null }
-            else if let v = try? c.decode(Bool.self) { self = .bool(v) }
-            else if let v = try? c.decode(Double.self) { self = .number(v) }
-            else if let v = try? c.decode(String.self) { self = .string(v) }
-            else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
-            else { self = .object(try c.decode([String: JSONValue].self)) }
-        }
-
-        func encode(to encoder: Encoder) throws {
-            var c = encoder.singleValueContainer()
-            switch self {
-            case .null: try c.encodeNil()
-            case .bool(let v): try c.encode(v)
-            case .number(let v): try c.encode(v)
-            case .string(let v): try c.encode(v)
-            case .array(let v): try c.encode(v)
-            case .object(let v): try c.encode(v)
             }
         }
     }

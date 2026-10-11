@@ -246,6 +246,28 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(StubURLProtocol.callCount == 1)
     }
 
+    /// Regression: the template's schema must reach the wire VERBATIM — same property ORDER. It used to
+    /// round-trip through a Swift dictionary, whose order is randomised per process; with `context_ru`
+    /// ahead of `en`, Sonnet answered Say it with one empty placeholder item ("Couldn't parse").
+    @Test func sendsTemplateSchemaVerbatimPreservingPropertyOrder() async throws {
+        StubURLProtocol.statusCode = 200
+        StubURLProtocol.responseBody = try sse(#"{"zeta":"z","alpha":"a","mid":"m"}"#)
+        defer {
+            StubURLProtocol.responseBody = nil; StubURLProtocol.statusCode = 529; StubURLProtocol.lastBody = nil
+        }
+        let template = OrderedSchemaTemplate()
+        _ = try await makeClient().run(template, input: ())
+
+        let body = String(decoding: try #require(StubURLProtocol.lastBody), as: UTF8.self)
+        #expect(body.contains(template.outputJSONSchema))   // spliced in as written, not re-encoded
+        let zeta = try #require(body.range(of: #""zeta""#)), alpha = try #require(body.range(of: #""alpha""#))
+        #expect(zeta.lowerBound < alpha.lowerBound)         // NOT alphabetised / shuffled
+        // …and the whole body is still valid JSON with the schema as an object.
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
+        let format = try #require((json["output_config"] as? [String: Any])?["format"] as? [String: Any])
+        #expect(format["schema"] is [String: Any])
+    }
+
     /// Regression: `output_config.effort` must NOT be sent to a legacy Haiku — Haiku 4.5 hard-400s on it
     /// ("does not support the effort parameter"), which would break EVERY request routed to the fast
     /// model. Haiku 5.5 and Sonnet 5.5 DO receive it (without it Haiku 5.5 runs at its slower `medium`
@@ -346,4 +368,16 @@ private struct TuningProbeTemplate: PromptTemplate {
     var maxOutputTokens: Int { 7777 }
     var prefersFastResponse: Bool { false }   // a standard-model template → adapter should choose "medium"
     var modelTier: ModelTier { .standard }
+}
+
+/// A tiny template whose schema lists its properties in NON-alphabetical order (body stays < 1 KB, so
+/// it isn't gzipped and the test can read it as text).
+private struct OrderedSchemaTemplate: PromptTemplate {
+    let id = "orderedSchema"
+    var systemPrompt: String { "Reply." }
+    var outputJSONSchema: String {
+        #"{"type":"object","properties":{"zeta":{"type":"string"},"alpha":{"type":"string"},"mid":{"type":"string"}},"required":["zeta","alpha","mid"],"additionalProperties":false}"#
+    }
+    func userMessage(for input: Void) -> String { "go" }
+    func decode(_ rawJSON: String) throws -> String { rawJSON }
 }
