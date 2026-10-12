@@ -8,10 +8,12 @@ The first release with Gist It Pro. Version 1.5.0 went to TestFlight only; every
 listed here.
 
 **Swipe between screens.** Swipe left or right anywhere on Study, See it, Say it, Get it or History
-to move to the neighbouring screen, in the same order as the tab bar. Swipes that already meant
-something keep working as before: swipe left on a History item still deletes it, the swipe actions
-on Study cards still appear, and dragging inside a text field still moves the cursor. Scrolling up
-and down is never mistaken for a swipe.
+to move to the neighbouring screen, in the same order as the tab bar. The screen follows your finger
+and slides aside to uncover the next one underneath; let go early and it springs back. With Reduce
+Motion on, the screen simply switches. Swipes that already meant something keep working as before:
+swipe left on a History item still deletes it, the swipe actions on Study cards still appear, and
+dragging inside a text field still moves the cursor. Scrolling up and down is never mistaken for a
+swipe.
 
 **Gist It Pro.** Gist It now has a free plan and a monthly subscription. **Translation stays free
 for everyone, with no limits**: Get it → Translate, See it → Translate, and the cards you save to

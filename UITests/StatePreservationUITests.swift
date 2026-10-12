@@ -80,7 +80,7 @@ final class StatePreservationUITests: XCTestCase {
 
     private func openTab(_ app: XCUIApplication, _ name: String) {
         dismissKeyboard(app)   // an open keyboard covers the tab bar
-        app.tabBars.buttons[name].tap()
+        app.tab(name).tap()
         XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout: 5), "tab \(name) did not open")
     }
 

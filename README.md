@@ -210,7 +210,9 @@ CHANGELOG.md     user-facing release notes
 ## Status
 
 **v1.5.1 (build 1)** — **Swipe between the main screens.** `TabSwipeGesture` (Presentation/Root): a
-UIKit pan via `UIGestureRecognizerRepresentable` on each tab's content; begins only on a clearly
+UIKit pan via `UIGestureRecognizerRepresentable` on the selected screen, under a custom Liquid Glass
+`GlassTabBar` (no system TabView): the swipe mounts the neighbour underneath and the screen slides over it
+(`TabPager`); begins only on a clearly
 horizontal pan, recognises simultaneously, never starts in text views, and respects List row swipe
 actions (`TabSwipe.rowPolicy`: Study rows never switch, History rows only swipe right). Also fixes the
 Online panes overflowing the screen (a nested `VerticalScrollView`). Previously, in **v1.5.0 (build 5)** — **Gist It Pro + backend + new telemetry.** One monthly auto-renewable

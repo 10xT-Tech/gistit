@@ -2,7 +2,8 @@
 //  RootView.swift
 //  EnglishHelper — Presentation
 //
-//  App shell: tab bar (Liquid Glass) + global theme + the Settings sheet.
+//  App shell: the five main screens (kept alive side by side, swipeable — TabSwipeGesture) under a
+//  Liquid Glass tab bar (GlassTabBar) + global theme + the Settings sheet.
 //  Order: Изучаю · Смотреть/See · Сказать/Say (center, default) · Понять/Get · История.
 //  "Сказать"/Say it (RU intent → 3 English variants, voice or text) and "Понять"/Get it (translate
 //  OR explain an English expression into the native language) are the two comprehension directions;
@@ -10,6 +11,8 @@
 //
 
 import SwiftUI
+import UIKit
+import DesignSystem
 
 public struct RootView: View {
     @State private var out: VoiceViewModel
@@ -28,6 +31,10 @@ public struct RootView: View {
     @State private var onboarding = OnboardingStore()
     @State private var network: NetworkMonitor
     @State private var selection = "out"
+    /// Swipe-between-tabs paging state (which screen follows the finger, and by how much).
+    @State private var pager = TabPager()
+    /// The keyboard covers the tab bar, as the system one did (the bar steps out of the safe area).
+    @State private var keyboardVisible = false
     @Environment(\.scenePhase) private var scenePhase
 
     /// True when persistence fell back to an in-memory store — changes this session won't be saved.
@@ -65,33 +72,85 @@ public struct RootView: View {
         self.consumeLaunchURL = consumeLaunchURL
     }
 
+    // MARK: Main screens
+
+    /// The tab bar items, left to right — the order MUST match `TabSwipe.order`.
+    private var tabItems: [GlassTabBarItem] {
+        [
+            GlassTabBarItem(id: "library", title: Loc.t("Изучаю", "Study"), systemImage: "rectangle.stack"),
+            GlassTabBarItem(id: "camera", title: Loc.t("Смотреть", "See it"), systemImage: "camera"),
+            GlassTabBarItem(id: "out", title: Loc.t("Сказать", "Say it"), systemImage: "mic.fill"),
+            GlassTabBarItem(id: "in", title: Loc.t("Понять", "Get it"), systemImage: "character.bubble"),
+            GlassTabBarItem(id: "history", title: Loc.t("История", "History"), systemImage: "clock.arrow.circlepath"),
+        ]
+    }
+
+    /// The selected screen, plus — only while a swipe is uncovering it — the LIVE neighbour beneath.
+    /// Off-screen tabs aren't mounted at all (so they're out of VoiceOver and keep the usual
+    /// appear/disappear lifecycle); their state lives in the view models, which RootView owns.
+    private var mainScreens: some View {
+        ZStack {
+            ForEach(TabSwipe.order, id: \.self) { tab in
+                if tab == selection || tab == pager.revealed(under: selection) {
+                    mainScreen(tab)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !keyboardVisible {
+                GlassTabBar(items: tabItems, selection: $selection)
+                    .padding(.horizontal, Tokens.Space.s20)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
+        }
+        // Lists a swipe may uncover are filled before the first swipe, so the neighbour never shows a
+        // loading state under the finger.
+        .task {
+            await library.load()
+            await history.load()
+        }
+    }
+
+    private func mainScreen(_ tab: String) -> some View {
+        let selected = tab == selection
+        let sliding = selected && pager.draggingTab == tab
+        return screen(tab)
+            // The uncovered neighbour starts dimmed and brightens as it's revealed.
+            .overlay {
+                if !selected {
+                    Color.black.opacity(0.14 * (1 - min(1, abs(pager.offset) / 400)))
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+            }
+            .offset(x: sliding ? pager.offset : 0)
+            .shadow(color: .black.opacity(sliding ? 0.22 : 0), radius: 14)
+            .gesture(TabSwipeGesture(tab: tab, pager: pager) { selection = $0 })
+            .allowsHitTesting(selected)
+            .accessibilityHidden(!selected)
+            .zIndex(selected ? 1 : 0)
+    }
+
+    @ViewBuilder private func screen(_ tab: String) -> some View {
+        switch tab {
+        case "library": StudyListView(model: library)
+        case "camera": PhotoTranslateView(model: photo)
+        case "out": VoiceView(model: out)
+        case "in": InView(model: inbound)
+        default: HistoryView(model: history)
+        }
+    }
+
     public var body: some View {
         @Bindable var ui = ui
         Group {
             if onboarding.isComplete {
-                // Order must match `TabSwipe.order` — each screen swipes to its neighbours.
-                TabView(selection: $selection) {
-                    Tab(Loc.t("Изучаю", "Study"), systemImage: "rectangle.stack", value: "library") {
-                        StudyListView(model: library)
-                            .tabSwipe("library") { selection = $0 }
-                    }
-                    Tab(Loc.t("Смотреть", "See it"), systemImage: "camera", value: "camera") {
-                        PhotoTranslateView(model: photo)
-                            .tabSwipe("camera") { selection = $0 }
-                    }
-                    Tab(Loc.t("Сказать", "Say it"), systemImage: "mic.fill", value: "out") {
-                        VoiceView(model: out)
-                            .tabSwipe("out") { selection = $0 }
-                    }
-                    Tab(Loc.t("Понять", "Get it"), systemImage: "character.bubble", value: "in") {
-                        InView(model: inbound)
-                            .tabSwipe("in") { selection = $0 }
-                    }
-                    Tab(Loc.t("История", "History"), systemImage: "clock.arrow.circlepath", value: "history") {
-                        HistoryView(model: history)
-                            .tabSwipe("history") { selection = $0 }
-                    }
-                }
+                mainScreens
                 .safeAreaInset(edge: .top) {
                     VStack(spacing: 0) {
                         if !network.isOnline { offlineBanner }

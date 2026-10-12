@@ -49,6 +49,18 @@ final class TabSwipeUITests: XCTestCase {
         swipe(app, left: false); assertOn(app, "Study")     // first tab: nowhere to go
     }
 
+    /// Only the selected screen is mounted: VoiceOver (and XCUI) must never reach a screen that
+    /// isn't on display — neither at launch nor after switching.
+    func testOnlyTheSelectedScreenIsInTheAccessibilityTree() {
+        let app = launch()
+        assertOn(app, "Say it")
+        XCTAssertEqual(app.navigationBars.count, 1, "hidden screens leaked into accessibility")
+        app.tab("History").tap()
+        assertOn(app, "History")
+        XCTAssertEqual(app.navigationBars.count, 1, "hidden screens leaked into accessibility")
+        XCTAssertTrue(app.tab("History").isSelected)
+    }
+
     func testRowSwipeActionsStillWinOverTabSwitching() {
         let app = launch()
         // A Say-it result → one History row; saving a card → one Study row.
@@ -62,7 +74,7 @@ final class TabSwipeUITests: XCTestCase {
         save.tap()
 
         // History: swipe-left on the row is delete, not "next tab".
-        app.tabBars.buttons["History"].tap()
+        app.tab("History").tap()
         let historyRow = app.cells.firstMatch
         XCTAssertTrue(historyRow.waitForExistence(timeout: 5))
         historyRow.swipeLeft()
@@ -70,7 +82,7 @@ final class TabSwipeUITests: XCTestCase {
         assertOn(app, "History")
 
         // Study: rows have actions on both edges — neither direction switches tabs.
-        app.tabBars.buttons["Study"].tap()
+        app.tab("Study").tap()
         let studyRow = app.cells.firstMatch
         XCTAssertTrue(studyRow.waitForExistence(timeout: 5))
         studyRow.swipeLeft()

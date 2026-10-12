@@ -2,7 +2,8 @@
 //  TabSwipeGesture.swift
 //  EnglishHelper — Presentation
 //
-//  Swipe left / right anywhere on a main screen to move to the neighbouring tab. A UIKit pan
+//  Swipe left / right anywhere on a main screen to move to the neighbouring tab: the screen follows
+//  the finger and slides aside over its live neighbour (RootView keeps all screens alive). A UIKit pan
 //  (via `UIGestureRecognizerRepresentable`) rather than a SwiftUI DragGesture, because it has to
 //  coexist with gestures SwiftUI can't arbitrate: List swipe actions (Study: both edges; History:
 //  swipe-left to delete), text selection/cursor drags, and vertical scrolling. It only BEGINS on a
@@ -57,9 +58,44 @@ public enum TabSwipe {
     }
 }
 
-/// The gesture itself. `tab` is the tab it's attached to; `onSwipe` receives the neighbour to select.
+/// Shared paging state: which tab is following the finger, and by how much. Every main screen is
+/// alive in the container (RootView), so the neighbour shown underneath is the real, current screen.
+@MainActor @Observable
+final class TabPager {
+    /// The tab whose content is following the finger, and by how much (points, + = right).
+    private(set) var draggingTab: String?
+    private(set) var offset: CGFloat = 0
+
+    /// The neighbour uncovered under `tab` while it slides, if any.
+    func revealed(under tab: String) -> String? {
+        guard draggingTab == tab, offset != 0 else { return nil }
+        return TabSwipe.neighbour(of: tab, offset < 0 ? .next : .previous)
+    }
+
+    func drag(_ tab: String, to offset: CGFloat) {
+        draggingTab = tab
+        self.offset = offset
+    }
+
+    /// Animate the screen off (commit) or back (cancel); `done` runs once it has landed.
+    func settle(to offset: CGFloat, done: @escaping () -> Void) {
+        withAnimation(.snappy(duration: 0.26)) {
+            self.offset = offset
+        } completion: { [weak self] in
+            var t = Transaction(); t.disablesAnimations = true
+            withTransaction(t) {
+                done()
+                self?.offset = 0
+                self?.draggingTab = nil
+            }
+        }
+    }
+}
+
+/// The gesture itself: drives `pager` while the finger moves, commits or springs back on release.
 struct TabSwipeGesture: UIGestureRecognizerRepresentable {
     let tab: String
+    let pager: TabPager
     let onSwipe: (String) -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
@@ -77,18 +113,37 @@ struct TabSwipeGesture: UIGestureRecognizerRepresentable {
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        guard recognizer.state == .ended, let direction = context.coordinator.direction,
+        guard let direction = context.coordinator.direction,
               let target = TabSwipe.neighbour(of: tab, direction) else { return }
         let view = recognizer.view
-        if TabSwipe.commits(direction, translation: recognizer.translation(in: view),
-                            velocity: recognizer.velocity(in: view)) {
-            onSwipe(target)
+        let width = view?.bounds.width ?? 400
+        let dx = recognizer.translation(in: view).x
+        // Follow the finger only towards the neighbour (a reverse drag just pins the screen back).
+        let following = direction == .next ? min(0, dx) : max(0, dx)
+        let animated = !UIAccessibility.isReduceMotionEnabled
+
+        switch recognizer.state {
+        case .began, .changed:
+            if animated { pager.drag(tab, to: following) }
+        case .ended:
+            let commit = TabSwipe.commits(direction, translation: recognizer.translation(in: view),
+                                          velocity: recognizer.velocity(in: view))
+            guard animated else { if commit { onSwipe(target) }; return }
+            if commit {
+                pager.settle(to: direction == .next ? -width : width) { onSwipe(target) }
+            } else {
+                pager.settle(to: 0) {}
+            }
+        case .cancelled, .failed:
+            if animated { pager.settle(to: 0) {} }
+        default:
+            break
         }
     }
 
     @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var tab = ""
-        /// Set when the pan begins; read on touch-up.
+        /// Set when the pan begins; read until touch-up.
         var direction: TabSwipe.Direction?
         private var touchStartedOnRow = false
 
@@ -120,12 +175,5 @@ struct TabSwipeGesture: UIGestureRecognizerRepresentable {
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
         }
-    }
-}
-
-extension View {
-    /// Swipe left / right on this tab's content to switch to the neighbouring tab.
-    func tabSwipe(_ tab: String, select: @escaping (String) -> Void) -> some View {
-        gesture(TabSwipeGesture(tab: tab, onSwipe: select))
     }
 }

@@ -51,7 +51,9 @@ public final class HistoryViewModel {
     }
 
     public func load() async {
-        if entries.isEmpty { phase = .loading }
+        // Spinner only before the first answer: a known-empty list reloading (e.g. uncovered under a
+        // tab swipe) keeps its empty state instead of flashing "Loading…".
+        if entries.isEmpty, phase != .empty { phase = .loading }
         do {
             let items = try await history.recent(limit: limit)   // most-recent-first
             entries = items

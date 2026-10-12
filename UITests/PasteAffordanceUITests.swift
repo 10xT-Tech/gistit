@@ -23,7 +23,7 @@ final class PasteAffordanceUITests: XCTestCase {
             "-toneOfVoice", "casual", "-sayItMode", "howToSay", "-getItMode", "explain", "-seeItMode", "explain",
         ]
         app.launch()
-        app.tabBars.buttons["Get it"].tap()
+        app.tab("Get it").tap()
         XCTAssertTrue(app.navigationBars["Get it"].waitForExistence(timeout: 5))
         return app
     }

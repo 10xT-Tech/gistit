@@ -120,11 +120,20 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
-**v1.5.1 (2026-10-12) — swipe between the main tabs.** `Presentation/Root/TabSwipeGesture.swift`:
-UIKit pan (`UIGestureRecognizerRepresentable`) attached per tab in `RootView`; pure decision table in
-`TabSwipe` (order MUST match the `TabView`; row policy per tab because List rows carry swipe actions).
-Unit `TabSwipeTests` + XCUI `TabSwipeUITests`. `VerticalScrollView` is PAGE-level only — never nest it in
-a card (it sizes content to the screen; that broke the Online panes in 1.5.0 (4)).
+**v1.5.1 (2026-10-12) — swipe between the main tabs.** NO system `TabView` any more: `RootView` mounts the
+SELECTED screen only, under `GlassTabBar` (DesignSystem — Liquid Glass capsule, buttons `tab.<id>`, `.isTabBar`
+trait; hidden while the keyboard is up). A swipe (`Presentation/Root/TabSwipeGesture.swift`: UIKit pan via
+`UIGestureRecognizerRepresentable`; pure decision table in `TabSwipe` — order MUST match `RootView.tabItems`;
+per-tab row policy because List rows carry swipe actions) mounts the neighbour underneath and slides the
+screen (`TabPager.offset`) over it — the LIVE screen, from the very first swipe. Why mount-on-demand and not
+"all five alive": SwiftUI vends the accessibility of every NavigationStack's nested hosting controller
+regardless of `accessibilityHidden` / UIKit `isHidden`, so hidden-but-mounted screens leaked into VoiceOver.
+Mounting keeps the normal `onAppear`/`onDisappear` lifecycle; screen state lives in the view models (scroll
+position and a pushed History detail reset on leaving a tab). Study/History lists are pre-loaded at launch so
+a swipe never uncovers "Loading…". Reduce Motion → instant switch. Unit `TabSwipeTests`; XCUI `TabSwipeUITests`
+(incl. "only the selected screen is in the accessibility tree"); UI tests reach tabs via `app.tab("Get it")`
+(`UITests/TabBarQuery.swift`). `VerticalScrollView` is PAGE-level only — never nest it in a card (it sizes
+content to the screen; that broke the Online panes in 1.5.0 (4)).
 
 **v1.5.0 (2026-10-11) — Gist It Pro subscription, backend proxy (App Attest), Amplitude + Sentry
 split by build channel (`AppDistribution`), structured outputs, `VerticalScrollView`.** User-facing

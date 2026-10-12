@@ -24,7 +24,7 @@ final class NoSidewaysScrollUITests: XCTestCase {
         app.launch()
 
         for tab in ["Say it", "Get it", "See it"] {
-            app.tabBars.buttons[tab].tap()
+            app.tab(tab).tap()
             assertStaysPut(app, screen: tab)
         }
         // Settings sheet.
@@ -35,8 +35,11 @@ final class NoSidewaysScrollUITests: XCTestCase {
 
     /// Drags the page a little left and right and checks its widest visible text didn't move horizontally.
     private func assertStaysPut(_ app: XCUIApplication, screen: String, file: StaticString = #filePath, line: UInt = #line) {
-        let scroll = app.scrollViews.firstMatch
-        XCTAssertTrue(scroll.waitForExistence(timeout: 5), "\(screen): no scroll view", file: file, line: line)
+        XCTAssertTrue(app.scrollViews.firstMatch.waitForExistence(timeout: 5), "\(screen): no scroll view", file: file, line: line)
+        // The one on top: under a sheet (Settings) the screen behind keeps its scroll view too.
+        guard let scroll = app.scrollViews.allElementsBoundByIndex.last(where: { $0.isHittable }) else {
+            return XCTFail("\(screen): no hittable scroll view", file: file, line: line)
+        }
         let probe = scroll.staticTexts.allElementsBoundByIndex.first { $0.isHittable && $0.frame.width > 40 }
             ?? scroll.buttons.allElementsBoundByIndex.first { $0.isHittable }
         guard let probe else { return XCTFail("\(screen): nothing to measure", file: file, line: line) }
