@@ -2,7 +2,10 @@
 //  NoSidewaysScrollUITests.swift
 //  EnglishHelper — UITests
 //
-//  Every screen scrolls up/down only: a sideways swipe must not move the page (VerticalScrollView).
+//  Every screen scrolls up/down only: a sideways drag must not move the page (VerticalScrollView).
+//  The drags stay SHORT (~24 pt, slow) — below TabSwipe's commit threshold, so they probe the page
+//  without switching tabs (a long swipe now moves to the neighbouring tab by design, TabSwipeUITests);
+//  a page wider than the screen would still visibly follow them.
 //
 
 import XCTest
@@ -30,7 +33,7 @@ final class NoSidewaysScrollUITests: XCTestCase {
         assertStaysPut(app, screen: "Settings")
     }
 
-    /// Swipes the page left and right and checks its widest visible text didn't move horizontally.
+    /// Drags the page a little left and right and checks its widest visible text didn't move horizontally.
     private func assertStaysPut(_ app: XCUIApplication, screen: String, file: StaticString = #filePath, line: UInt = #line) {
         let scroll = app.scrollViews.firstMatch
         XCTAssertTrue(scroll.waitForExistence(timeout: 5), "\(screen): no scroll view", file: file, line: line)
@@ -38,12 +41,13 @@ final class NoSidewaysScrollUITests: XCTestCase {
             ?? scroll.buttons.allElementsBoundByIndex.first { $0.isHittable }
         guard let probe else { return XCTFail("\(screen): nothing to measure", file: file, line: line) }
         let before = probe.frame.minX
-        let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
-        start.press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)),
+        let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.44, dy: 0.5)),
                     withVelocity: .slow, thenHoldForDuration: 0.3)
         let duringLeft = probe.frame.minX
-        start.press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 1.0, dy: 0.5)),
+        start.press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.56, dy: 0.5)),
                     withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(app.navigationBars[screen].exists, "\(screen): a short drag switched tabs", file: file, line: line)
         XCTAssertEqual(duringLeft, before, accuracy: 1, "\(screen) moved sideways", file: file, line: line)
         XCTAssertEqual(probe.frame.minX, before, accuracy: 1, "\(screen) moved sideways", file: file, line: line)
     }

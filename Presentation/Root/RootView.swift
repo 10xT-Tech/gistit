@@ -69,21 +69,27 @@ public struct RootView: View {
         @Bindable var ui = ui
         Group {
             if onboarding.isComplete {
+                // Order must match `TabSwipe.order` — each screen swipes to its neighbours.
                 TabView(selection: $selection) {
                     Tab(Loc.t("Изучаю", "Study"), systemImage: "rectangle.stack", value: "library") {
                         StudyListView(model: library)
+                            .tabSwipe("library") { selection = $0 }
                     }
                     Tab(Loc.t("Смотреть", "See it"), systemImage: "camera", value: "camera") {
                         PhotoTranslateView(model: photo)
+                            .tabSwipe("camera") { selection = $0 }
                     }
                     Tab(Loc.t("Сказать", "Say it"), systemImage: "mic.fill", value: "out") {
                         VoiceView(model: out)
+                            .tabSwipe("out") { selection = $0 }
                     }
                     Tab(Loc.t("Понять", "Get it"), systemImage: "character.bubble", value: "in") {
                         InView(model: inbound)
+                            .tabSwipe("in") { selection = $0 }
                     }
                     Tab(Loc.t("История", "History"), systemImage: "clock.arrow.circlepath", value: "history") {
                         HistoryView(model: history)
+                            .tabSwipe("history") { selection = $0 }
                     }
                 }
                 .safeAreaInset(edge: .top) {

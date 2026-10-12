@@ -209,7 +209,11 @@ CHANGELOG.md     user-facing release notes
 
 ## Status
 
-**v1.5.0 (build 5)** — **Gist It Pro + backend + new telemetry.** One monthly auto-renewable
+**v1.5.1 (build 1)** — **Swipe between the main screens.** `TabSwipeGesture` (Presentation/Root): a
+UIKit pan via `UIGestureRecognizerRepresentable` on each tab's content; begins only on a clearly
+horizontal pan, recognises simultaneously, never starts in text views, and respects List row swipe
+actions (`TabSwipe.rowPolicy`: Study rows never switch, History rows only swipe right). Also fixes the
+Online panes overflowing the screen (a nested `VerticalScrollView`). Previously, in **v1.5.0 (build 5)** — **Gist It Pro + backend + new telemetry.** One monthly auto-renewable
 subscription. On the free plan translation stays unlimited, explanations and Say it share 1 request
 per 5 min, and Online is subscription-only. The backend enforces it from the StoreKit JWS, and the
 app mirrors it with `SubscriptionState` + `PaywallView` (StoreKit `SubscriptionStoreView`). Claude

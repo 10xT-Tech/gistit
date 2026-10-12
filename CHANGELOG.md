@@ -2,7 +2,16 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
-## 1.5.0 — 2026-10-11
+## 1.5.1 — 2026-10-12
+
+The first release with Gist It Pro. Version 1.5.0 went to TestFlight only; everything it brought is
+listed here.
+
+**Swipe between screens.** Swipe left or right anywhere on Study, See it, Say it, Get it or History
+to move to the neighbouring screen, in the same order as the tab bar. Swipes that already meant
+something keep working as before: swipe left on a History item still deletes it, the swipe actions
+on Study cards still appear, and dragging inside a text field still moves the cursor. Scrolling up
+and down is never mistaken for a swipe.
 
 **Gist It Pro.** Gist It now has a free plan and a monthly subscription. **Translation stays free
 for everyone, with no limits**: Get it → Translate, See it → Translate, and the cards you save to
@@ -24,7 +33,8 @@ status line could make a page slightly wider than the screen, and it would then 
 under your thumb. Every screen now scrolls only up and down.
 
 **Answers are better formed.** Answers are now constrained to the exact shape the app expects
-before they leave the model, so "Couldn't parse the response" should be a thing of the past. Long photo explanations also get more room before they're cut off.
+before they leave the model, so "Couldn't parse the response" should be a thing of the past. Long
+photo explanations also get more room before they're cut off.
 
 **Settings show how fast each model answers.** The **Service connections** card now lists the
 **Translation model**, the **Explanation model** and the **Voice model** by what they do, not by

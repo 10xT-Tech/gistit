@@ -120,6 +120,12 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
+**v1.5.1 (2026-10-12) — swipe between the main tabs.** `Presentation/Root/TabSwipeGesture.swift`:
+UIKit pan (`UIGestureRecognizerRepresentable`) attached per tab in `RootView`; pure decision table in
+`TabSwipe` (order MUST match the `TabView`; row policy per tab because List rows carry swipe actions).
+Unit `TabSwipeTests` + XCUI `TabSwipeUITests`. `VerticalScrollView` is PAGE-level only — never nest it in
+a card (it sizes content to the screen; that broke the Online panes in 1.5.0 (4)).
+
 **v1.5.0 (2026-10-11) — Gist It Pro subscription, backend proxy (App Attest), Amplitude + Sentry
 split by build channel (`AppDistribution`), structured outputs, `VerticalScrollView`.** User-facing
 notes are in `CHANGELOG.md`. 215/215 tests green.
