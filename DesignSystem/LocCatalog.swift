@@ -12,6 +12,12 @@ import Foundation
 
 public enum LocCatalog {
     public static let fr: [String: String] = [
+        "Share": "Partager",
+        "Share phrase": "Partager la phrase",
+        "Share expression": "Partager l'expression",
+        "Share translation": "Partager la traduction",
+        "Share explanation": "Partager l'explication",
+        "Share the recognized text": "Partager le texte reconnu",
         "Service connections": "Connexion aux services",
         "Translation model": "Modèle de traduction",
         "Explanation model": "Modèle d'explication",
@@ -237,6 +243,12 @@ public enum LocCatalog {
     ]
 
     public static let es: [String: String] = [
+        "Share": "Compartir",
+        "Share phrase": "Compartir la frase",
+        "Share expression": "Compartir la expresión",
+        "Share translation": "Compartir la traducción",
+        "Share explanation": "Compartir la explicación",
+        "Share the recognized text": "Compartir el texto reconocido",
         "Service connections": "Conexión con los servicios",
         "Translation model": "Modelo de traducción",
         "Explanation model": "Modelo de explicación",
@@ -462,6 +474,12 @@ public enum LocCatalog {
     ]
 
     public static let de: [String: String] = [
+        "Share": "Teilen",
+        "Share phrase": "Satz teilen",
+        "Share expression": "Ausdruck teilen",
+        "Share translation": "Übersetzung teilen",
+        "Share explanation": "Erklärung teilen",
+        "Share the recognized text": "Erkannten Text teilen",
         "Service connections": "Dienstverbindungen",
         "Translation model": "Übersetzungsmodell",
         "Explanation model": "Erklärungsmodell",
@@ -687,6 +705,12 @@ public enum LocCatalog {
     ]
 
     public static let it: [String: String] = [
+        "Share": "Condividi",
+        "Share phrase": "Condividi la frase",
+        "Share expression": "Condividi l'espressione",
+        "Share translation": "Condividi la traduzione",
+        "Share explanation": "Condividi la spiegazione",
+        "Share the recognized text": "Condividi il testo riconosciuto",
         "Service connections": "Connessione ai servizi",
         "Translation model": "Modello di traduzione",
         "Explanation model": "Modello di spiegazione",

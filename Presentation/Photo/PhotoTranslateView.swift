@@ -245,6 +245,8 @@ public struct PhotoTranslateView: View {
                 Spacer(minLength: Tokens.Space.s8)
                 CopyButton(explanation.title + "\n\n" + explanation.details, style: .icon,
                            accessibilityLabel: Loc.t("Скопировать объяснение", "Copy explanation"))
+                ShareButton(explanation.title + "\n\n" + explanation.details, style: .icon,
+                            accessibilityLabel: Loc.t("Поделиться объяснением", "Share explanation"))
             }
 
             Text(explanation.title)
@@ -295,6 +297,8 @@ public struct PhotoTranslateView: View {
 
                 CopyButton(block.en, style: .icon,
                            accessibilityLabel: Loc.t("Скопировать выражение", "Copy expression"))
+                ShareButton(block.en, style: .icon,
+                            accessibilityLabel: Loc.t("Поделиться выражением", "Share expression"))
 
                 Button { model.toggleSave(block) } label: {
                     Image(systemName: model.isSaved(block) ? "bookmark.fill" : "bookmark")
@@ -324,6 +328,8 @@ public struct PhotoTranslateView: View {
                 Spacer(minLength: Tokens.Space.s8)
                 CopyButton(block.ru, style: .icon,
                            accessibilityLabel: Loc.t("Скопировать перевод", "Copy translation"))
+                ShareButton(block.ru, style: .icon,
+                            accessibilityLabel: Loc.t("Поделиться переводом", "Share translation"))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

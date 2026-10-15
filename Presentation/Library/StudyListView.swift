@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UIKit
 import Domain
 import DesignSystem
 
@@ -238,7 +239,7 @@ private struct StudyRow: View {
             }
             Spacer(minLength: Tokens.Space.s8)
             VStack(alignment: .trailing, spacing: Tokens.Space.s8) {
-                // Play · Explain in one icon row — same order/look as the result cards.
+                // Play · Explain · Copy · Share in one icon row — same order/look as the result cards.
                 HStack(spacing: Tokens.Space.s16) {
                     Button(action: onPlay) {
                         Image(systemName: isPlaying ? "speaker.wave.2.fill" : "speaker.wave.2")
@@ -256,6 +257,11 @@ private struct StudyRow: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Loc.t("Объяснить", "Explain"))
+
+                    CopyButton(expression.en, style: .icon,
+                               accessibilityLabel: Loc.t("Скопировать выражение", "Copy expression"))
+                    ShareButton(expression.en, style: .icon,
+                                accessibilityLabel: Loc.t("Поделиться выражением", "Share expression"))
                 }
                 if expression.learned {
                     Image(systemName: "checkmark.circle.fill")
@@ -270,5 +276,10 @@ private struct StudyRow: View {
         .accessibilityLabel("\(expression.en). \(expression.ru). \(expression.learned ? Loc.t("Выучено", "Learned") : Loc.t("Не выучено", "Not learned"))")
         .accessibilityAction(named: Loc.t("Озвучить", "Play")) { onPlay() }
         .accessibilityAction(named: Loc.t("Объяснить", "Explain")) { onExplain() }
+        .accessibilityAction(named: Loc.t("Скопировать", "Copy")) {
+            UIPasteboard.general.string = expression.en
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+        .accessibilityAction(named: Loc.t("Поделиться", "Share")) { ShareSheetPresenter.share(expression.en) }
     }
 }

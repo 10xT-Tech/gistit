@@ -208,6 +208,8 @@ private struct HistoryDetailView: View {
                     HStack(spacing: Tokens.Space.s16) {
                         CopyButton(ru, style: .icon,
                                    accessibilityLabel: Loc.t("Скопировать перевод", "Copy translation"))
+                        ShareButton(ru, style: .icon,
+                                    accessibilityLabel: Loc.t("Поделиться переводом", "Share translation"))
                         bookmark(isSaved: model.isSaved(HistoryDetailViewModel.translationKey)) {
                             model.toggleSaveTranslation()
                         }
@@ -232,6 +234,8 @@ private struct HistoryDetailView: View {
                     Spacer(minLength: Tokens.Space.s8)
                     CopyButton(title + "\n\n" + details, style: .icon,
                                accessibilityLabel: Loc.t("Скопировать объяснение", "Copy explanation"))
+                    ShareButton(title + "\n\n" + details, style: .icon,
+                                accessibilityLabel: Loc.t("Поделиться объяснением", "Share explanation"))
                 }
                 Text(title)
                     .textStyle(Tokens.Text.headline)
@@ -256,6 +260,8 @@ private struct HistoryDetailView: View {
                     Spacer(minLength: Tokens.Space.s8)
                     CopyButton(ru, style: .icon,
                                accessibilityLabel: Loc.t("Скопировать перевод", "Copy translation"))
+                    ShareButton(ru, style: .icon,
+                                accessibilityLabel: Loc.t("Поделиться переводом", "Share translation"))
                 }
                 Text(ru)
                     .textStyle(Tokens.Text.body)
@@ -337,6 +343,8 @@ private struct HistoryDetailView: View {
 
             CopyButton(entry.inputText, style: .icon,
                        accessibilityLabel: Loc.t("Скопировать выражение", "Copy expression"))
+            ShareButton(entry.inputText, style: .icon,
+                        accessibilityLabel: Loc.t("Поделиться выражением", "Share expression"))
         }
     }
 

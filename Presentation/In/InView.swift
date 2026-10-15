@@ -437,6 +437,8 @@ public struct InView: View {
 
                     CopyButton(model.sourceText, style: .icon,
                                accessibilityLabel: Loc.t("Скопировать выражение", "Copy expression"))
+                    ShareButton(model.sourceText, style: .icon,
+                                accessibilityLabel: Loc.t("Поделиться выражением", "Share expression"))
                 }
                 Button { model.toggleSave() } label: {
                     Image(systemName: model.isSaved ? "bookmark.fill" : "bookmark")
@@ -471,6 +473,8 @@ public struct InView: View {
                             Spacer(minLength: Tokens.Space.s8)
                             CopyButton(variant.text, style: .icon,
                                        accessibilityLabel: Loc.t("Скопировать перевод", "Copy translation"))
+                            ShareButton(variant.text, style: .icon,
+                                        accessibilityLabel: Loc.t("Поделиться переводом", "Share translation"))
                         }
                         if !variant.context.isEmpty {
                             Text(variant.context)

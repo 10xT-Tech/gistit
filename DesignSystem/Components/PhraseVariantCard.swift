@@ -75,6 +75,9 @@ public struct PhraseVariantCard: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(DSLoc.t("Скопировать английский", "Copy English"))
 
+                    ShareButton(english, style: .icon,
+                                accessibilityLabel: DSLoc.t("Поделиться фразой", "Share phrase"))
+
                     Button(action: onToggleSave) {
                         Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
                             .font(.system(size: Tokens.Icon.cardActionProminent, weight: .medium))
@@ -106,6 +109,7 @@ public struct PhraseVariantCard: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityActions {
             Button(DSLoc.t("Скопировать", "Copy")) { copyToClipboard() }
+            Button(DSLoc.t("Поделиться", "Share")) { ShareSheetPresenter.share(english) }
             Button(isSaved ? DSLoc.t("Убрать из изучаемого", "Remove from study list") : DSLoc.t("Сохранить", "Save")) { onToggleSave() }
             if let onExplain {
                 Button(DSLoc.t("Объяснить этот вариант", "Explain this variant")) { onExplain() }

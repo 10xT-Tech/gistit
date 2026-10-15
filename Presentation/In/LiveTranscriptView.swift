@@ -40,6 +40,7 @@ struct LiveTranscriptView<Middle: View>: View {
                 title: Loc.t("Оригинал", "Original", "Original", "Original", "Original", "Originale"),
                 showsTitle: false,   // the small pane is self-evident — no header (VoiceOver keeps the name)
                 copyLabel: Loc.t("Скопировать распознанный текст", "Copy the recognized text"),
+                shareLabel: Loc.t("Поделиться распознанным текстом", "Share the recognized text"),
                 finalText: text.originalFinal,
                 pendingText: text.originalPending,
                 placeholder: isStreaming
@@ -55,6 +56,7 @@ struct LiveTranscriptView<Middle: View>: View {
                 paneID: 1,
                 title: Loc.t("Перевод", "Translation", "Traduction", "Traducción", "Übersetzung", "Traduzione"),
                 copyLabel: Loc.t("Скопировать перевод", "Copy translation"),
+                shareLabel: Loc.t("Поделиться переводом", "Share translation"),
                 finalText: text.translationFinal,
                 pendingText: text.translationPending,
                 placeholder: isStreaming
@@ -83,6 +85,7 @@ private struct TranscriptPane: View {
     var showsTitle = true
     /// VoiceOver label of the pane's copy-to-clipboard button.
     let copyLabel: String
+    let shareLabel: String
     let finalText: String
     let pendingText: String
     let placeholder: String
@@ -113,7 +116,10 @@ private struct TranscriptPane: View {
                         .foregroundStyle(Tokens.Content.tertiary)
                     Spacer(minLength: Tokens.Space.s8)
                     if !copyText.isEmpty {
-                        CopyButton(copyText, style: .icon, accessibilityLabel: copyLabel)
+                        HStack(spacing: Tokens.Space.s16) {
+                            CopyButton(copyText, style: .icon, accessibilityLabel: copyLabel)
+                            ShareButton(copyText, style: .icon, accessibilityLabel: shareLabel)
+                        }
                     }
                 }
             }
@@ -128,10 +134,13 @@ private struct TranscriptPane: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            // The headerless (Original) pane gets a floating copy icon in its top-right corner.
+            // The headerless (Original) pane gets floating copy + share icons in its top-right corner.
             .overlay(alignment: .topTrailing) {
                 if !showsTitle, !copyText.isEmpty {
-                    CopyButton(copyText, style: .icon, accessibilityLabel: copyLabel)
+                    HStack(spacing: Tokens.Space.s16) {
+                        CopyButton(copyText, style: .icon, accessibilityLabel: copyLabel)
+                        ShareButton(copyText, style: .icon, accessibilityLabel: shareLabel)
+                    }
                 }
             }
             .scrollPosition($position)

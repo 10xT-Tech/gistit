@@ -54,6 +54,8 @@ struct ExplanationCardView: View {
                 }
                 CopyButton(studied, style: .icon,
                            accessibilityLabel: Loc.t("Скопировать выражение", "Copy expression"))
+                ShareButton(studied, style: .icon,
+                            accessibilityLabel: Loc.t("Поделиться выражением", "Share expression"))
                 if let isSaved, let onToggleSave {
                     Button { onToggleSave() } label: {
                         Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
@@ -82,8 +84,12 @@ struct ExplanationCardView: View {
 
             // Copy the explanation body (the labelled native-language sections) — separate from the
             // studied-text copy above.
-            CopyButton(explanationText, style: .labeled,
-                       accessibilityLabel: Loc.t("Скопировать объяснение", "Copy explanation"))
+            HStack(spacing: Tokens.Space.s20) {
+                CopyButton(explanationText, style: .labeled,
+                           accessibilityLabel: Loc.t("Скопировать объяснение", "Copy explanation"))
+                ShareButton(explanationText, style: .labeled,
+                            accessibilityLabel: Loc.t("Поделиться объяснением", "Share explanation"))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)

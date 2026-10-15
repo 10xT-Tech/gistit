@@ -2,10 +2,18 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
-## 1.5.1 — 2026-10-12
+## 1.5.3 — 2026-10-15
 
-The first release with Gist It Pro. Version 1.5.0 went to TestFlight only; everything it brought is
-listed here.
+**Share to any app.** Every card you can copy now has a **Share** button next to **Copy**: the
+phrasings on Say it, translations and explanations on Get it, photo translations and explanations on
+See it, the live transcript in Online mode, and your past results in History. It opens the iOS share
+sheet, so a ready phrase or translation goes straight into WhatsApp, Telegram, Messages, Mail or any
+other app, without copying and pasting. What you share is exactly what Copy would copy.
+
+**Copy and share from Study.** Cards in your study list get the same two buttons, **Copy** and
+**Share**, next to Play and Explain. With VoiceOver, both are also available as actions on the card.
+
+## 1.5.1 — 2026-10-13
 
 **Swipe between screens.** Swipe left or right anywhere on Study, See it, Say it, Get it or History
 to move to the neighbouring screen, in the same order as the tab bar. The screen follows your finger
@@ -14,6 +22,18 @@ Motion on, the screen simply switches. Swipes that already meant something keep 
 swipe left on a History item still deletes it, the swipe actions on Study cards still appear, and
 dragging inside a text field still moves the cursor. Scrolling up and down is never mistaken for a
 swipe.
+
+**A new tab bar.** The bar at the bottom of the screen is redrawn to make the swipes possible. It
+looks and works as before: the same five screens, the same Liquid Glass look, and it steps aside while
+the keyboard is open. One difference: when you come back to a screen, it now starts scrolled to the
+top (what you typed, your results and your chosen modes are kept as before).
+
+**Anonymous usage statistics are switched on.** The feature counts announced in 1.5.0 ("translation
+completed", "phrase saved") now actually reach us; earlier builds were missing a setting and sent
+nothing. Nothing else changes: bare event names only, never what you type, say or photograph, and no
+advertising identifier.
+
+## 1.5.0 — 2026-10-11
 
 **Gist It Pro.** Gist It now has a free plan and a monthly subscription. **Translation stays free
 for everyone, with no limits**: Get it → Translate, See it → Translate, and the cards you save to

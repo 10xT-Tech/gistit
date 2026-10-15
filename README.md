@@ -209,7 +209,7 @@ CHANGELOG.md     user-facing release notes
 
 ## Status
 
-**v1.5.1 (build 1)** — **Swipe between the main screens.** `TabSwipeGesture` (Presentation/Root): a
+**v1.5.3 (build 1)** — **Share next to Copy on every card** (`ShareButton` in DesignSystem, system share sheet via `ShareSheetPresenter` so it also works as a VoiceOver action; Study cards get Copy + Share). Previously, in **v1.5.1** — Amplitude analytics actually on (the client key was missing from every earlier build; it lives in the gitignored `Secrets.xcconfig`). Also: **Swipe between the main screens.** `TabSwipeGesture` (Presentation/Root): a
 UIKit pan via `UIGestureRecognizerRepresentable` on the selected screen, under a custom Liquid Glass
 `GlassTabBar` (no system TabView): the swipe mounts the neighbour underneath and the screen slides over it
 (`TabPager`); begins only on a clearly
