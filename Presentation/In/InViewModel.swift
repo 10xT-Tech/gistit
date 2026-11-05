@@ -63,8 +63,8 @@ public final class InViewModel {
     /// Drives the action button's Paste mode; the metadata check never triggers the iOS paste banner.
     public private(set) var clipboardHasText = false
     public var showMicPriming = false {
-        // The sheet can close WITHOUT confirm/cancelPriming (interactive swipe-down just flips the
-        // binding) — any close must consume a pending routed/live auto-start, or a LATER
+        // The sheet can close WITHOUT confirmPriming (leaving the screen just flips the binding) —
+        // any close must consume a pending routed/live auto-start, or a LATER
         // press-originated confirm would wrongly start a capture. confirmPriming reads both first.
         didSet {
             if !showMicPriming {
@@ -328,14 +328,16 @@ public final class InViewModel {
         // The Online Listen button is a TOGGLE (tap already ended), so its confirm also resumes.
         // MUTUALLY EXCLUSIVE: both flags can theoretically be armed (a widget deep link landing
         // while the Online priming sheet is up) — never start two captures; the visible mode wins.
+        // Either way the SYSTEM prompt follows the explanation at once (App Review 5.1.1): a
+        // started capture asks for access itself, a press-originated confirm asks here.
         if resumeLiveStart, mode == .online {
             startLive()
         } else if resumeRoutedStart, mode != .online {
             startListening()
+        } else {
+            Task { _ = await voiceCapture.requestAuthorization() }
         }
     }
-
-    public func cancelPriming() { showMicPriming = false }
 
     private func startListening() {
         // A still-in-flight request would flip phase to .result/.failed MID-hold — hijacking the

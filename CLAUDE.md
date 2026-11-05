@@ -98,10 +98,14 @@ with `#include?`). Two credential modes:
 - **Otherwise (development):** `CLAUDE_API_KEY` / `SONIOX_API_KEY` are used directly. They are
   extractable from a built app, so **Release builds blank them** (`Config/Base.xcconfig`
   `[config=Release]` overrides) — a Release build without `BACKEND_URL` has no live Claude/Soniox.
-**Subscription (App Store version only).** One monthly auto-renewable product
+**Subscription (App Store + TestFlight).** One monthly auto-renewable product
 (`AppConfig.subscriptionProductID`). Free plan, by SCENARIO not model: translations (Get it/See it →
 Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode.
-Subscribers and every TestFlight / Xcode build: unlimited, no paywall. The backend recognises
+Subscribers and Xcode builds (`AppDistribution.local`): unlimited, no paywall. TestFlight shows the
+REAL plan + paywall because App Review runs in the same sandbox and can't be told apart — 1.5.3 was
+rejected (2.1(b)) when the reviewer saw an unlocked "test build"; testers subscribe for free. The
+backend still treats sandbox as `beta`, so TestFlight explanations aren't metered (only the app's
+Online gate applies). The backend recognises
 translations by their system prompt's fixed opening — changing the first sentence of
 `UnderstandTemplate` / `PhotoBlocksTemplate` / `EnrichCardTemplate` must be mirrored in
 `Backend/src/validate.mjs` (`SubscriptionTierTests` pins it). The **backend enforces

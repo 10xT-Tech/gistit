@@ -27,9 +27,7 @@ public enum AppDistribution: String, Sendable, CaseIterable {
         #else
         return resolve(
             hasProvisioningProfile: Bundle.main.path(forResource: "embedded", ofType: "mobileprovision") != nil,
-            // `appStoreReceiptURL` is deprecated in favor of the async `AppTransaction`, but it's the
-            // only SYNCHRONOUS signal, and the receipt name is still "sandboxReceipt" under TestFlight.
-            receiptFileName: Bundle.main.appStoreReceiptURL?.lastPathComponent
+            receiptFileName: (Bundle.main as any ReceiptLocating).appStoreReceiptURL?.lastPathComponent
         )
         #endif
     }()
@@ -51,3 +49,12 @@ public enum AppDistribution: String, Sendable, CaseIterable {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
     }
 }
+
+/// `Bundle.appStoreReceiptURL` is deprecated (iOS 18) in favor of the async `AppTransaction`, but it's
+/// the only SYNCHRONOUS signal, and the receipt name is still "sandboxReceipt" under TestFlight. Reading
+/// it through this protocol requirement keeps that deliberate use from raising a deprecation warning.
+private protocol ReceiptLocating {
+    var appStoreReceiptURL: URL? { get }
+}
+
+extension Bundle: ReceiptLocating {}

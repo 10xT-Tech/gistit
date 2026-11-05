@@ -151,7 +151,7 @@ public final class AppContainer: Sendable {
         let recordings = SessionRecordingsPlayer()
         // Credentials: our backend (production — no third-party key in the app) or, without
         // BACKEND_URL, the embedded development keys.
-        // Subscription (App Store version only — see StoreKitSubscriptionService). Without a backend
+        // Subscription (App Store + TestFlight — see StoreKitSubscriptionService). Without a backend
         // the app talks to the services directly (development), so everything stays unlocked.
         let storeKit = config.backendURL.map { _ in StoreKitSubscriptionService(productIDs: [AppConfig.subscriptionProductID]) }
         let backend = config.backendURL.map { url in

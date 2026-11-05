@@ -158,7 +158,6 @@ public final class PhotoTranslateViewModel {
         presentCamera = true
     }
 
-    public func cancelCameraPriming() { showCameraPriming = false }
     public func cameraCancelled() { presentCamera = false }
 
     public func didCapture(_ data: Data) {

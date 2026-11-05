@@ -60,9 +60,9 @@ public final class VoiceViewModel {
     public private(set) var needsSubscription = false
     public private(set) var playingVariantID: UUID?
     public var showMicPriming = false {
-        // The sheet can close WITHOUT confirm/cancelPriming (interactive swipe-down just flips the
-        // binding) — any close must consume a pending routed auto-start, or a LATER press-originated
-        // confirm would wrongly start a hands-free capture. confirmPriming reads the flag first.
+        // The sheet can close WITHOUT confirmPriming (leaving the screen just flips the binding) —
+        // any close must consume a pending routed auto-start, or a LATER press-originated confirm
+        // would wrongly start a hands-free capture. confirmPriming reads the flag first.
         didSet { if !showMicPriming { routedStartPending = false } }
     }
 
@@ -245,10 +245,14 @@ public final class VoiceViewModel {
         // Press-originated priming must NOT auto-start: the finger left the button when the sheet
         // appeared, so an auto-started capture would have no release to stop it — the user just
         // holds again. The routed (widget) flow has no finger at all; it keeps its auto-start.
-        if resumeRoutedStart { startListening() }
+        // Either way the SYSTEM prompt follows the explanation at once (App Review 5.1.1): the
+        // capture asks for access itself, a press-originated confirm asks here.
+        if resumeRoutedStart {
+            startListening()
+        } else {
+            Task { _ = await voiceCapture.requestAuthorization() }
+        }
     }
-
-    public func cancelPriming() { showMicPriming = false }
 
     private func startListening() {
         // A still-in-flight request would flip phase to .results/.failed MID-hold — hijacking the

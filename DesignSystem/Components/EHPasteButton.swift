@@ -24,7 +24,7 @@ public struct EHPasteButton: UIViewRepresentable {
     }
 
     public func makeUIView(context: Context) -> UIPasteControl {
-        var config = UIPasteControl.Configuration()
+        let config = UIPasteControl.Configuration()
         config.displayMode = .iconAndLabel
         config.cornerStyle = .capsule
         config.baseBackgroundColor = UIColor(Tokens.Surface.invert)

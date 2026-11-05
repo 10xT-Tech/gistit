@@ -39,6 +39,11 @@ public final class NativeSpeechRecognizer: SpeechRecognizing, @unchecked Sendabl
             session.start(yielding: continuation)
         }
     }
+
+    public func requestAuthorization() async -> Bool {
+        guard await requestMicPermission() else { return false }
+        return await requestSpeechPermission()
+    }
 }
 
 /// Owns the audio engine + recognition task for one capture session and bridges the callback-based

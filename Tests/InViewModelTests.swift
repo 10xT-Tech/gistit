@@ -548,15 +548,19 @@ import Presentation
     // auto-disables when the pasteboard holds nothing acceptable and delivers no providers,
     // so the view model never sees a stale tap.)
 
-    /// Press-originated priming must NOT auto-start (no finger to release); the ROUTED priming
-    /// path must (the widget promised a hands-free mic).
-    @Test func primingAutoStartsOnlyForRoutedFlow() {
+    /// Press-originated priming must NOT auto-start (no finger to release) but must still go on to
+    /// the system permission prompt (App Review 5.1.1); the ROUTED priming path must auto-start
+    /// (the widget promised a hands-free mic).
+    @Test func primingAutoStartsOnlyForRoutedFlow() async throws {
         UserDefaults.standard.removeObject(forKey: "didPrimeMic")
-        let pressVM = makeVM(recognizer: HoldingEnRecognizer(partial: nil))
+        let pressRecognizer = HoldingEnRecognizer(partial: nil)
+        let pressVM = makeVM(recognizer: pressRecognizer)
         pressVM.micPressBegan()
         #expect(pressVM.showMicPriming)
         pressVM.confirmPriming()
         #expect(!pressVM.isListening)                             // armed, not started
+        try await waitUntil { pressRecognizer.authorizationRequests == 1 }
+        #expect(pressRecognizer.authorizationRequests == 1)       // system prompt follows at once
 
         UserDefaults.standard.removeObject(forKey: "didPrimeMic")
         let routedVM = makeVM(recognizer: HoldingEnRecognizer(partial: nil))
@@ -585,11 +589,20 @@ private final class HoldingEnRecognizer: SpeechRecognizing, @unchecked Sendable 
     private let lock = NSLock()
     private var continuation: AsyncThrowingStream<SpeechTranscript, Error>.Continuation?
     private var terminatedFlag = false
+    private var authorizationRequestCount = 0
 
     init(partial: String?) { self.partial = partial }
 
     /// True once the consumer tore the stream down (the mic is OFF).
     var terminated: Bool { lock.lock(); defer { lock.unlock() }; return terminatedFlag }
+
+    /// How many times the system permission prompts were asked for.
+    var authorizationRequests: Int { lock.lock(); defer { lock.unlock() }; return authorizationRequestCount }
+
+    func requestAuthorization() async -> Bool {
+        lock.withLock { authorizationRequestCount += 1 }
+        return true
+    }
 
     /// Simulate audio arriving AFTER the stream was (or should have been) stopped.
     func yield(_ text: String) {

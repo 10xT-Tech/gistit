@@ -13,7 +13,7 @@ import Domain
 @MainActor
 @Observable
 public final class SubscriptionState {
-    /// `.unlimited` until the store answers — no paywall flashes up in TestFlight / Xcode builds.
+    /// `.unlimited` until the store answers — no paywall flashes up in Xcode builds.
     public private(set) var tier: AccessTier = .unlimited
     public let productID: String
     public let privacyPolicyURL: URL
