@@ -542,16 +542,16 @@ public struct InView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Tokens.Space.s24)
             Spacer()
-            VStack(spacing: Tokens.Space.s8) {
-                EHButton(Loc.t("Разрешить", "Allow"), kind: .primary, fillWidth: true) { model.confirmPriming() }
-                EHButton(Loc.t("Не сейчас", "Not now"), kind: .ghost, fillWidth: true) { model.cancelPriming() }
-            }
-            .padding(.horizontal, Tokens.Space.s20)
-            .padding(.bottom, Tokens.Space.s24)
+            // App Review 5.1.1(iv): one neutral button that always leads to the system prompt — no
+            // "Allow" wording, no way to put the request off (hence no swipe-to-dismiss either).
+            EHButton(Loc.t("Продолжить", "Continue"), kind: .primary, fillWidth: true) { model.confirmPriming() }
+                .padding(.horizontal, Tokens.Space.s20)
+                .padding(.bottom, Tokens.Space.s24)
         }
         .frame(maxWidth: .infinity)
         .background(Tokens.Surface.background)
         .presentationDetents([.medium])
+        .interactiveDismissDisabled()
     }
 
     // MARK: Mapping

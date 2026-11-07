@@ -37,6 +37,10 @@ tier the server decides — never the app:
 | `pro` | App Store build + active subscription transaction | unlimited | unlimited | yes |
 | `free` | App Store build without one | unlimited | 1 per 5 min, shared | no |
 
+The app is stricter in TestFlight: it shows the real StoreKit plan and paywall there (App Review
+runs in the same sandbox and must find the subscription), while the server keeps such sessions
+`beta`.
+
 Limits follow the **scenario, not the model**. Translations (Get it → Translate, See it → Translate,
 study-card enrichment) are recognised by the fixed opening of their template's system prompt
 (`FREE_PROMPT_OPENINGS` in `src/validate.mjs`, pinned by `Tests/SubscriptionTierTests.swift`); every

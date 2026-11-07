@@ -31,6 +31,15 @@ public protocol SpeechRecognizing: Sendable {
     /// then finishes. Cancel the consuming `Task` to stop and release the microphone.
     /// Fails with `SpeechRecognitionError`.
     func transcribe() -> AsyncThrowingStream<SpeechTranscript, Error>
+
+    /// Ask for the access `transcribe()` needs (microphone, speech recognition), showing the system
+    /// prompts if the user hasn't decided yet. Returns whether capture is allowed.
+    func requestAuthorization() async -> Bool
+}
+
+extension SpeechRecognizing {
+    /// Backends (and test doubles) that need no permission.
+    public func requestAuthorization() async -> Bool { true }
 }
 
 // MARK: - Speech synthesis (EN text → playback)

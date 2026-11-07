@@ -2,11 +2,12 @@
 //  StoreKitSubscriptionService.swift
 //  EnglishHelper — Data (live adapter for SubscriptionManaging)
 //
-//  StoreKit 2. The subscription exists only in the App Store version: a TestFlight / Xcode install
-//  (AppTransaction environment sandbox / xcode) is `.unlimited` and never sees a paywall. In the App
-//  Store build the tier is `.subscribed` while a verified, unrevoked, unexpired transaction for one of
-//  `productIDs` exists, else `.free`. The backend re-checks the same signed data (EntitlementProofs),
-//  so this only drives the UI.
+//  StoreKit 2. An Xcode install (`AppDistribution.local`) is `.unlimited` and never sees a paywall.
+//  App Store AND TestFlight builds get the real plan: `.subscribed` while a verified, unrevoked,
+//  unexpired transaction for one of `productIDs` exists, else `.free`. TestFlight is included because
+//  App Review runs in the same sandbox and can't be told apart from it — the reviewer must see the
+//  subscription exactly as a customer does (App Review 2.1(b)); testers subscribe for free there.
+//  The backend re-checks the signed data (EntitlementProofs), so this only drives the UI.
 //
 
 import Foundation
@@ -20,7 +21,6 @@ public actor StoreKitSubscriptionService: SubscriptionManaging {
     private let productIDs: [String]
     private var subscribers: [UUID: AsyncStream<AccessTier>.Continuation] = [:]
     private var lastTier: AccessTier?
-    private var isStoreBuild: Bool?
     private var listener: Task<Void, Never>?
 
     public init(productIDs: [String]) {
@@ -43,7 +43,7 @@ public actor StoreKitSubscriptionService: SubscriptionManaging {
     // MARK: SubscriptionManaging
 
     public func currentTier() async -> AccessTier {
-        guard await storeBuild() else { return .unlimited }
+        guard Self.offersSubscription else { return .unlimited }
         if let transaction = await activeSubscription()?.transaction {
             return .subscribed(expires: transaction.expirationDate)
         }
@@ -98,32 +98,14 @@ public actor StoreKitSubscriptionService: SubscriptionManaging {
         subscribers[id] = nil
     }
 
-    /// App Store install? Cached once known. Unknown (no AppTransaction yet, e.g. offline on first
-    /// launch) counts as an App Store build in Release — the backend has the final word anyway.
-    private func storeBuild() async -> Bool {
-        if let isStoreBuild { return isStoreBuild }
+    /// App Store or TestFlight (incl. App Review) install — anything but an Xcode build.
+    private static var offersSubscription: Bool {
         #if DEBUG
         // Paywall / free-plan UI testing from Xcode (whose builds are otherwise always `.unlimited`).
         // The backend still treats Xcode builds as beta — this only changes what the app shows.
         if ProcessInfo.processInfo.arguments.contains("-simulateAppStore") { return true }
         #endif
-        do {
-            let environment: AppStore.Environment
-            switch try await AppTransaction.shared {
-            case .verified(let app): environment = app.environment
-            case .unverified(let app, _): environment = app.environment
-            }
-            let result = environment == .production
-            isStoreBuild = result
-            return result
-        } catch {
-            storeLog.error("AppTransaction unavailable: \(error.localizedDescription, privacy: .public)")
-            #if DEBUG
-            return false
-            #else
-            return true
-            #endif
-        }
+        return AppDistribution.current != .local
     }
 
     /// The latest-expiring verified, unrevoked, unexpired subscription transaction.

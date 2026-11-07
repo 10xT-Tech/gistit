@@ -91,8 +91,8 @@ public struct SettingsView: View {
                            "Test build: every feature is unlocked, no subscription needed."))
                     .textStyle(Tokens.Text.body)
                     .foregroundStyle(Tokens.Content.secondary)
-                // App Review runs in the same sandbox as TestFlight (indistinguishable here), so the
-                // offer must stay reachable; buying in a test build changes nothing — it's unlocked.
+                // Xcode builds only (TestFlight / App Review get the real plan). The offer stays
+                // reachable to check the paywall; buying here changes nothing — it's unlocked.
                 Divider().overlay(Tokens.Hairline.default)
                 subscriptionButton(Loc.t("Посмотреть подписку", "View subscription")) {
                     showPaywall = true

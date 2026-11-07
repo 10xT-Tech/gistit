@@ -8,6 +8,8 @@
 //  coexist with gestures SwiftUI can't arbitrate: List swipe actions (Study: both edges; History:
 //  swipe-left to delete), text selection/cursor drags, and vertical scrolling. It only BEGINS on a
 //  clearly horizontal pan, recognises simultaneously with everything else, and acts on touch-up.
+//  Once it begins, the scroll views under the finger are held still for the rest of the touch, so a
+//  slightly diagonal swipe moves the screen sideways only.
 //
 
 import SwiftUI
@@ -146,14 +148,25 @@ struct TabSwipeGesture: UIGestureRecognizerRepresentable {
         /// Set when the pan begins; read until touch-up.
         var direction: TabSwipe.Direction?
         private var touchStartedOnRow = false
+        /// The scroll views under the finger and where each stood at touch-down.
+        private var scrollViews: [HeldScroll] = []
+
+        private struct HeldScroll {
+            weak var view: UIScrollView?
+            let offset: CGPoint
+        }
 
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             var view = touch.view
             touchStartedOnRow = false
+            scrollViews = []
             while let v = view {
                 // Text editing owns horizontal drags (cursor, selection).
                 if v is UITextView || v is UITextField { return false }
                 if v is UICollectionViewCell || v is UITableViewCell { touchStartedOnRow = true }
+                if let scroll = v as? UIScrollView {
+                    scrollViews.append(HeldScroll(view: scroll, offset: scroll.contentOffset))
+                }
                 view = v.superview
             }
             return !(touchStartedOnRow && TabSwipe.rowPolicy(for: tab) == .none)
@@ -168,7 +181,21 @@ struct TabSwipeGesture: UIGestureRecognizerRepresentable {
                 return false   // that's the row's swipe-to-delete
             }
             direction = heading
+            holdScrollViewsStill()
             return true
+        }
+
+        /// The swipe owns this touch now: the scroll views' pans (recognised simultaneously) would
+        /// otherwise scroll the screen by the finger's vertical drift while it slides sideways.
+        /// Toggling a pan off cancels it for the rest of the touch; any drift before the swipe was
+        /// recognised is undone.
+        private func holdScrollViewsStill() {
+            for held in scrollViews {
+                guard let scroll = held.view else { continue }
+                scroll.panGestureRecognizer.isEnabled = false
+                scroll.panGestureRecognizer.isEnabled = true
+                if scroll.contentOffset != held.offset { scroll.setContentOffset(held.offset, animated: false) }
+            }
         }
 
         func gestureRecognizer(_ g: UIGestureRecognizer,

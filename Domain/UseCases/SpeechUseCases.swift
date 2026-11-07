@@ -11,6 +11,8 @@ import Foundation
 /// Capture spoken Russian → live transcript stream.
 public protocol VoiceCaptureUseCase: Sendable {
     func callAsFunction() -> AsyncThrowingStream<SpeechTranscript, Error>
+    /// Show the system permission prompts now (right after the in-app explanation).
+    func requestAuthorization() async -> Bool
 }
 
 public struct VoiceCaptureInteractor: VoiceCaptureUseCase {
@@ -18,6 +20,9 @@ public struct VoiceCaptureInteractor: VoiceCaptureUseCase {
     public init(recognizer: SpeechRecognizing) { self.recognizer = recognizer }
     public func callAsFunction() -> AsyncThrowingStream<SpeechTranscript, Error> {
         recognizer.transcribe()
+    }
+    public func requestAuthorization() async -> Bool {
+        await recognizer.requestAuthorization()
     }
 }
 

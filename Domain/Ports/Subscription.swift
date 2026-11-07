@@ -9,13 +9,13 @@
 import Foundation
 
 public enum AccessTier: Sendable, Equatable {
-    /// Everything unlocked, no paywall: TestFlight / Xcode builds, or a development build that talks
-    /// to the services directly. The subscription only exists in the App Store version.
+    /// Everything unlocked, no paywall: Xcode builds, or a development build that talks to the
+    /// services directly. TestFlight gets the real plan — App Review runs there and must see the offer.
     case unlimited
-    /// App Store build with an active subscription.
+    /// App Store / TestFlight build with an active subscription.
     case subscribed(expires: Date?)
-    /// App Store build without one: translations are unlimited; explanations and Say it share one
-    /// request per 5 minutes (whatever the model); live translation is unavailable.
+    /// App Store / TestFlight build without one: translations are unlimited; explanations and Say it
+    /// share one request per 5 minutes (whatever the model); live translation is unavailable.
     case free
 
     public var hasUnlimitedExplanations: Bool { self != .free }

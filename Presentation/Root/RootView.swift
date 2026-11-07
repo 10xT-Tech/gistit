@@ -99,7 +99,6 @@ public struct RootView: View {
         .safeAreaInset(edge: .bottom) {
             if !keyboardVisible {
                 GlassTabBar(items: tabItems, selection: $selection)
-                    .padding(.horizontal, Tokens.Space.s20)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in

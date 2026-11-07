@@ -50,7 +50,7 @@ import Domain
         #expect(AccessTier.subscribed(expires: nil).hasUnlimitedExplanations)
         #expect(AccessTier.subscribed(expires: nil).canUseLiveTranslation)
         #expect(AccessTier.unlimited.canUseLiveTranslation)
-        #expect(AccessTier.unlimited.offersSubscription == false)   // TestFlight / Xcode: no paywall
+        #expect(AccessTier.unlimited.offersSubscription == false)   // Xcode builds: no paywall
     }
 
     @Test func aFreePlanLimitStillCountsAsAHealthyConnection() async {
