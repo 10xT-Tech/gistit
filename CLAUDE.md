@@ -125,10 +125,12 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 ## Current Status
 
 **v1.5.1 (2026-10-12) — swipe between the main tabs.** NO system `TabView` any more: `RootView` mounts the
-SELECTED screen only, under `GlassTabBar` (DesignSystem — Liquid Glass capsule, buttons `tab.<id>`, `.isTabBar`
-trait; hidden while the keyboard is up). A swipe (`Presentation/Root/TabSwipeGesture.swift`: UIKit pan via
+SELECTED screen only, under `GlassTabBar` (DesignSystem — a STANDALONE system `UITabBar`, so the real iOS 26 Liquid Glass bar
+with its drag-to-select lens; frame runs into the bottom safe area like a `UITabBarController`'s;
+buttons `tab.<id>`; hidden while the keyboard is up). A swipe (`Presentation/Root/TabSwipeGesture.swift`: UIKit pan via
 `UIGestureRecognizerRepresentable`; pure decision table in `TabSwipe` — order MUST match `RootView.tabItems`;
-per-tab row policy because List rows carry swipe actions) mounts the neighbour underneath and slides the
+per-tab row policy because List rows carry swipe actions; once a swipe begins, the scroll views under
+the finger are held still so a diagonal swipe moves sideways only) mounts the neighbour underneath and slides the
 screen (`TabPager.offset`) over it — the LIVE screen, from the very first swipe. Why mount-on-demand and not
 "all five alive": SwiftUI vends the accessibility of every NavigationStack's nested hosting controller
 regardless of `accessibilityHidden` / UIKit `isHidden`, so hidden-but-mounted screens leaked into VoiceOver.

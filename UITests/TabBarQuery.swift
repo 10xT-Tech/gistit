@@ -2,9 +2,9 @@
 //  TabBarQuery.swift
 //  EnglishHelper — UITests
 //
-//  The main tab bar is the app's own GlassTabBar (not a system UITabBar — the screens live side by
-//  side so they can be swiped), so `app.tabBars` finds nothing. Its buttons carry the identifier
-//  "tab.<id>" and the localized title as their label.
+//  The main tab bar is GlassTabBar — a standalone system UITabBar (no UITabBarController: the
+//  screens live side by side so they can be swiped). Its buttons carry the identifier "tab.<id>"
+//  and the localized title as their label.
 //
 
 import XCTest
