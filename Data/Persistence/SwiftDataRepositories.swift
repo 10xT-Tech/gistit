@@ -255,7 +255,7 @@ public actor SwiftDataTranslationCache: TranslationCache {
 public enum PersistenceSchema {
     /// The model types the app's ModelContainer must register (single source of truth — `bootLive`
     /// and migrations both read this rather than re-listing the @Model types).
-    public static let models: [any PersistentModel.Type] = AppSchemaV3.models
+    public static let models: [any PersistentModel.Type] = AppSchemaV4.models
     /// The current versioned schema, paired with `AppMigrationPlan` when opening the store.
-    public static let current = Schema(versionedSchema: AppSchemaV3.self)
+    public static let current = Schema(versionedSchema: AppSchemaV4.self)
 }

@@ -143,8 +143,11 @@ flashcards" (delete only). Enrolling creates two stored `.new` `ReviewCard`s (re
 studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
 lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
 (Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90% retention, no
-fuzz). Storage: `ReviewCardModel` + `ReviewLogModel` (every answer — daily counts, future FSRS
-fitting), SwiftData schema **V3**, lightweight stage; cards link by `expressionID` and are deleted with
+fuzz). Storage: `ReviewCardModel` (schema **V3**) + `ReviewLogModel` (every answer — daily counts,
+future FSRS fitting; schema **V4**), lightweight stages. NEVER change a schema version's models once a
+build has used it — a store matching no version fails with `unknownDataStoreSchema` and the app runs
+on the in-memory fallback ("Saved data is unavailable"); add the next version instead
+(`PersistenceMigrationTests` opens a store of every version, incl. the dev-build variants); cards link by `expressionID` and are deleted with
 their expression in `StudyListInteractor`. `FlashcardsInteractor` queue: learning due within 20 min
 (learn-ahead) → reviews due today → new in the order moved in (`newCardsPerDay` 20 incl. cards first
 answered today; recall only after recognition was introduced on an EARLIER day). `stats(now:)` feeds
