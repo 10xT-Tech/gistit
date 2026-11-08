@@ -139,7 +139,13 @@ a bad photo is skipped, offline / plan limit / no key stop the batch; `CatchFrom
 progress; DEBUG `-uiTestCatchPhotos` fakes two images for XCUI). `PhotoCardsTemplate`'s opening is NOT
 a backend free opening → metered like explanations on the free plan. Copy/Share on a card = 4-line
 `Expression.cardText`; "Copy all cards" = `cardsText` joined by `---`. Scope `.studying` = "In
-flashcards" (delete only). Enrolling creates two stored `.new` `ReviewCard`s (recognition:
+flashcards" (delete; per-card status tags = `ReviewCard.stage` + reps; card-file export/import).
+Card files: `CardFile` (Domain, JSON `"format": "gist-it-cards"` v1; text fields + optional per-direction
+FSRS `review`) via `CardTransferInteractor` — export = cards in flashcards with progress; import goes
+STRAIGHT into flashcards (new → stored + two cards, restored from `review` if present; on Caught →
+enrolled; already in flashcards → untouched; repeats/empty skipped), written with the batch
+`ExpressionRepository.addAll` / `ReviewCardRepository.saveAll` (10k cards ≈ 2 s on the simulator).
+`tools/algoapp_to_cards.py` converts an AlgoApp deck (.zip/.xml) into a card file. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
 studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
 lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
 (Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90% retention, no

@@ -6,7 +6,8 @@
 //  - Caught: saved from Say it / Get it / See it or caught here (generated from a phrase, or from
 //    photos) and not in flashcards yet — delete, move one or all into flashcards, copy as cards,
 //    export every saved expression to an AlgoApp .xml / Anki deck.
-//  - In flashcards: the expressions being learned — delete only (with their cards).
+//  - In flashcards: the expressions being learned — delete (with their cards); export them to a card
+//    file with their progress, import a card file straight into flashcards.
 //
 
 import Foundation
@@ -56,6 +57,10 @@ public final class StudyListViewModel {
     public var showMoveAllConfirmation = false
     /// Caught → From photos, on screen while non-nil.
     public var catchSession: CatchFromPhotosViewModel?
+    /// A card-file import is running.
+    public private(set) var isImporting = false
+    /// The outcome of the last import, for an alert.
+    public private(set) var importMessage: String?
 
     private let studyList: any StudyListUseCase
     private let saveExpression: any SaveExpressionUseCase
@@ -65,6 +70,7 @@ public final class StudyListViewModel {
     private let isConfigured: Bool
     private let flashcards: (any FlashcardsUseCase)?
     private let catchFromPhotos: (any CatchCardsFromPhotosUseCase)?
+    private let cardTransfer: (any CardTransferUseCase)?
     private var playTask: Task<Void, Never>?
 
     public init(
@@ -76,6 +82,7 @@ public final class StudyListViewModel {
         isConfigured: Bool,
         flashcards: (any FlashcardsUseCase)? = nil,
         catchFromPhotos: (any CatchCardsFromPhotosUseCase)? = nil,
+        cardTransfer: (any CardTransferUseCase)? = nil,
         scope: Scope = .caught
     ) {
         self.studyList = studyList
@@ -86,6 +93,7 @@ public final class StudyListViewModel {
         self.isConfigured = isConfigured
         self.flashcards = flashcards
         self.catchFromPhotos = catchFromPhotos
+        self.cardTransfer = cardTransfer
         self.scope = scope
     }
 
@@ -212,6 +220,82 @@ public final class StudyListViewModel {
 
     /// The whole list as cards — four lines each, separated by "---" (Copy all).
     public var allCardsText: String { Domain.Expression.cardsText(expressions) }
+
+    // MARK: Card files
+
+    /// In flashcards offers export / import.
+    public var canTransferCards: Bool { cardTransfer != nil && scope == .studying }
+
+    /// The cards in flashcards with their progress → a .json card file, shared like the deck exports.
+    public func exportCards() {
+        guard let cardTransfer else { return }
+        exportError = nil
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let now = Date()
+                let data = try await cardTransfer.exportFlashcards(now: now).encoded()
+                let day = now.formatted(.iso8601.year().month().day())
+                self.exportedDeck = ExportedDeck(filename: "Gist It cards \(day).json", data: data,
+                                                 contentType: "public.json")
+            } catch {
+                self.exportError = Loc.t("Не удалось создать файл для экспорта.", "Couldn't create the export file.")
+            }
+        }
+    }
+
+    /// A picked card file → straight into flashcards; the list reloads and an alert tells the outcome.
+    public func importCards(_ data: Data) {
+        guard let cardTransfer, !isImporting else { return }
+        isImporting = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isImporting = false }
+            do {
+                let file = try CardFile.decode(data)
+                let report = try await cardTransfer.importIntoFlashcards(file, now: Date())
+                self.importMessage = Self.message(for: report)
+                await self.load()
+            } catch CardFileError.newerVersion {
+                self.importMessage = Loc.t("Файл создан более новой версией приложения. Обновите приложение.",
+                                           "This file was made by a newer version of the app. Update the app.")
+            } catch CardFileError.notACardFile {
+                self.importMessage = Loc.t("Это не файл карточек Gist It.", "This isn't a Gist It card file.")
+            } catch {
+                self.importMessage = Loc.t("Не удалось импортировать карточки. Попробуйте ещё раз.",
+                                           "Couldn't import the cards. Try again.")
+            }
+        }
+    }
+
+    /// The picked file couldn't be read at all.
+    public func reportImportReadFailed() {
+        importMessage = Loc.t("Не удалось открыть файл.", "Couldn't open the file.")
+    }
+
+    public func clearImportMessage() { importMessage = nil }
+
+    static func message(for report: CardImportReport) -> String {
+        var parts = [Loc.t("Добавлено во флеш-карты: \(report.imported)", "Added to flashcards: \(report.imported)",
+                           "Ajoutées aux cartes mémoire : \(report.imported)", "Añadidas a las tarjetas: \(report.imported)",
+                           "Zu den Karteikarten hinzugefügt: \(report.imported)", "Aggiunte alle flashcard: \(report.imported)")]
+        if report.movedFromCaught > 0 {
+            parts.append(Loc.t("из них из «Пойманных»: \(report.movedFromCaught)", "of them from Caught: \(report.movedFromCaught)",
+                               "dont depuis « Capturées » : \(report.movedFromCaught)", "de ellas desde «Atrapadas»: \(report.movedFromCaught)",
+                               "davon aus „Eingefangen“: \(report.movedFromCaught)", "di cui da «Catturate»: \(report.movedFromCaught)"))
+        }
+        if report.alreadyInFlashcards > 0 {
+            parts.append(Loc.t("уже были во флеш-картах: \(report.alreadyInFlashcards)", "already in flashcards: \(report.alreadyInFlashcards)",
+                               "déjà dans les cartes mémoire : \(report.alreadyInFlashcards)", "ya estaban en las tarjetas: \(report.alreadyInFlashcards)",
+                               "schon in den Karteikarten: \(report.alreadyInFlashcards)", "già nelle flashcard: \(report.alreadyInFlashcards)"))
+        }
+        if report.skipped > 0 {
+            parts.append(Loc.t("пропущено (повторы и пустые): \(report.skipped)", "skipped (repeats and empty): \(report.skipped)",
+                               "ignorées (doublons et vides) : \(report.skipped)", "omitidas (repetidas y vacías): \(report.skipped)",
+                               "übersprungen (Wiederholungen und leere): \(report.skipped)", "saltate (ripetute e vuote): \(report.skipped)"))
+        }
+        return parts.joined(separator: "\n")
+    }
 
     // MARK: Catch from photos
 

@@ -9,6 +9,8 @@ import Foundation
 public protocol ExpressionRepository: Sendable {
     func all() async throws -> [Expression]
     func add(_ expression: Expression) async throws
+    /// Many at once, stored in one go (a card-file import). Default: one by one.
+    func addAll(_ expressions: [Expression]) async throws
     func update(_ expression: Expression) async throws
     func delete(id: Expression.ID) async throws
     /// Toggle the staging "learned" flag.
@@ -23,6 +25,8 @@ public protocol ReviewCardRepository: Sendable {
     func all() async throws -> [ReviewCard]
     /// Insert or update, matched by `id`.
     func save(_ card: ReviewCard) async throws
+    /// Many at once, stored in one go (a card-file import). Default: one by one.
+    func saveAll(_ cards: [ReviewCard]) async throws
     /// Remove an expression's cards (it left the study list). Its answers stay in the log.
     func delete(expressionID: UUID) async throws
     func appendLog(_ log: ReviewLog) async throws
@@ -30,7 +34,17 @@ public protocol ReviewCardRepository: Sendable {
     func logs(since date: Date) async throws -> [ReviewLog]
 }
 
+public extension ReviewCardRepository {
+    func saveAll(_ cards: [ReviewCard]) async throws {
+        for card in cards { try await save(card) }
+    }
+}
+
 public extension ExpressionRepository {
+    func addAll(_ expressions: [Expression]) async throws {
+        for expression in expressions { try await add(expression) }
+    }
+
     /// Normalized key for content-level matching of an expression's `en`.
     static func normalizedKey(_ en: String) -> String {
         en.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

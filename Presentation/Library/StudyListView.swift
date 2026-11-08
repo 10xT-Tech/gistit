@@ -6,12 +6,14 @@
 //  - Caught: everything saved from Say it / Get it / See it, or caught here — "+" generates a card
 //    from a phrase or catches cards from photos. Swipe left to delete; swipe right or tap the stack
 //    icon to move one into flashcards, or move them all; copy every card as text; export.
-//  - In flashcards: the expressions being learned — swipe left to delete (with their cards).
+//  - In flashcards: the expressions being learned — swipe left to delete (with their cards); export
+//    them to a card file (with progress) or import a card file straight into flashcards.
 //
 
 import SwiftUI
 import UIKit
 import PhotosUI
+import UniformTypeIdentifiers
 import Domain
 import DesignSystem
 
@@ -20,6 +22,7 @@ public struct StudyListView: View {
     @State private var shareItem: ShareItem?
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showImporter = false
     @Environment(AppUIState.self) private var ui
     @Environment(SubscriptionState.self) private var subscription
 
@@ -39,6 +42,23 @@ public struct StudyListView: View {
         }
         .navigationTitle(caught ? Loc.t("Пойманные", "Caught") : Loc.t("Во флеш-картах", "In flashcards"))
         .toolbar {
+            if model.canTransferCards {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { model.exportCards() } label: {
+                            Label(Loc.t("Экспортировать карточки", "Export cards"), systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(model.expressions.isEmpty)
+                        Button { showImporter = true } label: {
+                            Label(Loc.t("Импортировать карточки", "Import cards"), systemImage: "square.and.arrow.down")
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down.circle")
+                    }
+                    .accessibilityLabel(Loc.t("Экспорт и импорт карточек", "Export and import cards"))
+                    .accessibilityIdentifier("cards.transfer")
+                }
+            }
             if caught {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -74,6 +94,29 @@ public struct StudyListView: View {
                     .accessibilityIdentifier("caught.add")
                 }
             }
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
+            guard case .success(let url) = result else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            if let data = try? Data(contentsOf: url) { model.importCards(data) } else { model.reportImportReadFailed() }
+        }
+        .overlay {
+            if model.isImporting {
+                VStack(spacing: Tokens.Space.s12) {
+                    ProgressView()
+                    Text(Loc.t("Импортирую карточки…", "Importing cards…"))
+                        .textStyle(Tokens.Text.subhead)
+                        .foregroundStyle(Tokens.Content.secondary)
+                }
+                .padding(Tokens.Space.s24)
+                .glassPanel(cornerRadius: Tokens.Radius.card)
+            }
+        }
+        .alert(Loc.t("Импорт карточек", "Card import"), isPresented: importMessageBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.importMessage ?? "")
         }
         .task {
             await model.load()
@@ -171,8 +214,10 @@ public struct StudyListView: View {
                            actionTitle: Loc.t("Добавить", "Add"), action: { model.showAddSheet = true })
             } else {
                 StatusView(systemImage: "rectangle.stack", title: Loc.t("Пока пусто", "Nothing yet"),
-                           message: Loc.t("Перенесите фразы из «Пойманных», чтобы учить их во флеш-картах.",
-                                          "Move phrases from Caught to learn them as flashcards."))
+                           message: Loc.t("Перенесите фразы из «Пойманных» или импортируйте файл карточек.",
+                                          "Move phrases from Caught, or import a card file."),
+                           actionTitle: model.canTransferCards ? Loc.t("Импортировать карточки", "Import cards") : nil,
+                           action: model.canTransferCards ? { showImporter = true } : nil)
             }
         case .loaded:
             list
@@ -276,6 +321,10 @@ public struct StudyListView: View {
 
     private var exportErrorBinding: Binding<Bool> {
         Binding(get: { model.exportError != nil }, set: { if !$0 { model.clearExportError() } })
+    }
+
+    private var importMessageBinding: Binding<Bool> {
+        Binding(get: { model.importMessage != nil }, set: { if !$0 { model.clearImportMessage() } })
     }
 
     private var actionErrorBinding: Binding<Bool> {

@@ -31,7 +31,17 @@ public struct EHButton: View {
         self.action = action
     }
 
+    @Environment(\.swipeSafeButtons) private var swipeSafe
+
     public var body: some View {
+        if swipeSafe {
+            button.buttonStyle(SwipeSafeButtonStyle())
+        } else {
+            button.buttonStyle(.plain)
+        }
+    }
+
+    private var button: some View {
         Button(action: action) {
             HStack(spacing: Tokens.Space.s8) {
                 if let icon { Image(systemName: icon) }
@@ -52,7 +62,6 @@ public struct EHButton: View {
                 }
             }
         }
-        .buttonStyle(.plain)
         .opacity(isEnabled ? 1 : 0.4)
         .accessibilityIdentifier(accessibilityID ?? "")
     }

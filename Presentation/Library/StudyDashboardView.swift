@@ -40,11 +40,10 @@ public struct StudyDashboardView: View {
                                     subtitle: Loc.t("Сохранённые и распознанные фразы — перенесите нужные во флеш-карты",
                                                     "Saved and caught phrases — move the ones to learn into flashcards"),
                                     count: stats.caught, id: "study.caught") { showCaught = true }
-                            if stats.inStudy > 0 {
-                                listRow(icon: "rectangle.stack", title: Loc.t("Во флеш-картах", "In flashcards"),
-                                        subtitle: Loc.t("Фразы, которые вы учите", "The phrases you're learning"),
-                                        count: stats.inStudy, id: "study.studying") { showStudying = true }
-                            }
+                            listRow(icon: "rectangle.stack", title: Loc.t("Во флеш-картах", "In flashcards"),
+                                    subtitle: Loc.t("Фразы, которые вы учите · импорт и экспорт карточек",
+                                                    "The phrases you're learning · import and export cards"),
+                                    count: stats.inStudy, id: "study.studying") { showStudying = true }
                             if stats.distribution.total > 0 || stats.reviewsByDay.contains(where: { $0.count > 0 }) {
                                 ReviewsCard(days: stats.reviewsByDay)
                                 DistributionCard(distribution: stats.distribution)
@@ -52,6 +51,8 @@ public struct StudyDashboardView: View {
                         }
                         .padding(.horizontal, Tokens.Space.s16)
                         .padding(.vertical, Tokens.Space.s8)
+                        // A sideways swipe over a button must not press it (Study has no tab to its left).
+                        .environment(\.swipeSafeButtons, true)
                     }
                 } else {
                     LoadingView(Loc.t("Загружаю…", "Loading…"))
@@ -141,7 +142,7 @@ public struct StudyDashboardView: View {
             .padding(Tokens.Space.s16)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SwipeSafeButtonStyle())
         .glassPanel(cornerRadius: Tokens.Radius.card)
         .accessibilityLabel("\(title): \(count)")
         .accessibilityIdentifier(id)

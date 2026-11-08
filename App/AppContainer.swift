@@ -45,6 +45,8 @@ public final class AppContainer: Sendable {
     public let flashcards: any FlashcardsUseCase
     /// Caught → From photos: photos → vocabulary cards.
     public let catchFromPhotos: any CatchCardsFromPhotosUseCase
+    /// Card files: export flashcards with progress, import straight into flashcards.
+    public let cardTransfer: any CardTransferUseCase
     public let requestHistory: any RequestHistoryUseCase
     public let exportDeck: any ExportDeckUseCase        // AlgoApp .xml
     public let exportAnkiDeck: any ExportDeckUseCase    // Anki .txt
@@ -116,6 +118,7 @@ public final class AppContainer: Sendable {
         self.studyList = StudyListInteractor(repository: expressions, cards: reviewCards)
         self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards, analytics: analytics)
         self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
+        self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -335,6 +338,7 @@ public final class AppContainer: Sendable {
             isConfigured: config.isClaudeConfigured,
             flashcards: flashcards,
             catchFromPhotos: catchFromPhotos,
+            cardTransfer: cardTransfer,
             scope: scope
         )
     }

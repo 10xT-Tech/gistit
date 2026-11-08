@@ -28,6 +28,12 @@ delete a phrase.
 
 The four answer buttons look the same, so no answer is suggested — you rate every card yourself.
 
+**Import and export cards.** In flashcards has an import / export menu. **Export cards** saves all
+your flashcards — with how well you know each one — to a file you can keep as a backup or move to
+another device. **Import cards** reads such a file straight into flashcards, without stopping in
+Caught: new phrases start as new cards, phrases you already learn keep their progress, and repeats
+are skipped. Up to 20 new cards are introduced a day, so even a deck of thousands arrives gradually.
+
 **A study dashboard.** Study now opens with your progress: what's due today, new cards, how many
 phrases you're learning, your reviews today and over the last week, and how your cards are spread
 from new to well known.

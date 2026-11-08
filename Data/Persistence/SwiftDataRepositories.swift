@@ -27,6 +27,11 @@ public actor SwiftDataExpressionRepository: ExpressionRepository {
         try save()
     }
 
+    public func addAll(_ expressions: [Domain.Expression]) async throws {
+        for expression in expressions { modelContext.insert(ExpressionModel(expression)) }
+        try save()
+    }
+
     public func update(_ expression: Domain.Expression) async throws {
         guard let model = try fetchModel(id: expression.id) else { throw RepositoryError.notFound }
         model.apply(expression)
@@ -83,6 +88,17 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
             model.apply(card)
         } else {
             modelContext.insert(ReviewCardModel(card))
+        }
+        try save()
+    }
+
+    public func saveAll(_ cards: [ReviewCard]) async throws {
+        // One read of the existing cards, matched in memory — an IN over thousands of ids would hit
+        // SQLite's parameter limit.
+        let existing = try modelContext.fetch(FetchDescriptor<ReviewCardModel>())
+        let byID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for card in cards {
+            if let model = byID[card.id] { model.apply(card) } else { modelContext.insert(ReviewCardModel(card)) }
         }
         try save()
     }
