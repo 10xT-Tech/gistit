@@ -4,8 +4,9 @@ Personal-use iOS app for living in a studied language (six languages, configurab
 pair; originally EN-from-RU). Five tabs: **Say it** (thought → 3 phrasings / situation → phrases),
 **Get it** (Translate / Explain / **Online** — a live interpreter that listens to surrounding speech
 and translates it in real time via Soniox), **See it** (photo → explain or translate), **Study**
-(the saved phrases + in-app **flashcards** with FSRS spaced repetition (Pro); also exported to
-AlgoApp/Anki), **History** (every request; live sessions keep their audio; swipe-to-delete).
+(a learning dashboard + in-app **flashcards** with FSRS spaced repetition (Pro); saved phrases wait in
+**Saved for later** until moved into flashcards; export to AlgoApp/Anki), **History** (every request;
+live sessions keep their audio; swipe-to-delete).
 
 - iOS 26 · Swift 6 · SwiftUI · Xcode 27 (iOS 27 SDK; deployment target stays iOS 26) · SwiftData (persistence) · async/await + actors.
 - Online-first; the LLM is Claude (Sonnet 5.5 / Haiku 5.5) via the Anthropic API; live speech translation is
@@ -126,17 +127,23 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
-**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — flashcards.** Every non-learned study-list
-expression is two `ReviewCard`s (recognition: studied→native; recall: native→studied), scheduled by
-`FSRS` (Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90%
-retention, no fuzz). A card is stored only once answered (`ReviewCardModel`, SwiftData schema **V3**,
-lightweight stage; linked by `expressionID`, deleted with its expression in `StudyListInteractor`);
-`FlashcardsInteractor` builds today's queue: learning due within 20 min (learn-ahead) → reviews due
-today → new (oldest first, `newCardsPerDay` 20 incl. cards first answered today; recall only after
-recognition was introduced on an EARLIER day). UI: `PracticeCard` atop the Study list (counts + Start;
-free plan → lock + paywall) → full-screen `FlashcardSessionView` (reveal, Again/Hard/Good/Easy with
-interval labels, same-session re-queue of learning steps). XCUI `FlashcardsUITests` (`-uiTestFreePlan`
-= `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
+**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Saved for later,
+flashcards.** Saving (Say it / Get it / See it / manual add) stores an `Expression` = **Saved for later**
+(`StudyListView` + `StudyListViewModel`, pushed from the dashboard; swipe-left delete, swipe-right or
+the stack icon → `FlashcardsUseCase.enroll`). Enrolling creates two stored `.new` `ReviewCard`s
+(recognition: studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users'
+whole old list lands in Saved for later. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
+(Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90% retention, no
+fuzz). Storage: `ReviewCardModel` + `ReviewLogModel` (every answer — daily counts, future FSRS
+fitting), SwiftData schema **V3**, lightweight stage; cards link by `expressionID` and are deleted with
+their expression in `StudyListInteractor`. `FlashcardsInteractor` queue: learning due within 20 min
+(learn-ahead) → reviews due today → new in the order moved in (`newCardsPerDay` 20 incl. cards first
+answered today; recall only after recognition was introduced on an EARLIER day). `stats(now:)` feeds
+`StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
+Start — free plan → lock + paywall), Saved-for-later row, reviews per day (7 bars, today emphasised),
+cards by stage (new/learning/young/mature at 21 d) — monochrome `Tokens.Chart` ramp validated with
+the dataviz validator for both modes. Session: full-screen `FlashcardSessionView`. XCUI
+`FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
 sideways-only tab swipes from 1.5.3 (3) ship here too.
 
 **v1.5.1 (2026-10-12) — swipe between the main tabs.** NO system `TabView` any more: `RootView` mounts the

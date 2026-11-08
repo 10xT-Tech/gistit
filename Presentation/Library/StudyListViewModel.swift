@@ -2,9 +2,9 @@
 //  StudyListViewModel.swift
 //  EnglishHelper — Presentation
 //
-//  "Изучаю" — the study list. Manual add (enrich-then-store), swipe-delete, toggle learned,
-//  export to an AlgoApp .xml / Anki deck, and the entry to flashcard practice (today's counts +
-//  the running session).
+//  "Saved for later" — the expressions saved from Say it / Get it / See it (or added by hand) that
+//  aren't in flashcards yet. Manual add (enrich-then-store), delete, move to flashcards, play, and
+//  export of every saved expression to an AlgoApp .xml / Anki deck.
 //
 
 import Foundation
@@ -30,7 +30,7 @@ public final class StudyListViewModel {
     public private(set) var exportedDeck: ExportedDeck?
     public private(set) var exportError: String?
 
-    /// A failed delete / toggle-learned, surfaced without flipping the whole list to `.failed`.
+    /// A failed delete / move, surfaced without flipping the whole list to `.failed`.
     public private(set) var actionError: String?
 
     public enum ExportFormat: CaseIterable, Sendable {
@@ -44,11 +44,6 @@ public final class StudyListViewModel {
     }
 
     public private(set) var playingID: UUID?
-
-    /// Today's flashcard counts; nil while unknown or with flashcards off (no use case wired).
-    public private(set) var practice: FlashcardsSummary?
-    /// The practice session on screen (presented full screen while non-nil).
-    public var session: FlashcardSessionViewModel?
 
     private let studyList: any StudyListUseCase
     private let saveExpression: any SaveExpressionUseCase
@@ -85,10 +80,11 @@ public final class StudyListViewModel {
         // tab swipe) keeps its empty state instead of flashing "Loading…".
         if expressions.isEmpty, phase != .empty { phase = .loading }
         do {
-            let items = try await studyList.list()
+            let all = try await studyList.list()
+            let enrolled = try await flashcards?.enrolledExpressionIDs() ?? []
+            let items = all.filter { !enrolled.contains($0.id) }
             expressions = items
             phase = items.isEmpty ? .empty : .loaded
-            await refreshPractice()
         } catch {
             errorMessage = Loc.t("Не удалось загрузить список.", "Couldn't load the list.")
             phase = .failed
@@ -133,7 +129,6 @@ public final class StudyListViewModel {
             guard let self else { return }
             do {
                 try await self.studyList.delete(id: expression.id)
-                await self.refreshPractice()
             } catch {
                 // Persisted delete failed → re-insert so the visible list can't diverge from the store.
                 self.expressions.insert(removed, at: min(index, self.expressions.count))
@@ -144,55 +139,28 @@ public final class StudyListViewModel {
         }
     }
 
-    /// Cards marked learned — what Clean up removes; 0 disables the button.
-    public var learnedCount: Int { expressions.filter(\.learned).count }
-    /// Clean up is a bulk delete with no undo, so the view asks for confirmation first.
-    public var showCleanUpConfirmation = false
-
-    /// Remove EVERY card marked learned. Optimistic like `delete`: the rows vanish at once; if any
-    /// persisted delete fails the list is reloaded from the store so what's shown never diverges
-    /// from it, and the failure is reported.
-    public func cleanUpLearned() {
-        let learned = expressions.filter(\.learned)
-        guard !learned.isEmpty else { return }
-        expressions.removeAll(where: \.learned)
+    /// Move an expression into flashcards (its two cards are created; it leaves this list). Optimistic
+    /// like `delete`: the row goes at once and comes back if the move fails.
+    public func moveToFlashcards(_ expression: Domain.Expression) {
+        guard let flashcards, let index = expressions.firstIndex(where: { $0.id == expression.id }) else { return }
+        let moved = expressions.remove(at: index)
+        let wasLoaded = phase
         if expressions.isEmpty { phase = .empty }
         Task { [weak self] in
             guard let self else { return }
-            var failed = false
-            for expression in learned {
-                do { try await self.studyList.delete(id: expression.id) } catch { failed = true }
-            }
-            if failed {
-                await self.load()
-                self.actionError = Loc.t("Не удалось удалить часть карточек. Попробуйте ещё раз.",
-                                         "Couldn't delete some cards. Try again.")
-            } else {
-                await self.refreshPractice()
+            do {
+                try await flashcards.enroll(moved.id, now: Date())
+            } catch {
+                self.expressions.insert(moved, at: min(index, self.expressions.count))
+                self.phase = wasLoaded
+                self.actionError = Loc.t("Не удалось перенести во флеш-карты. Попробуйте ещё раз.",
+                                         "Couldn't move to flashcards. Try again.")
             }
         }
     }
 
-    public func toggleLearned(_ expression: Domain.Expression) {
-        let newValue = !expression.learned
-        if let index = expressions.firstIndex(where: { $0.id == expression.id }) {
-            expressions[index].learned = newValue
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.studyList.setLearned(newValue, id: expression.id)
-                await self.refreshPractice()   // learned expressions leave practice
-            } catch {
-                // Revert the optimistic flip so the toggle reflects what's actually persisted.
-                if let index = self.expressions.firstIndex(where: { $0.id == expression.id }) {
-                    self.expressions[index].learned = !newValue
-                }
-                self.actionError = Loc.t("Не удалось обновить. Попробуйте ещё раз.",
-                                         "Couldn't update. Try again.")
-            }
-        }
-    }
+    /// Whether rows offer "move to flashcards" (flashcards wired).
+    public var canMoveToFlashcards: Bool { flashcards != nil }
 
     public func export(_ format: ExportFormat) {
         exportError = nil
@@ -215,26 +183,6 @@ public final class StudyListViewModel {
         exportedDeck = nil
         exportError = Loc.t("Не удалось подготовить файл для отправки.",
                             "Couldn't prepare the file for sharing.")
-    }
-
-    // MARK: Flashcards
-
-    /// Re-count today's cards (after loading, list edits, or a finished session).
-    public func refreshPractice() async {
-        guard let flashcards else { return }
-        practice = try? await flashcards.summary(now: Date())
-    }
-
-    /// Open a practice session. The paywall check for the free plan is the view's (it owns the plan).
-    public func startPractice() {
-        guard let flashcards, session == nil else { return }
-        session = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce)
-    }
-
-    /// The session screen closed.
-    public func endPractice() {
-        session = nil
-        Task { await refreshPractice() }
     }
 
     // MARK: Playback

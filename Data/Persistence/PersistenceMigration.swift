@@ -26,12 +26,14 @@ public enum AppSchemaV2: VersionedSchema {
     }
 }
 
-/// v3 (2.0) — adds `ReviewCardModel` (flashcard spaced-repetition state). A new entity again, so the
-/// V2→V3 stage is lightweight too: the study list and history are untouched.
+/// v3 (2.0) — adds `ReviewCardModel` (flashcard spaced-repetition state) and `ReviewLogModel` (the
+/// answers). New entities only, so the V2→V3 stage is lightweight too: the saved expressions and
+/// history are untouched (and every saved expression starts out "saved for later" — no cards).
 public enum AppSchemaV3: VersionedSchema {
     public static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
     public static var models: [any PersistentModel.Type] {
-        [ExpressionModel.self, HistoryModel.self, CachedTranslationModel.self, ReviewCardModel.self]
+        [ExpressionModel.self, HistoryModel.self, CachedTranslationModel.self, ReviewCardModel.self,
+         ReviewLogModel.self]
     }
 }
 

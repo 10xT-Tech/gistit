@@ -93,6 +93,16 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
         try save()
     }
 
+    public func appendLog(_ log: ReviewLog) async throws {
+        modelContext.insert(ReviewLogModel(log))
+        try save()
+    }
+
+    public func logs(since date: Date) async throws -> [ReviewLog] {
+        let descriptor = FetchDescriptor<ReviewLogModel>(predicate: #Predicate { $0.reviewedAt >= date })
+        return try modelContext.fetch(descriptor).compactMap { $0.toDomain() }
+    }
+
     private func save() throws {
         do { try modelContext.save() }
         catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }

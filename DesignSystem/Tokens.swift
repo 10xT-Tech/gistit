@@ -147,6 +147,27 @@ public enum Tokens {
         public static let thin: SwiftUI.Material = .ultraThinMaterial
     }
 
+    // MARK: Chart — data marks (Study dashboard)
+    //  Monochrome like the rest of the system. The ordinal ramp is validated (dataviz validator,
+    //  --ordinal: monotone lightness, adjacent ΔL ≥ 0.06, faint end ≥ 2:1) against the card surface
+    //  in each mode — light #FAFAFC, dark #141415. Dark is its own ramp, not a flip.
+    public enum Chart {
+        /// Ordered stages, faintest → strongest (flashcards: new → learning → young → mature).
+        public static let stage = [
+            Color(light: Color(hex: 0xAEAEB4), dark: Color(hex: 0x5A5A5F)),
+            Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C)),
+            Color(light: Color(hex: 0x5A5A60), dark: Color(hex: 0xB4B4BA)),
+            Color(light: Color(hex: 0x1C1C1E), dark: Color(hex: 0xF2F2F7)),
+        ]
+        /// A single-series bar; `barEmphasis` marks the one that matters (today).
+        public static let bar = stage[1]
+        public static let barEmphasis = stage[3]
+        /// Gap between adjacent fills (stacked segments, neighbouring bars).
+        public static let gap: CGFloat = 2
+        /// Rounding of a bar's data end.
+        public static let barRadius: CGFloat = 4
+    }
+
     /// Literal glass tint values + border/highlight (for flat-tint fallback or material overlays).
     public enum Glass {
         /// `--glass` tint  ·  theme.css:26 / theme.css:61

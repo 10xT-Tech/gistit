@@ -91,6 +91,29 @@ public final class ReviewCardModel {
     }
 }
 
+/// One flashcard answer (`Domain.ReviewLog`) — feeds the dashboard's daily review counts.
+@Model
+public final class ReviewLogModel {
+    @Attribute(.unique) public var id: UUID
+    public var cardID: UUID
+    public var rating: Int
+    public var stateRaw: String
+    public var reviewedAt: Date
+
+    public init(_ log: ReviewLog) {
+        self.id = log.id
+        self.cardID = log.cardID
+        self.rating = log.rating.rawValue
+        self.stateRaw = log.state.rawValue
+        self.reviewedAt = log.reviewedAt
+    }
+
+    public func toDomain() -> ReviewLog? {
+        guard let rating = ReviewRating(rawValue: rating), let state = ReviewState(rawValue: stateRaw) else { return nil }
+        return ReviewLog(id: id, cardID: cardID, rating: rating, state: state, reviewedAt: reviewedAt)
+    }
+}
+
 /// A cached text-translation request: `key` is `Domain.TranslationCacheKey`, `value` is the JSON of the
 /// scenario's typed result. Lets repeat translations of the same input skip the model entirely.
 @Model

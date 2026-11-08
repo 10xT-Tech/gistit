@@ -68,47 +68,35 @@ import Presentation
         #expect(vm.expressions.contains { $0.id == first.id } == false)
     }
 
-    @Test func toggleLearnedFlips() async throws {
-        let vm = makeVM(seed: MockExpressionRepository.defaultSeed)
+    /// Moving to flashcards takes the expression off this list (at once and in the store) and gives
+    /// it its two cards; without flashcards wired the action isn't offered.
+    @Test func moveToFlashcardsLeavesTheList() async throws {
+        let repo = MockExpressionRepository(seed: MockExpressionRepository.defaultSeed)
+        let cards = MockReviewCardRepository()
+        let vm = StudyListViewModel(
+            studyList: StudyListInteractor(repository: repo, cards: cards),
+            saveExpression: SaveExpressionInteractor(
+                enrich: EnrichExpressionInteractor(llm: MockLLMClient()), repository: repo
+            ),
+            exportAlgoApp: ExportDeckInteractor(repository: repo, exporter: AlgoAppXMLExporter()),
+            exportAnki: ExportDeckInteractor(repository: repo, exporter: AnkiExporter()),
+            pronounce: PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing()),
+            isConfigured: true,
+            flashcards: FlashcardsInteractor(expressions: repo, cards: cards)
+        )
         await vm.load()
+        #expect(vm.canMoveToFlashcards)
         let first = try #require(vm.expressions.first)
-        let before = first.learned
-        vm.toggleLearned(first)
-        let updated = try #require(vm.expressions.first { $0.id == first.id })
-        #expect(updated.learned == !before)
-    }
-
-    @Test func cleanUpRemovesOnlyLearnedAndPersists() async throws {
-        let vm = makeVM(seed: MockExpressionRepository.defaultSeed)
-        await vm.load()
-        let total = vm.expressions.count
-        let first = try #require(vm.expressions.first)
-        if !first.learned { vm.toggleLearned(first) }
-        let learnedBefore = vm.learnedCount
-        #expect(learnedBefore >= 1)
-
-        vm.cleanUpLearned()
-        // Optimistic: the learned rows are gone at once, nothing else is touched.
-        #expect(vm.learnedCount == 0)
-        #expect(vm.expressions.count == total - learnedBefore)
-        #expect(vm.expressions.contains { $0.id == first.id } == false)
-
-        // Persisted: a fresh load from the store agrees.
+        vm.moveToFlashcards(first)
+        #expect(!vm.expressions.contains { $0.id == first.id })
+        try await waitUntil { vm.expressions.count == 1 }
         try await Task.sleep(for: .milliseconds(100))
+        #expect(try await cards.all().filter { $0.expressionID == first.id }.count == 2)
         await vm.load()
-        #expect(vm.expressions.count == total - learnedBefore)
-        #expect(vm.expressions.contains { $0.id == first.id } == false)
-    }
+        #expect(!vm.expressions.contains { $0.id == first.id })
+        #expect(vm.actionError == nil)
 
-    @Test func cleanUpWithNothingLearnedIsNoOp() async throws {
-        let vm = makeVM(seed: MockExpressionRepository.defaultSeed)
-        await vm.load()
-        for e in vm.expressions where e.learned { vm.toggleLearned(e) }
-        let count = vm.expressions.count
-        #expect(vm.learnedCount == 0)
-        vm.cleanUpLearned()
-        #expect(vm.expressions.count == count)
-        #expect(vm.phase == .loaded)
+        #expect(!makeVM(seed: []).canMoveToFlashcards)
     }
 
     @Test func exportProducesXMLDeck() async throws {

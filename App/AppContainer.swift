@@ -334,6 +334,11 @@ public final class AppContainer: Sendable {
     }
 
     @MainActor
+    public func makeStudyDashboardViewModel() -> StudyDashboardViewModel {
+        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce)
+    }
+
+    @MainActor
     public func makeHistoryViewModel() -> HistoryViewModel {
         HistoryViewModel(
             history: requestHistory, saveExpression: saveExpression,

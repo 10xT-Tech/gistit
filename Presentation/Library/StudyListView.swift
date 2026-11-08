@@ -2,8 +2,9 @@
 //  StudyListView.swift
 //  EnglishHelper — Presentation
 //
-//  "Изучаю" — the study list: flashcard practice (Pro), add (enrich-then-store), swipe-delete,
-//  toggle learned, clean up learned (confirmed bulk delete), export .xml / Anki.
+//  "Saved for later" — pushed from the Study dashboard. Everything saved from Say it / Get it / See it
+//  (or added here) that isn't in flashcards yet: swipe left to delete, swipe right or tap the stack
+//  icon to move it into flashcards; add by hand; export every saved expression (.xml / Anki).
 //
 
 import SwiftUI
@@ -15,85 +16,57 @@ public struct StudyListView: View {
     @State private var model: StudyListViewModel
     @State private var shareItem: ShareItem?
     @Environment(AppUIState.self) private var ui
-    @Environment(SubscriptionState.self) private var subscription
 
     public init(model: StudyListViewModel) {
         self.model = model
     }
 
     public var body: some View {
-        NavigationStack {
-            ZStack {
-                ScreenBackground()
-                contentSection
-            }
-            .navigationTitle(Loc.t("Изучаю", "Study"))
-            .settingsTrigger()
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        ForEach(StudyListViewModel.ExportFormat.allCases, id: \.self) { format in
-                            Button(format.title) { model.export(format) }
-                        }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
+        ZStack {
+            ScreenBackground()
+            contentSection
+        }
+        .navigationTitle(Loc.t("Отложенные", "Saved for later"))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    ForEach(StudyListViewModel.ExportFormat.allCases, id: \.self) { format in
+                        Button(format.title) { model.export(format) }
                     }
-                    .disabled(model.expressions.isEmpty)
-                    .accessibilityLabel(Loc.t("Экспортировать список", "Export list"))
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    // Clean up: drop every card marked learned — behind a confirmation (no undo).
-                    Button { model.showCleanUpConfirmation = true } label: { Image(systemName: "eraser") }
-                        .disabled(model.learnedCount == 0)
-                        .accessibilityLabel(Loc.t("Убрать изученные", "Clean up learned"))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { model.showAddSheet = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel(Loc.t("Добавить выражение", "Add expression"))
-                }
+                .accessibilityLabel(Loc.t("Экспортировать список", "Export list"))
             }
-            .confirmationDialog(
-                Loc.t("Убрать изученные карточки?", "Remove learned cards?"),
-                isPresented: $model.showCleanUpConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button(role: .destructive) { model.cleanUpLearned() } label: {
-                    Text(Loc.t("Удалить изученные (\(model.learnedCount))",
-                               "Delete learned (\(model.learnedCount))"))
-                }
-                Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
-            } message: {
-                Text(Loc.t("Карточки, отмеченные как изученные, будут удалены из списка. Это нельзя отменить.",
-                           "Cards marked as learned will be removed from the list. This can't be undone."))
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { model.showAddSheet = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel(Loc.t("Добавить выражение", "Add expression"))
             }
-            .task { await model.load() }
-            .fullScreenCover(item: $model.session, onDismiss: { model.endPractice() }) { session in
-                FlashcardSessionView(model: session) { model.session = nil }
+        }
+        .task { await model.load() }
+        .sheet(isPresented: $model.showAddSheet) { addSheet }
+        .sheet(item: $shareItem) { item in ShareSheet(items: [item.url]) }
+        .onChange(of: model.exportedDeck) { _, deck in
+            guard let deck else { return }
+            if let url = writeTemp(deck) {
+                shareItem = ShareItem(url: url)
+                model.clearExport()
+            } else {
+                model.reportExportWriteFailed()   // don't silently swallow the temp-write failure
             }
-            .sheet(isPresented: $model.showAddSheet) { addSheet }
-            .sheet(item: $shareItem) { item in ShareSheet(items: [item.url]) }
-            .onChange(of: model.exportedDeck) { _, deck in
-                guard let deck else { return }
-                if let url = writeTemp(deck) {
-                    shareItem = ShareItem(url: url)
-                    model.clearExport()
-                } else {
-                    model.reportExportWriteFailed()   // don't silently swallow the temp-write failure
-                }
-            }
-            .onChange(of: model.showAddSheet) { _, shown in
-                if !shown { model.resetAddForm() }    // clear stale text/error on Cancel or swipe-dismiss
-            }
-            .alert(Loc.t("Экспорт", "Export"), isPresented: exportErrorBinding) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(model.exportError ?? "")
-            }
-            .alert(Loc.t("Список", "List"), isPresented: actionErrorBinding) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(model.actionError ?? "")
-            }
+        }
+        .onChange(of: model.showAddSheet) { _, shown in
+            if !shown { model.resetAddForm() }    // clear stale text/error on Cancel or swipe-dismiss
+        }
+        .alert(Loc.t("Экспорт", "Export"), isPresented: exportErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.exportError ?? "")
+        }
+        .alert(Loc.t("Список", "List"), isPresented: actionErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.actionError ?? "")
         }
     }
 
@@ -108,7 +81,7 @@ public struct StudyListView: View {
                        message: model.errorMessage,
                        actionTitle: Loc.t("Повторить", "Retry"), action: { Task { await model.load() } })
         case .empty:
-            StatusView(systemImage: "rectangle.stack", title: Loc.t("Пока пусто", "Nothing yet"),
+            StatusView(systemImage: "tray", title: Loc.t("Пока пусто", "Nothing yet"),
                        message: Loc.t("Сохраняйте фразы из «Сказать», «Понять» или «Смотреть» — или добавьте вручную.",
                                       "Save phrases from “Say it”, “Get it”, or “See it” — or add them manually."),
                        actionTitle: Loc.t("Добавить", "Add"), action: { model.showAddSheet = true })
@@ -119,20 +92,12 @@ public struct StudyListView: View {
 
     private var list: some View {
         List {
-            if let practice = model.practice {
-                PracticeCard(summary: practice, locked: !subscription.tier.canUseFlashcards) {
-                    if subscription.tier.canUseFlashcards { model.startPractice() } else { ui.showPaywall = true }
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
-                                          bottom: Tokens.Space.s8, trailing: Tokens.Space.s16))
-            }
             ForEach(model.expressions) { expression in
                 StudyRow(expression: expression,
                          isPlaying: model.isPlaying(expression),
                          onPlay: { model.play(expression) },
-                         onExplain: { ui.pendingExplain = ExplainRequest(text: expression.en) })
+                         onExplain: { ui.pendingExplain = ExplainRequest(text: expression.en) },
+                         onStudy: model.canMoveToFlashcards ? { model.moveToFlashcards(expression) } : nil)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
@@ -143,16 +108,18 @@ public struct StudyListView: View {
                         }
                     }
                     .swipeActions(edge: .leading) {
-                        Button { model.toggleLearned(expression) } label: {
-                            Label(expression.learned ? Loc.t("Не выучено", "Not learned") : Loc.t("Выучено", "Learned"),
-                                  systemImage: expression.learned ? "arrow.uturn.left" : "checkmark")
+                        if model.canMoveToFlashcards {
+                            Button { model.moveToFlashcards(expression) } label: {
+                                Label(Loc.t("Учить", "Learn"), systemImage: "rectangle.stack.badge.plus")
+                            }
+                            .tint(Tokens.Signal.success)
                         }
-                        .tint(Tokens.Signal.success)
                     }
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .animation(.default, value: model.expressions.map(\.id))
     }
 
     // MARK: Add sheet
@@ -230,6 +197,8 @@ private struct StudyRow: View {
     let isPlaying: Bool
     let onPlay: () -> Void
     let onExplain: () -> Void
+    /// Move into flashcards; nil hides the action (flashcards not wired).
+    let onStudy: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -238,7 +207,6 @@ private struct StudyRow: View {
                 Text(expression.en)
                     .textStyle(Tokens.Text.headline)
                     .foregroundStyle(Tokens.Content.primary)
-                    .strikethrough(expression.learned, color: Tokens.Content.tertiary)
                 if !expression.ru.isEmpty {
                     Text(expression.ru)
                         .textStyle(Tokens.Text.subhead)
@@ -251,7 +219,7 @@ private struct StudyRow: View {
                 }
             }
             Spacer(minLength: Tokens.Space.s8)
-            VStack(alignment: .trailing, spacing: Tokens.Space.s8) {
+            VStack(alignment: .trailing, spacing: Tokens.Space.s12) {
                 // Play · Explain · Copy · Share in one icon row — same order/look as the result cards.
                 HStack(spacing: Tokens.Space.s16) {
                     Button(action: onPlay) {
@@ -276,9 +244,16 @@ private struct StudyRow: View {
                     ShareButton(expression.en, style: .icon,
                                 accessibilityLabel: Loc.t("Поделиться выражением", "Share expression"))
                 }
-                if expression.learned {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Tokens.Signal.success)
+                if let onStudy {
+                    // The swipe-right action, as a visible button.
+                    Button(action: onStudy) {
+                        Image(systemName: "rectangle.stack.badge.plus")
+                            .font(.system(size: Tokens.Icon.cardAction, weight: .medium))
+                            .foregroundStyle(Tokens.Content.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Loc.t("Учить во флеш-картах", "Study in flashcards"))
+                    .accessibilityIdentifier("saved.study")
                 }
             }
         }
@@ -286,7 +261,7 @@ private struct StudyRow: View {
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(expression.en). \(expression.ru). \(expression.learned ? Loc.t("Выучено", "Learned") : Loc.t("Не выучено", "Not learned"))")
+        .accessibilityLabel("\(expression.en). \(expression.ru)")
         .accessibilityAction(named: Loc.t("Озвучить", "Play")) { onPlay() }
         .accessibilityAction(named: Loc.t("Объяснить", "Explain")) { onExplain() }
         .accessibilityAction(named: Loc.t("Скопировать", "Copy")) {
@@ -294,46 +269,19 @@ private struct StudyRow: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
         .accessibilityAction(named: Loc.t("Поделиться", "Share")) { ShareSheetPresenter.share(expression.en) }
+        .modifier(StudyAction(onStudy: onStudy))
     }
 }
 
-/// The flashcard entry at the top of the study list: today's counts and Start (Pro — the free plan
-/// sees a lock and gets the paywall).
-private struct PracticeCard: View {
-    let summary: FlashcardsSummary
-    let locked: Bool
-    let onStart: () -> Void
+/// VoiceOver: "Study in flashcards" as an action on the combined row (when offered).
+private struct StudyAction: ViewModifier {
+    let onStudy: (() -> Void)?
 
-    var body: some View {
-        HStack(spacing: Tokens.Space.s12) {
-            VStack(alignment: .leading, spacing: Tokens.Space.s4) {
-                Text(Loc.t("Флеш-карты", "Flashcards"))
-                    .textStyle(Tokens.Text.headline)
-                    .foregroundStyle(Tokens.Content.primary)
-                Text(subtitle)
-                    .textStyle(Tokens.Text.subhead)
-                    .foregroundStyle(Tokens.Content.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: Tokens.Space.s8)
-            EHButton(Loc.t("Начать", "Start"), icon: locked ? "lock.fill" : nil, kind: .primary,
-                     accessibilityID: "flashcards.start", action: onStart)
-                .disabled(!locked && summary.total == 0)
+    func body(content: Content) -> some View {
+        if let onStudy {
+            content.accessibilityAction(named: Loc.t("Учить во флеш-картах", "Study in flashcards")) { onStudy() }
+        } else {
+            content
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Tokens.Space.s16)
-        .glassPanel(cornerRadius: Tokens.Radius.card)
-    }
-
-    private var subtitle: String {
-        guard summary.total > 0 else {
-            return Loc.t("На сегодня всё — возвращайтесь завтра.", "All done for today — come back tomorrow.")
-        }
-        return Loc.t("Повторить: \(summary.due) · новых: \(summary.new)",
-                     "To review: \(summary.due) · new: \(summary.new)",
-                     "À réviser : \(summary.due) · nouvelles : \(summary.new)",
-                     "Para repasar: \(summary.due) · nuevas: \(summary.new)",
-                     "Wiederholen: \(summary.due) · neu: \(summary.new)",
-                     "Da ripassare: \(summary.due) · nuove: \(summary.new)")
     }
 }

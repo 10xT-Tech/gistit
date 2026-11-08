@@ -18,14 +18,16 @@ public protocol ExpressionRepository: Sendable {
     func find(en: String) async throws -> Expression?
 }
 
-/// Spaced-repetition state of the study-list flashcards (`ReviewCard`, two per expression). Cards
-/// are stored once first answered — until then the queue treats an expression's missing card as new.
+/// Flashcards (`ReviewCard`, two per expression moved to flashcards) and the log of answers.
 public protocol ReviewCardRepository: Sendable {
     func all() async throws -> [ReviewCard]
     /// Insert or update, matched by `id`.
     func save(_ card: ReviewCard) async throws
-    /// Remove an expression's cards (it left the study list).
+    /// Remove an expression's cards (it left the study list). Its answers stay in the log.
     func delete(expressionID: UUID) async throws
+    func appendLog(_ log: ReviewLog) async throws
+    /// Answers given at or after `date`.
+    func logs(since date: Date) async throws -> [ReviewLog]
 }
 
 public extension ExpressionRepository {

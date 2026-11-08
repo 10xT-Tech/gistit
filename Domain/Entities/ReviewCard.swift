@@ -2,9 +2,10 @@
 //  ReviewCard.swift
 //  EnglishHelper — Domain
 //
-//  One flashcard: a study-list expression asked in ONE direction, plus its spaced-repetition memory
-//  state (FSRS — see `FSRS`). Every expression has two, scheduled independently: recognition
-//  (studied language → meaning) and recall (meaning → studied language).
+//  One flashcard: a saved expression asked in ONE direction, plus its spaced-repetition memory state
+//  (FSRS — see `FSRS`). An expression the user moved to flashcards has two, scheduled independently:
+//  recognition (studied language → meaning) and recall (meaning → studied language). Expressions
+//  without cards are the "saved for later" list.
 //
 
 import Foundation
@@ -82,5 +83,23 @@ public struct ReviewCard: Codable, Sendable, Equatable, Identifiable, Hashable {
         self.lapses = lapses
         self.lastReview = lastReview
         self.firstReview = firstReview
+    }
+}
+
+/// One answer, kept for the daily review counts (and, later, for fitting FSRS to the user).
+public struct ReviewLog: Codable, Sendable, Equatable, Identifiable {
+    public let id: UUID
+    public let cardID: UUID
+    public let rating: ReviewRating
+    /// The card's state when it was answered.
+    public let state: ReviewState
+    public let reviewedAt: Date
+
+    public init(id: UUID = UUID(), cardID: UUID, rating: ReviewRating, state: ReviewState, reviewedAt: Date) {
+        self.id = id
+        self.cardID = cardID
+        self.rating = rating
+        self.state = state
+        self.reviewedAt = reviewedAt
     }
 }
