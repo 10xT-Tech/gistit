@@ -95,6 +95,20 @@ import Domain
         #expect(relearned.state == .review)
     }
 
+    /// Stages: new → learning (incl. relearning) → young → mature at a 21-day interval.
+    @Test func stageFollowsStateAndInterval() {
+        #expect(newCard().stage == .new)
+        #expect(fsrs.review(newCard(), rating: .good, at: now).stage == .learning)
+        #expect(fsrs.review(reviewCard(stability: 10, difficulty: 5, elapsedDays: 10), rating: .again, at: now).stage == .learning)
+        var young = reviewCard(stability: 5, difficulty: 5, elapsedDays: 0)
+        young.lastReview = now
+        young.due = now.addingTimeInterval(20 * day)
+        #expect(young.stage == .young)
+        var mature = young
+        mature.due = now.addingTimeInterval(21 * day)
+        #expect(mature.stage == .mature)
+    }
+
     @Test func difficultyFollowsTheAnswersAndStaysInRange() {
         let card = reviewCard(stability: 10, difficulty: 5, elapsedDays: 10)
         #expect(fsrs.review(card, rating: .again, at: now).difficulty > 5)

@@ -21,8 +21,12 @@ tap its card icon) to move it into flashcards, or **Move all to flashcards** at 
 Swipe left to delete. **Copy** now copies the whole card as four lines (phrase, translation, example,
 synonyms), and **Copy all cards** in the share menu copies the list, ready to paste into another app.
 
-**In flashcards.** A list of the phrases you're learning, reached from the dashboard; swipe left to
-delete one.
+**In flashcards.** A list of the phrases you're learning, reached from the dashboard. Each phrase
+shows both of its cards — Recognize and Recall — with how well you know it (new, learning, young or
+mature, in the same tones as the dashboard) and how many times you've reviewed it. Swipe left to
+delete a phrase.
+
+The four answer buttons look the same, so no answer is suggested — you rate every card yourself.
 
 **A study dashboard.** Study now opens with your progress: what's due today, new cards, how many
 phrases you're learning, your reviews today and over the last week, and how your cards are spread

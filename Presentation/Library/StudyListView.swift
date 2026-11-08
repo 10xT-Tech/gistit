@@ -195,7 +195,8 @@ public struct StudyListView: View {
                          isPlaying: model.isPlaying(expression),
                          onPlay: { model.play(expression) },
                          onExplain: { ui.pendingExplain = ExplainRequest(text: expression.en) },
-                         onStudy: model.canMoveToFlashcards ? { model.moveToFlashcards(expression) } : nil)
+                         onStudy: model.canMoveToFlashcards ? { model.moveToFlashcards(expression) } : nil,
+                         cards: model.cards(for: expression))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
@@ -299,6 +300,8 @@ private struct StudyRow: View {
     let onExplain: () -> Void
     /// Move into flashcards; nil hides the action (flashcards not wired).
     let onStudy: (() -> Void)?
+    /// In flashcards: the expression's cards — shown as status tags (stage + reviews).
+    var cards: [ReviewCard] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -316,6 +319,14 @@ private struct StudyRow: View {
                     Text(expression.synonyms.joined(separator: " · "))
                         .textStyle(Tokens.Text.footnote)
                         .foregroundStyle(Tokens.Content.tertiary)
+                }
+                if !cards.isEmpty {
+                    // Two tags side by side; stacked when they don't fit (narrow width, large text).
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: Tokens.Space.s8) { statusTags }
+                        VStack(alignment: .leading, spacing: Tokens.Space.s4) { statusTags }
+                    }
+                    .padding(.top, Tokens.Space.s4)
                 }
             }
             Spacer(minLength: Tokens.Space.s8)
@@ -362,7 +373,7 @@ private struct StudyRow: View {
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(expression.en). \(expression.ru)")
+        .accessibilityLabel(([expression.en, expression.ru] + cards.map(CardStatusTag.spoken)).joined(separator: ". "))
         .accessibilityAction(named: Loc.t("Озвучить", "Play")) { onPlay() }
         .accessibilityAction(named: Loc.t("Объяснить", "Explain")) { onExplain() }
         .accessibilityAction(named: Loc.t("Скопировать", "Copy")) {
@@ -371,6 +382,60 @@ private struct StudyRow: View {
         }
         .accessibilityAction(named: Loc.t("Поделиться", "Share")) { ShareSheetPresenter.share(expression.cardText) }
         .modifier(StudyAction(onStudy: onStudy))
+    }
+}
+
+extension StudyRow {
+    @ViewBuilder fileprivate var statusTags: some View {
+        ForEach(cards) { CardStatusTag(card: $0) }
+    }
+}
+
+/// One card's status: which way it asks, how well it's known (the dashboard's stage tone + name) and
+/// how many times it has been answered.
+private struct CardStatusTag: View {
+    let card: ReviewCard
+
+    var body: some View {
+        HStack(spacing: Tokens.Space.s4) {
+            Circle()
+                .fill(Tokens.Chart.stage[card.stage.rawValue])
+                .frame(width: 8, height: 8)
+            Text("\(Self.direction(card.direction)): \(Self.stage(card.stage))")
+            Image(systemName: "arrow.counterclockwise")
+                .imageScale(.small)
+            Text("\(card.reps)")
+                .monospacedDigit()
+        }
+        .textStyle(Tokens.Text.caption)
+        .foregroundStyle(Tokens.Content.secondary)
+        .padding(.horizontal, Tokens.Space.s8)
+        .padding(.vertical, 3)
+        .background(Tokens.Fill.subtle, in: Capsule())
+        .fixedSize()
+    }
+
+    static func direction(_ direction: CardDirection) -> String {
+        switch direction {
+        case .recognition: Loc.t("Узнать", "Recognize", "Reconnaître", "Reconocer", "Erkennen", "Riconoscere")
+        case .recall: Loc.t("Вспомнить", "Recall", "Retrouver", "Recordar", "Abrufen", "Ricordare")
+        }
+    }
+
+    static func stage(_ stage: CardStage) -> String {
+        switch stage {
+        case .new: Loc.t("новая", "new", "nouvelle", "nueva", "neu", "nuova")
+        case .learning: Loc.t("изучается", "learning", "en apprentissage", "aprendiendo", "im Lernen", "in apprendimento")
+        case .young: Loc.t("молодая", "young", "jeune", "joven", "jung", "giovane")
+        case .mature: Loc.t("зрелая", "mature", "mature", "madura", "gefestigt", "matura")
+        }
+    }
+
+    /// VoiceOver: "Recognize: young, reviews: 4".
+    static func spoken(_ card: ReviewCard) -> String {
+        let reviews = Loc.t("повторений: \(card.reps)", "reviews: \(card.reps)", "révisions : \(card.reps)",
+                            "repasos: \(card.reps)", "Wiederholungen: \(card.reps)", "ripassi: \(card.reps)")
+        return "\(direction(card.direction)): \(stage(card.stage)), \(reviews)"
     }
 }
 

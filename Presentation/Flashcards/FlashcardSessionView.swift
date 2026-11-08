@@ -193,9 +193,9 @@ public struct FlashcardSessionView: View {
         }
     }
 
+    /// All four look the same — none is pre-selected; the user rates every card afresh.
     private func ratingButton(_ rating: ReviewRating) -> some View {
         let interval = model.intervals[rating].map(FlashcardSessionViewModel.intervalLabel) ?? ""
-        let primary = rating == .good
         return Button { model.rate(rating) } label: {
             VStack(spacing: 2) {
                 Text(title(rating))
@@ -206,9 +206,9 @@ public struct FlashcardSessionView: View {
                     .textStyle(Tokens.Text.caption)
                     .opacity(0.7)
             }
-            .foregroundStyle(primary ? Tokens.Content.onInvert : Tokens.Content.primary)
+            .foregroundStyle(Tokens.Content.primary)
             .frame(maxWidth: .infinity, minHeight: 56)
-            .background(primary ? Tokens.Surface.invert : Tokens.Fill.default,
+            .background(Tokens.Fill.default,
                         in: RoundedRectangle(cornerRadius: Tokens.Radius.control, style: .continuous))
         }
         .buttonStyle(.plain)

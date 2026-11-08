@@ -49,6 +49,8 @@ public final class StudyListViewModel {
     }
 
     public private(set) var playingID: UUID?
+    /// In flashcards: each expression's cards (its learning status and review counts).
+    public private(set) var cardsByExpression: [UUID: [ReviewCard]] = [:]
 
     /// "Move all to flashcards" asks first.
     public var showMoveAllConfirmation = false
@@ -96,8 +98,10 @@ public final class StudyListViewModel {
         if expressions.isEmpty, phase != .empty { phase = .loading }
         do {
             let all = try await studyList.list()
-            let enrolled = try await flashcards?.enrolledExpressionIDs() ?? []
+            let cards = try await flashcards?.enrolledCards() ?? []
+            let enrolled = Set(cards.map(\.expressionID))
             let items = all.filter { enrolled.contains($0.id) == (scope == .studying) }
+            cardsByExpression = scope == .studying ? Dictionary(grouping: cards, by: \.expressionID) : [:]
             expressions = items
             phase = items.isEmpty ? .empty : .loaded
         } catch {
@@ -172,6 +176,11 @@ public final class StudyListViewModel {
                                          "Couldn't move to flashcards. Try again.")
             }
         }
+    }
+
+    /// An expression's cards, recognition first (empty on Caught).
+    public func cards(for expression: Domain.Expression) -> [ReviewCard] {
+        (cardsByExpression[expression.id] ?? []).sorted { $0.direction == .recognition && $1.direction != .recognition }
     }
 
     /// Whether Caught offers "move to flashcards" (flashcards wired).

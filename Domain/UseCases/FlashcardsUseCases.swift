@@ -52,13 +52,11 @@ public struct CardDistribution: Sendable, Equatable {
     public let new: Int
     /// In (re)learning steps.
     public let learning: Int
-    /// In review with an interval under `matureInterval` days.
+    /// In review with an interval under `CardStage.matureInterval` days.
     public let young: Int
-    /// In review with an interval of `matureInterval` days or more (Anki's "mature").
+    /// In review with an interval of `CardStage.matureInterval` days or more (Anki's "mature").
     public let mature: Int
     public var total: Int { new + learning + young + mature }
-
-    public static let matureInterval = 21
 
     public init(new: Int, learning: Int, young: Int, mature: Int) {
         self.new = new
@@ -111,6 +109,8 @@ public protocol FlashcardsUseCase: Sendable {
     func enroll(_ expressionID: UUID, now: Date) async throws
     /// Expressions that are in flashcards — everything else is on the Caught list.
     func enrolledExpressionIDs() async throws -> Set<UUID>
+    /// The cards of the saved expressions (two per expression in flashcards).
+    func enrolledCards() async throws -> [ReviewCard]
     /// Answer a card: reschedules it, stores it, logs the answer and returns the card's new state.
     func rate(_ card: ReviewCard, _ rating: ReviewRating, now: Date) async throws -> ReviewCard
     /// How long until the card returns for each possible answer.
@@ -147,12 +147,11 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
 
         var new = 0, learning = 0, young = 0, mature = 0
         for card in deck.cards {
-            switch card.state {
+            switch card.stage {
             case .new: new += 1
-            case .learning, .relearning: learning += 1
-            case .review:
-                let interval = card.lastReview.map { card.due.timeIntervalSince($0) / 86_400 } ?? 0
-                if interval >= Double(CardDistribution.matureInterval) { mature += 1 } else { young += 1 }
+            case .learning: learning += 1
+            case .young: young += 1
+            case .mature: mature += 1
             }
         }
 
@@ -189,6 +188,10 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
 
     public func enrolledExpressionIDs() async throws -> Set<UUID> {
         Set(try await cards.all().map(\.expressionID))
+    }
+
+    public func enrolledCards() async throws -> [ReviewCard] {
+        try await loadDeck().cards
     }
 
     public func rate(_ card: ReviewCard, _ rating: ReviewRating, now: Date) async throws -> ReviewCard {

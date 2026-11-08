@@ -67,6 +67,15 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["All done for today — come back tomorrow."].waitForExistence(timeout: 3))
         XCTAssertFalse(start.isEnabled)
         attach(app, "dashboard-after")
+
+        // In flashcards: the phrase's status — recognition answered twice and graduated, recall untouched.
+        app.buttons["study.studying"].tap()
+        let studied = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it'")).firstMatch
+        XCTAssertTrue(studied.waitForExistence(timeout: 3))
+        let status = app.cells.containing(NSPredicate(
+            format: "label CONTAINS 'Recognize: young, reviews: 2' AND label CONTAINS 'Recall: new, reviews: 0'")).firstMatch
+        XCTAssertTrue(status.exists, "the card status isn't shown")
+        attach(app, "in-flashcards")
     }
 
     /// Caught → Move all (confirmed) empties the list; In flashcards then lists both phrases, and a

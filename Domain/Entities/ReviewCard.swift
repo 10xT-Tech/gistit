@@ -86,6 +86,34 @@ public struct ReviewCard: Codable, Sendable, Equatable, Identifiable, Hashable {
     }
 }
 
+/// How well a card is known — the dashboard's distribution and the In-flashcards status tags.
+public enum CardStage: Int, Sendable, CaseIterable, Comparable {
+    /// Never answered.
+    case new
+    /// In (re)learning steps.
+    case learning
+    /// In review with an interval under `CardStage.matureInterval` days.
+    case young
+    /// In review with an interval of `CardStage.matureInterval` days or more (Anki's "mature").
+    case mature
+
+    public static let matureInterval = 21
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+public extension ReviewCard {
+    var stage: CardStage {
+        switch state {
+        case .new: return .new
+        case .learning, .relearning: return .learning
+        case .review:
+            let interval = lastReview.map { due.timeIntervalSince($0) / 86_400 } ?? 0
+            return interval >= Double(CardStage.matureInterval) ? .mature : .young
+        }
+    }
+}
+
 /// One answer, kept for the daily review counts (and, later, for fitting FSRS to the user).
 public struct ReviewLog: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID

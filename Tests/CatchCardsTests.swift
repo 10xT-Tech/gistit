@@ -163,6 +163,10 @@ import Presentation
         await studying.load()
         #expect(studying.expressions.count == 2)
         let victim = try #require(studying.expressions.first)
+        // Each phrase shows its two cards, recognition first; Caught shows none.
+        #expect(studying.cards(for: victim).map(\.direction) == [.recognition, .recall])
+        #expect(studying.cards(for: victim).allSatisfy { $0.stage == .new && $0.reps == 0 })
+        #expect(caught.cards(for: victim).isEmpty)
         studying.delete(victim)
         tries = 0
         while try await cards.all().count > 2, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
