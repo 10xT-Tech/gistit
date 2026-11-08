@@ -56,12 +56,12 @@ struct FixCardsView: View {
                 .glassPanel(cornerRadius: Tokens.Radius.card)
 
                 if model.progress.failed > 0 {
-                    Text(Loc.t("Не удалось обработать: \(model.progress.failed) — им только исправлены заглавные буквы.",
-                               "Couldn't be processed: \(model.progress.failed) — they only got their capital letters.",
-                               "Non traitées : \(model.progress.failed) — seules les majuscules ont été corrigées.",
-                               "No procesadas: \(model.progress.failed) — solo se corrigieron las mayúsculas.",
-                               "Nicht verarbeitet: \(model.progress.failed) — nur die Großbuchstaben wurden korrigiert.",
-                               "Non elaborate: \(model.progress.failed) — corrette solo le maiuscole."))
+                    Text(Loc.t("Не удалось обработать: \(model.progress.failed) — им исправлен только регистр букв.",
+                               "Couldn't be processed: \(model.progress.failed) — only their letter case was fixed.",
+                               "Non traitées : \(model.progress.failed) — seule la casse a été corrigée.",
+                               "No procesadas: \(model.progress.failed) — solo se corrigieron mayúsculas y minúsculas.",
+                               "Nicht verarbeitet: \(model.progress.failed) — nur die Groß- und Kleinschreibung wurde korrigiert.",
+                               "Non elaborate: \(model.progress.failed) — corrette solo maiuscole e minuscole."))
                         .textStyle(Tokens.Text.footnote)
                         .foregroundStyle(Tokens.Content.secondary)
                         .multilineTextAlignment(.center)

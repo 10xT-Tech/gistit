@@ -3,7 +3,8 @@
 //  EnglishHelper — Domain (use cases)
 //
 //  In flashcards → "Fix cards": goes through every phrase in flashcards and
-//  - starts the phrase and its translation with a capital letter (here, deterministically);
+//  - writes every field in lower case — except the English pronoun "I" (I'm, I've, I'll, I'd), and
+//    German nouns when German is studied (here, deterministically: `lettercase`);
 //  - via the model (`FixCardsTemplate`, batches of `batchSize`): fixes grammar and spelling, gives a
 //    single verb its infinitive marker and a single noun its article, fills in a missing example,
 //    synonyms and usage note.
@@ -109,7 +110,8 @@ public struct FixCardsInteractor: FixCardsUseCase {
                         let fixes = try await Self.ask(llm, template, about: batch)
                         if fixes == nil { failed += batch.count }
                         for expression in batch {
-                            let fixed = Self.apply(fixes?[expression.id.uuidString], to: expression)
+                            let fixed = Self.apply(fixes?[expression.id.uuidString], to: expression,
+                                                   studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
                             if fixed != expression {
                                 try await expressions.update(fixed)
                                 changed += 1
@@ -148,7 +150,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
     }
 
     /// The model's fixes for a batch, by card id — one retry; nil when the answer is unusable twice
-    /// (those cards still get their capital letters). Failures the next batch would hit too are thrown.
+    /// (those cards still get their letter case fixed). Failures the next batch would hit too are thrown.
     private static func ask(_ llm: LLMClient, _ template: FixCardsTemplate,
                             about batch: [Expression]) async throws -> [String: FixCardItem]? {
         let items = batch.map {
@@ -167,8 +169,9 @@ public struct FixCardsInteractor: FixCardsUseCase {
         return nil
     }
 
-    /// The card with the model's fix (if any) and capital letters.
-    static func apply(_ fix: FixCardItem?, to expression: Expression) -> Expression {
+    /// The card with the model's fix (if any), every field in lower case (see `lettercase`).
+    static func apply(_ fix: FixCardItem?, to expression: Expression, studiedLanguage: String,
+                      nativeLanguage: String) -> Expression {
         var out = expression
         if let fix {
             out.en = fix.expression
@@ -177,14 +180,24 @@ public struct FixCardsInteractor: FixCardsUseCase {
             out.synonyms = fix.synonyms
             out.context = fix.context
         }
-        out.en = capitalized(out.en)
-        out.ru = capitalized(out.ru)
+        let studied = { (text: String) in lettercase(text, language: studiedLanguage) }
+        let native = { (text: String) in lettercase(text, language: nativeLanguage) }
+        out.en = studied(out.en)
+        out.example = studied(out.example)
+        out.synonyms = out.synonyms.map(studied)
+        out.ru = native(out.ru)
+        out.context = native(out.context)
         return out
     }
 
-    /// The first letter upper-cased ("to run" → "To run", "«привет»" → "«Привет»"); the rest untouched.
-    public static func capitalized(_ text: String) -> String {
-        guard let index = text.firstIndex(where: \.isLetter) else { return text }
-        return text.replacingCharacters(in: index...index, with: text[index].uppercased())
+    /// Lower case — except the English pronoun "I" (with I'm, I've, I'll, I'd) in English text, and
+    /// German text left as it is (its nouns are capitalised by spelling).
+    /// "A Corkscrew" → "a corkscrew", "i'm tired" → "I'm tired", "Я ценю это" → "я ценю это".
+    public static func lettercase(_ text: String, language: String) -> String {
+        if language == "German" { return text }
+        let lower = text.lowercased()
+        guard language == "English" else { return lower }
+        // Simple word boundaries: an apostrophe ends a word, so the "i" of "i'm" is found too.
+        return lower.replacing(/\bi\b/.wordBoundaryKind(.simple)) { _ in "I" }
     }
 }

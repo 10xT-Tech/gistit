@@ -133,8 +133,8 @@ public struct StudyListView: View {
             }
             Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
         } message: {
-            Text(Loc.t("Заглавные буквы, грамматика, «to» у глаголов и артикли у существительных, недостающие примеры, синонимы и пояснения. Тексты карточек перезаписываются — можно сначала экспортировать карточки как резервную копию. Прогресс изучения не меняется.",
-                       "Capital letters, grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is."))
+            Text(Loc.t("Всё строчными буквами (кроме I), грамматика, «to» у глаголов и артикли у существительных, недостающие примеры, синонимы и пояснения. Тексты карточек перезаписываются — можно сначала экспортировать карточки как резервную копию. Прогресс изучения не меняется.",
+                       "All lower case (except I), grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is."))
         }
         .sheet(item: $model.fixSession, onDismiss: { model.endFix() }) { session in
             FixCardsView(model: session) { model.fixSession = nil }

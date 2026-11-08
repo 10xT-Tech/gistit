@@ -2,7 +2,7 @@
 //  FixCardsTests.swift
 //  EnglishHelperTests
 //
-//  In flashcards → Fix cards: the prompt template, capital letters, the run in batches with progress,
+//  In flashcards → Fix cards: the prompt template, letter case, the run in batches with progress,
 //  resuming where it stopped (no card sent twice), unusable answers, the plan's limit, and what is
 //  never touched (Caught phrases, learning progress).
 //
@@ -61,12 +61,19 @@ import Presentation
         #expect(decoded.cards[0].synonyms.count == 3)
     }
 
-    @Test func capitalLetters() {
-        #expect(FixCardsInteractor.capitalized("to run") == "To run")
-        #expect(FixCardsInteractor.capitalized("«привет»") == "«Привет»")
-        #expect(FixCardsInteractor.capitalized("123 go") == "123 Go")
-        #expect(FixCardsInteractor.capitalized("Already") == "Already")
-        #expect(FixCardsInteractor.capitalized("") == "")
+    /// Lower case everywhere — but the English "I", and German nouns left alone.
+    @Test func letterCase() {
+        let en = { FixCardsInteractor.lettercase($0, language: "English") }
+        #expect(en("A Corkscrew") == "a corkscrew")
+        #expect(en("To Abandon") == "to abandon")
+        #expect(en("I appreciate it") == "I appreciate it")
+        #expect(en("i'm tired, i think") == "I'm tired, I think")
+        #expect(en("I’ve Been There") == "I’ve been there")
+        #expect(en("Is it in? Hi!") == "is it in? hi!")                 // other "i"s untouched
+        #expect(FixCardsInteractor.lettercase("Я Ценю Это", language: "Russian") == "я ценю это")
+        #expect(FixCardsInteractor.lettercase("I Ragazzi", language: "Italian") == "i ragazzi")   // an article
+        #expect(FixCardsInteractor.lettercase("der Tisch", language: "German") == "der Tisch")
+        #expect(en("") == "")
     }
 
     // MARK: Runs
@@ -84,7 +91,8 @@ import Presentation
         #expect(steps.map(\.processed) == [0, 20, 40, 45])
         #expect(steps.last == FixProgress(processed: 45, total: 45, changed: 45, failed: 0))
         let fixed = try await expressions.all().filter { $0.id != caught.id }
-        #expect(fixed.allSatisfy { $0.en.hasPrefix("Phrase") && $0.ru.hasPrefix("Фраза") })
+        #expect(fixed.allSatisfy { $0.en.hasPrefix("phrase") && $0.ru.hasPrefix("фраза") })
+        #expect(fixed.allSatisfy { $0.example == $0.example.lowercased() })
         #expect(fixed.allSatisfy { !$0.example.isEmpty && !$0.synonyms.isEmpty && !$0.context.isEmpty })
         #expect(try await expressions.all().first { $0.id == caught.id }?.en == "caught one")
         #expect(Set(try await reviewCards.all()) == Set(cards))     // learning progress untouched
@@ -127,13 +135,14 @@ import Presentation
             }
         } catch { stoppedBy = error }
 
-        #expect(steps.last == FixProgress(processed: 40, total: 45, changed: 40, failed: 20))
+        // The first batch was already lower case: only the second changed.
+        #expect(steps.last == FixProgress(processed: 40, total: 45, changed: 20, failed: 20))
         guard case LLMError.subscriptionRequired? = stoppedBy as? LLMError else {
             Issue.record("the plan's limit should stop the run, got \(String(describing: stoppedBy))")
             return
         }
         let firstBatch = try await expressions.all().filter { $0.createdAt < now.addingTimeInterval(20) }
-        #expect(firstBatch.allSatisfy { $0.en.hasPrefix("Phrase") && $0.example.isEmpty })  // capitals only
+        #expect(firstBatch.allSatisfy { $0.en.hasPrefix("phrase") && $0.example.isEmpty })  // letter case only
         let left5 = try await sut.remaining()
         #expect(left5.left == 5 && left5.total == 45)
     }

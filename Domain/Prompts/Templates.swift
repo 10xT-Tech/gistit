@@ -690,8 +690,8 @@ public struct PhotoCardsTemplate: PromptTemplate {
         - "translation": its \(nativeLanguage) translation — one or two variants separated by " / ".
         - "example": one example sentence in \(studiedLanguage) that uses it.
         - "synonyms": 2 to 3 \(studiedLanguage) synonyms.
-        Use lowercase letters everywhere, except where \(studiedLanguage) spelling requires a capital (for
-        example German nouns or proper names). No commentary.
+        Use lowercase letters everywhere — except the English pronoun "I" (I'm, I've, I'll, I'd) and German
+        nouns. No commentary.
         \(plainTextRule)
         """
     }
@@ -755,7 +755,7 @@ public struct FixCardsResult: Codable, Sendable, Equatable {
 /// A batch of flashcards → the same cards corrected and completed: grammar and spelling fixed, a
 /// single verb given its infinitive marker and a single noun its article (as the studied language's
 /// vocabulary lists do), missing example / synonyms / usage note filled in. Correct text is kept.
-/// Capitalisation is the app's job (deterministic), not the model's. Metered on the free plan.
+/// Letter case (all lower case but "I") is applied by the app as well. Metered on the free plan.
 public struct FixCardsTemplate: PromptTemplate {
     public typealias Input = [FixCardItem]
     public typealias Output = FixCardsResult
@@ -792,6 +792,8 @@ public struct FixCardsTemplate: PromptTemplate {
           none fit, never invented.
         - "context" (\(nativeLanguage)): keep it; if empty, write one short note on when and how the expression is
           used (register, typical situation).
+        Write every field in lowercase letters — except the English pronoun "I" (I'm, I've, I'll, I'd) and
+        German nouns.
         \(plainTextRule)
         """
     }
