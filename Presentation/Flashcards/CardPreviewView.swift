@@ -47,7 +47,7 @@ struct CardPreviewView: View {
         VStack(alignment: .leading, spacing: Tokens.Space.s12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(expression.en)
-                    .textStyle(Tokens.Text.title1)
+                    .textStyle(Tokens.Flashcard.prompt)
                     .foregroundStyle(Tokens.Content.primary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
@@ -63,28 +63,7 @@ struct CardPreviewView: View {
                 .accessibilityLabel(Loc.t("Озвучить", "Play"))
             }
             Divider().overlay(Tokens.Hairline.default)
-            Text(expression.ru)
-                .textStyle(Tokens.Text.title2)
-                .foregroundStyle(Tokens.Content.primary)
-                .fixedSize(horizontal: false, vertical: true)
-            if !expression.example.isEmpty {
-                Text(expression.example)
-                    .textStyle(Tokens.Text.body)
-                    .italic()
-                    .foregroundStyle(Tokens.Content.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !expression.synonyms.isEmpty {
-                Text("≈ " + expression.synonyms.joined(separator: " · "))
-                    .textStyle(Tokens.Text.subhead)
-                    .foregroundStyle(Tokens.Content.tertiary)
-            }
-            if !expression.context.isEmpty {
-                Text(expression.context)
-                    .textStyle(Tokens.Text.footnote)
-                    .foregroundStyle(Tokens.Content.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            CardBack(answer: expression.ru, expression: expression)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s20)

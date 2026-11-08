@@ -163,41 +163,24 @@ public struct FlashcardSessionView: View {
                 }
             }
 
-            Text(recognition ? expression.en : expression.ru)
-                .textStyle(Tokens.Text.title1)
-                .foregroundStyle(Tokens.Content.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-
-            if model.isRevealed {
-                Divider().overlay(Tokens.Hairline.default)
-                VStack(alignment: .leading, spacing: Tokens.Space.s12) {
-                    Text(recognition ? expression.ru : expression.en)
-                        .textStyle(Tokens.Text.title2)
+            // A long card (an example, synonyms and notes at the larger sizes) scrolls inside the card.
+            ScrollView {
+                VStack(alignment: .leading, spacing: Tokens.Space.s16) {
+                    Text(recognition ? expression.en : expression.ru)
+                        .textStyle(Tokens.Flashcard.prompt)
                         .foregroundStyle(Tokens.Content.primary)
                         .fixedSize(horizontal: false, vertical: true)
-                    if !expression.example.isEmpty {
-                        Text(expression.example)
-                            .textStyle(Tokens.Text.body)
-                            .italic()
-                            .foregroundStyle(Tokens.Content.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if !expression.synonyms.isEmpty {
-                        Text("≈ " + expression.synonyms.joined(separator: " · "))
-                            .textStyle(Tokens.Text.subhead)
-                            .foregroundStyle(Tokens.Content.tertiary)
-                    }
-                    if !expression.context.isEmpty {
-                        Text(expression.context)
-                            .textStyle(Tokens.Text.footnote)
-                            .foregroundStyle(Tokens.Content.tertiary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+
+                    if model.isRevealed {
+                        Divider().overlay(Tokens.Hairline.default)
+                        CardBack(answer: recognition ? expression.ru : expression.en, expression: expression)
+                            .transition(.opacity)
                     }
                 }
-                .transition(.opacity)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: 0)
+            .scrollBounceBehavior(.basedOnSize)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(Tokens.Space.s20)
@@ -277,5 +260,41 @@ struct GoalProgress: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("flashcards.goalProgress")
+    }
+}
+
+/// The back of a flashcard: the answer (as large as the prompt), then the example, synonyms and the
+/// context note — shared by practice and the In-flashcards card view.
+struct CardBack: View {
+    let answer: String
+    let expression: Domain.Expression
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s12) {
+            Text(answer)
+                .textStyle(Tokens.Flashcard.answer)
+                .foregroundStyle(Tokens.Content.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !expression.example.isEmpty {
+                Text(expression.example)
+                    .textStyle(Tokens.Flashcard.example)
+                    .italic()
+                    .foregroundStyle(Tokens.Content.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !expression.synonyms.isEmpty {
+                Text("≈ " + expression.synonyms.joined(separator: " · "))
+                    .textStyle(Tokens.Flashcard.note)
+                    .foregroundStyle(Tokens.Content.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !expression.context.isEmpty {
+                Text(expression.context)
+                    .textStyle(Tokens.Flashcard.note)
+                    .foregroundStyle(Tokens.Content.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

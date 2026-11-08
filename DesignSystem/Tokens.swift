@@ -256,6 +256,19 @@ public enum Tokens {
     //  ⚠️ PRODUCT OVERRIDE: every size + lineHeight below is the design scale MINUS 1pt (a global
     //     "one notch smaller" type request). The leading `size / lineHeight` annotation is the
     //     adjusted value; `theme.css:NN` still points at the original design source (+1pt).
+    /// The back of a flashcard: the answer as large as the prompt (`Text.title1`), the example and the
+    /// notes scaled up with it (×1.25 of `body` / `subhead`). Synonyms and notes share one style.
+    public enum Flashcard {
+        /// The front: the phrase (or its meaning) being asked.
+        public static let prompt = Text.title1
+        /// The answer — the same size as the prompt, one weight lighter. 25 / 30 / 600
+        public static let answer = TextStyleToken(size: 25, lineHeight: 30, weight: .semibold, weightCSS: 600, tracking: -0.4)
+        /// The example sentence (×1.25 of `body`). 20 / 27 / 400
+        public static let example = TextStyleToken(size: 20, lineHeight: 27, weight: .regular, weightCSS: 400, tracking: 0)
+        /// Synonyms and the context note (×1.25 of `subhead`). 17.5 / 24 / 400
+        public static let note = TextStyleToken(size: 17.5, lineHeight: 24, weight: .regular, weightCSS: 400, tracking: 0)
+    }
+
     public enum Text {
         /// 31 / 37 / 700 / -0.5  ·  theme.css:89  (design 32/38 −1)
         public static let largeTitle = TextStyleToken(size: 31, lineHeight: 37, weight: .bold,     weightCSS: 700, tracking: -0.5)
