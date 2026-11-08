@@ -162,7 +162,8 @@ Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews pe
 cards by stage (new/learning/young/mature at 21 d) — monochrome `Tokens.Chart` ramp validated with
 the dataviz validator for both modes. Session: full-screen `FlashcardSessionView`. XCUI
 `FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
-sideways-only tab swipes from 1.5.3 (3) ship here too.
+sideways-only tab swipes from 1.5.3 (3) ship here too. Main screens put the large title in the
+gear's row (`.toolbarTitleDisplayMode(.inlineLarge)`, set in `SettingsTrigger`).
 
 **v1.5.1 (2026-10-12) — swipe between the main tabs.** NO system `TabView` any more: `RootView` mounts the
 SELECTED screen only, under `GlassTabBar` (DesignSystem — a STANDALONE system `UITabBar`, so the real iOS 26 Liquid Glass bar

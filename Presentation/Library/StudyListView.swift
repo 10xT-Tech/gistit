@@ -41,6 +41,7 @@ public struct StudyListView: View {
             contentSection
         }
         .navigationTitle(caught ? Loc.t("Пойманные", "Caught") : Loc.t("Во флеш-картах", "In flashcards"))
+        .toolbarTitleDisplayMode(.inlineLarge)   // same title row as the main screens
         .toolbar {
             if model.canTransferCards {
                 ToolbarItem(placement: .topBarTrailing) {

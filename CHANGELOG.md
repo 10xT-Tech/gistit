@@ -41,6 +41,10 @@ from new to well known.
 **The system tab bar.** The bar at the bottom of the screen is now the real iOS Liquid Glass tab bar:
 press and drag across it to slide the selection to another screen, as in Apple's own apps.
 
+**More room on every screen.** The screen title now sits in the same row as the Settings button
+instead of a row of its own, so Study, See it, Say it, Get it and History all start higher and show
+more before the tab bar.
+
 **Steadier swipes between screens.** A swipe that drifts up or down no longer scrolls the screen
 while it slides sideways.
 
