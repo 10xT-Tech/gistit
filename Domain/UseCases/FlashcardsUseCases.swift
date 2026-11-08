@@ -20,15 +20,19 @@
 //    the day the set is topped up; once the goal is met, "more" adds a goal-sized draw to the day —
 //    studying more, less, or skipping a day all just move today's numbers, nothing is lost: an
 //    unanswered due card stays due;
-//  - the set is split among the stages — learning, young, mature, new — PROPORTIONALLY to what's
-//    available today (`SetComposer.quotas`). New cards count at most the set's size, so a deck of
-//    thousands of new cards can't crowd out the reviews; the bigger the review backlog, the smaller
-//    the new share;
+//  - LEARNING cards (mid-steps, including forgotten ones) go in first, up to the set's size — mistakes
+//    are dealt with before anything new arrives;
+//  - the rest is split among young, mature and new PROPORTIONALLY to what's available today
+//    (`SetComposer.quotas`). New cards count at most the remaining room, so a deck of thousands of new
+//    cards can't crowd out the reviews; the bigger the backlog, the smaller the new share;
 //  - within a stage the cards are drawn AT RANDOM, weighted by how overdue they are (an overdue card
-//    is likelier, so none is postponed forever), and both directions of one expression aren't put in
-//    the same set while other cards can fill it; the set is shuffled;
+//    is likelier, so none is postponed forever); among new cards, RECALL cards that are ready come
+//    first — the phrases you already recognise get their reverse direction before fresh phrases start;
+//    both directions of one expression aren't put in the same set while other cards can fill it; the
+//    set is shuffled;
 //  - available today: learning cards, review cards due before the end of today, and new cards — a
-//    recall card only after its recognition card was first answered on an earlier day.
+//    recall card only once its recognition card has graduated to review on an earlier day (not while
+//    it's still being learned or relearned after a lapse).
 //
 
 import Foundation
@@ -383,8 +387,10 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
             for card in cards.values {
                 switch card.state {
                 case .new:
+                    // Recall waits until the phrase is recognised: recognition in review, not since today.
                     if card.direction == .recall {
-                        guard let first = cards[.recognition]?.firstReview, first < startOfToday else { continue }
+                        guard let recognition = cards[.recognition], recognition.state == .review,
+                              (recognition.lastReview ?? .distantPast) < startOfToday else { continue }
                     }
                 case .learning, .relearning:
                     break                                   // mid-steps: always waiting
@@ -410,17 +416,20 @@ extension StageCounts {
 
 /// Builds a practice set from today's available cards (pure; the random source is injected).
 public enum SetComposer {
-    /// Split `size` among the stages proportionally to what's available — new cards counting at most
-    /// `size` — rounding by largest remainders and passing any stage's shortfall on to the others.
+    /// Learning cards first (up to `size`); the rest split among young, mature and new proportionally to
+    /// what's available — new cards counting at most the remaining room — rounding by largest remainders
+    /// and passing any stage's shortfall on to the others.
     public static func quotas(size: Int, available: StageCounts) -> StageCounts {
-        let stages = CardStage.allCases
-        let target = min(size, available.total)
-        guard target > 0 else { return StageCounts() }
+        var quotas = StageCounts()
+        quotas.learning = min(available.learning, size)
+        let room = size - quotas.learning
+        let stages: [CardStage] = [.young, .mature, .new]
+        let target = min(room, available.young + available.mature + available.new)
+        guard target > 0 else { return quotas }
         let weight: (CardStage) -> Double = { stage in
-            Double(stage == .new ? min(available.new, size) : available[stage])
+            Double(stage == .new ? min(available.new, room) : available[stage])
         }
         let totalWeight = stages.map(weight).reduce(0, +)
-        var quotas = StageCounts()
         var remainders: [(CardStage, Double)] = []
         for stage in stages {
             let exact = Double(target) * weight(stage) / totalWeight
@@ -429,7 +438,7 @@ public enum SetComposer {
         }
         // Hand out what rounding (or a capped stage) left: largest remainder first, then any stage
         // with cards to spare.
-        var left = target - quotas.total
+        var left = target - (quotas.total - quotas.learning)
         for (stage, _) in remainders.sorted(by: { $0.1 > $1.1 }) where left > 0 && quotas[stage] < available[stage] {
             quotas[stage] += 1
             left -= 1
@@ -442,8 +451,9 @@ public enum SetComposer {
         return quotas
     }
 
-    /// The set: `quotas` per stage, drawn at random — weighted by days overdue, one direction per
-    /// expression while others can fill the quota — then shuffled.
+    /// The set: `quotas` per stage, drawn at random — weighted by days overdue, ready recall cards before
+    /// recognition among the new ones, one direction per expression while others can fill the quota —
+    /// then shuffled.
     public static func compose<R: RandomNumberGenerator>(size: Int, pools: [CardStage: [Flashcard]], now: Date,
                                                          random: inout R) -> [Flashcard] {
         var counts = StageCounts()
@@ -460,7 +470,13 @@ public enum SetComposer {
                 let overdueDays = max(0, now.timeIntervalSince(card.card.due) / 86_400)
                 let u = Double.random(in: Double.leastNonzeroMagnitude..<1, using: &random)
                 return (card, pow(u, 1 / (1 + overdueDays)))
-            }.sorted { $0.1 > $1.1 }.map(\.0)
+            }.sorted { lhs, rhs in
+                // New cards: the reverse direction of phrases already recognised comes first.
+                let lhsRecall = stage == .new && lhs.0.card.direction == .recall
+                let rhsRecall = stage == .new && rhs.0.card.direction == .recall
+                if lhsRecall != rhsRecall { return lhsRecall }
+                return lhs.1 > rhs.1
+            }.map(\.0)
             var chosen: [Flashcard] = [], siblings: [Flashcard] = []
             for card in ranked where chosen.count < quota {
                 if usedExpressions.contains(card.expression.id) {

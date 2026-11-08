@@ -84,18 +84,61 @@ struct SplitMix64: RandomNumberGenerator {
         #expect(queue.map(\.card.direction) == [.recognition])
     }
 
-    /// Recall comes once recognition was first answered on an EARLIER day — not the same day.
-    @Test func recallFollowsRecognitionFromAnEarlierDay() async throws {
+    /// Recall waits until the phrase is recognised: recognition graduated to review, on an earlier day.
+    @Test func recallWaitsForRecognitionToGraduate() async throws {
         let e = expression("a", ageDays: 3)
-        var recognition = review(e, dueInDays: 2)
-        recognition.firstReview = now.addingTimeInterval(-day)
         let recall = ReviewCard(expressionID: e.id, direction: .recall, due: now.addingTimeInterval(-2 * day))
-        let (sut, _) = make([e], cards: [recognition, recall])
-        #expect(try await sut.queue(now: now).map(\.card.direction) == [.recall])
 
-        recognition.firstReview = now.addingTimeInterval(-60)
-        let (sameDay, _) = make([e], cards: [recognition, recall])
-        #expect(try await sameDay.queue(now: now).isEmpty)
+        // Recognised (in review since a few days): recall is ready.
+        let recognised = review(e, dueInDays: 2)
+        #expect(try await make([e], cards: [recognised, recall]).0.queue(now: now).map(\.card.direction) == [.recall])
+
+        // Introduced yesterday but failed — still learning: recall waits.
+        let failing = ReviewCard(expressionID: e.id, direction: .recognition, state: .learning,
+                                 due: now.addingTimeInterval(-day), stability: 0.1, difficulty: 10, reps: 3,
+                                 lastReview: now.addingTimeInterval(-day), firstReview: now.addingTimeInterval(-day))
+        #expect(try await make([e], cards: [failing, recall]).0.queue(now: now).map(\.card.direction) == [.recognition])
+
+        // Forgotten again (relearning): recall waits too.
+        var lapsed = failing
+        lapsed.state = .relearning
+        #expect(!(try await make([e], cards: [lapsed, recall]).0.queue(now: now).contains { $0.card.direction == .recall }))
+
+        // Graduated today: recall comes tomorrow, not today.
+        var today = recognised
+        today.lastReview = now.addingTimeInterval(-60)
+        #expect(try await make([e], cards: [today, recall]).0.queue(now: now).isEmpty)
+    }
+
+    /// Among new cards, the reverse direction of phrases already recognised comes before fresh phrases.
+    @Test func readyRecallComesBeforeFreshPhrases() async throws {
+        let known = expression("known", ageDays: 10)
+        let fresh = (0..<30).map { expression("fresh\($0)") }
+        let cards = [review(known, dueInDays: 3),                  // last seen two days ago
+                     ReviewCard(expressionID: known.id, direction: .recall, due: now.addingTimeInterval(-9 * day))]
+            + fresh.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        for seed in UInt64(1)...20 {
+            let set = try await make([known] + fresh, cards: cards, goal: 2, seed: seed).0.queue(now: now)
+            #expect(set.contains { $0.expression.id == known.id && $0.card.direction == .recall })
+        }
+    }
+
+    /// Learning cards (mid-steps, forgotten ones) go in first; new cards only fill the room left.
+    @Test func learningCardsComeFirst() async throws {
+        let failing = (0..<3).map { expression("failing\($0)") }
+        let fresh = (0..<30).map { expression("fresh\($0)") }
+        let learning = failing.map {
+            ReviewCard(expressionID: $0.id, direction: .recognition, state: .learning, due: now.addingTimeInterval(-day),
+                       stability: 0.1, difficulty: 10, reps: 3, lastReview: now.addingTimeInterval(-day),
+                       firstReview: now.addingTimeInterval(-day))
+        }
+        let cards = learning + fresh.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        let set = try await make(failing + fresh, cards: cards, goal: 5).0.queue(now: now)
+        #expect(set.count == 5)
+        #expect(Set(set.filter { $0.card.state == .learning }.map(\.expression.id)) == Set(failing.map(\.id)))
+        // A backlog as big as the set: no new cards until it clears.
+        let (full, _) = make(failing + fresh, cards: cards, goal: 3)
+        #expect(try await full.queue(now: now).allSatisfy { $0.card.state == .learning })
     }
 
     // MARK: Proportions
@@ -103,9 +146,12 @@ struct SplitMix64: RandomNumberGenerator {
     @Test func quotasAreProportionalToWhatIsWaiting() {
         // A fresh deck: everything new.
         #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_887)) == StageCounts(new: 50))
-        // A mix: new counts at most the set's size (50 of 9,000), the rest by their numbers.
+        // A mix: learning first (5), the other 45 by numbers — new counting at most the room (45 of 9,000).
         #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, learning: 5, young: 60, mature: 40))
-                == StageCounts(new: 16, learning: 2, young: 19, mature: 13))
+                == StageCounts(new: 14, learning: 5, young: 19, mature: 12))
+        // A learning backlog fills the set: nothing new until it clears.
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, learning: 80)) == StageCounts(learning: 50))
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, learning: 48)) == StageCounts(new: 2, learning: 48))
         // A backlog: the bigger it is, the smaller the new share.
         #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, young: 400))
                 == StageCounts(new: 6, young: 44))

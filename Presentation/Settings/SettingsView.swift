@@ -348,8 +348,8 @@ public struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("settings.dailyGoal")
-            Text(Loc.t("Минимум карточек в день. Набор делится между новыми, изучаемыми и повторяемыми карточками пропорционально, карточки выбираются случайно. Можно заниматься больше — или пропустить день: ничего не теряется.",
-                       "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost."))
+            Text(Loc.t("Минимум карточек в день. Сначала идут карточки, которые вы ещё учите, остальное делится между новыми и повторяемыми пропорционально, карточки выбираются случайно. Можно заниматься больше — или пропустить день: ничего не теряется.",
+                       "At least this many cards a day. Cards you're still learning come first; the rest is shared out between new and review cards in proportion, drawn at random. Study more if you like — or skip a day: nothing is lost."))
                 .textStyle(Tokens.Text.footnote)
                 .foregroundStyle(Tokens.Content.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

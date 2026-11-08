@@ -13,9 +13,11 @@ learn to understand it, and from the next day you're also asked to say it from i
 Flashcards are part of **Gist It Pro**.
 
 **A daily goal.** In Settings, choose how many cards a day you plan to study at least: 25, 50, 75,
-100 or 150. Each set mixes new, learning and review cards in proportion to what's waiting, picked at
-random (cards that are overdue come up more often, so none waits forever), and never the same phrase
-both ways in one set. The whole day is one practice: stop whenever you like, and **Continue** picks up
+100 or 150. Cards you're still learning (and ones you got wrong) come first; the rest of the set mixes
+new and review cards in proportion to what's waiting, picked at random (cards that are overdue come up
+more often, so none waits forever), and never the same phrase both ways in one set. A phrase's
+reverse direction — say it from its meaning — opens once you recognise the phrase (it has moved on to
+review), and those come before brand-new phrases. The whole day is one practice: stop whenever you like, and **Continue** picks up
 today's set exactly where you left it. A card you keep getting wrong is asked at most three times a
 day, then waits until tomorrow. Reached your goal? Keep going with more. Raised the goal during the
 day? Today's set grows to match. Studied less, or skipped a day? Nothing is lost — what's due simply

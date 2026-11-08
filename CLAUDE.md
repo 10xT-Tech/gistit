@@ -156,12 +156,13 @@ on the in-memory fallback ("Saved data is unavailable"); add the next version in
 (`PersistenceMigrationTests` opens a store of every version, incl. the dev-build variants); cards link by `expressionID` and are deleted with
 their expression in `StudyListInteractor`. Sets are sized by the DAILY GOAL (Settings 25/50/75/100/150, `DailyGoal`
 → `FlashcardsInteractor.dailyGoal`): a set = what's left of the goal (distinct cards answered today),
-"more" = another goal-sized set; `SetComposer.quotas` splits it among learning / young / mature / new
-proportionally to today's available counts (new counted at most the set size), `compose` draws within a
-stage at random weighted by days overdue (Efraimidis–Spirakis; injected RNG → `SplitMix64` in tests),
-one direction per expression per set while others can fill it, then shuffles. Available today:
-learning cards, reviews due before end of day, new (recall only after recognition was introduced on an
-EARLIER day). A DAY is one practice: the first Start draws today's set and stores it (`PracticeDay`
+"more" = another goal-sized set; `SetComposer.quotas` puts LEARNING cards first (up to the set size), then splits
+the room among young / mature / new proportionally to today's available counts (new counted at most
+the room); `compose` draws within a stage at random weighted by days overdue (Efraimidis–Spirakis;
+injected RNG → `SplitMix64` in tests), READY RECALL cards before recognition among the new ones, one
+direction per expression per set while others can fill it, then shuffles. Available today: learning
+cards, reviews due before end of day, new — recall only once its recognition card is in REVIEW and was
+last answered on an earlier day. A DAY is one practice: the first Start draws today's set and stores it (`PracticeDay`
 via `PracticeDayStoring` — UserDefaults JSON in the live boot, in-memory otherwise); Start/Continue
 later the same day returns the set's unanswered cards in order (+ learning cards coming back), tops up
 if the goal was raised, and `extra` appends a goal-sized draw. A card is answered at most
