@@ -6,8 +6,9 @@
 //  - Caught: everything saved from Say it / Get it / See it, or caught here — "+" generates a card
 //    from a phrase or catches cards from photos. Swipe left to delete; swipe right or tap the stack
 //    icon to move one into flashcards, or move them all; copy every card as text; export.
-//  - In flashcards: the expressions being learned — swipe left to delete (with their cards); export
-//    them to a card file (with progress) or import a card file straight into flashcards.
+//  - In flashcards: the expressions being learned — tap one to see the whole card (both sides and
+//    its progress; not a practice), swipe left to delete (with their cards); export them to a card
+//    file (with progress) or import a card file straight into flashcards.
 //
 
 import SwiftUI
@@ -23,6 +24,8 @@ public struct StudyListView: View {
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showImporter = false
+    /// In flashcards: the card opened for a look.
+    @State private var previewed: Domain.Expression?
     @Environment(AppUIState.self) private var ui
     @Environment(SubscriptionState.self) private var subscription
 
@@ -95,6 +98,10 @@ public struct StudyListView: View {
                     .accessibilityIdentifier("caught.add")
                 }
             }
+        }
+        .sheet(item: $previewed) { expression in
+            CardPreviewView(expression: expression, cards: model.cards(for: expression),
+                            isPlaying: model.isPlaying(expression), onPlay: { model.play(expression) })
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
@@ -242,7 +249,8 @@ public struct StudyListView: View {
                          onPlay: { model.play(expression) },
                          onExplain: { ui.pendingExplain = ExplainRequest(text: expression.en) },
                          onStudy: model.canMoveToFlashcards ? { model.moveToFlashcards(expression) } : nil,
-                         cards: model.cards(for: expression))
+                         cards: model.cards(for: expression),
+                         onOpen: caught ? nil : { previewed = expression })
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
@@ -352,6 +360,8 @@ private struct StudyRow: View {
     let onStudy: (() -> Void)?
     /// In flashcards: the expression's cards — shown as status tags (stage + reviews).
     var cards: [ReviewCard] = []
+    /// In flashcards: tapping the row opens the whole card.
+    var onOpen: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -432,6 +442,7 @@ private struct StudyRow: View {
         }
         .accessibilityAction(named: Loc.t("Поделиться", "Share")) { ShareSheetPresenter.share(expression.cardText) }
         .modifier(StudyAction(onStudy: onStudy))
+        .modifier(OpenAction(onOpen: onOpen))
     }
 }
 
@@ -443,7 +454,25 @@ extension StudyRow {
 
 /// One card's status: which way it asks, how well it's known (the dashboard's stage tone + name) and
 /// how many times it has been answered.
-private struct CardStatusTag: View {
+/// Tapping the row (outside its icon buttons) — and VoiceOver's activate — opens the card.
+private struct OpenAction: ViewModifier {
+    let onOpen: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let onOpen {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onOpen)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(.default) { onOpen() }
+                .accessibilityHint(Loc.t("Показать карточку целиком", "Shows the whole card"))
+        } else {
+            content
+        }
+    }
+}
+
+struct CardStatusTag: View {
     let card: ReviewCard
 
     var body: some View {

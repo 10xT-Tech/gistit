@@ -33,7 +33,8 @@ synonyms), and **Copy all cards** in the share menu copies the list, ready to pa
 **In flashcards.** A list of the phrases you're learning, reached from the dashboard. Each phrase
 shows both of its cards — Recognize and Recall — with how well you know it (new, learning, young or
 mature, in the same tones as the dashboard) and how many times you've reviewed it. Swipe left to
-delete a phrase.
+delete a phrase. Tap a phrase to see its whole card — both sides, its example and synonyms, and when
+each side comes next — without it counting as practice.
 
 The four answer buttons look the same, so no answer is suggested — you rate every card yourself.
 

@@ -305,6 +305,8 @@ public enum LocCatalog {
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Au moins ce nombre de cartes par jour. Chaque série répartit proportionnellement les cartes nouvelles, en apprentissage et à réviser, tirées au hasard. Vous pouvez en faire plus — ou sauter un jour : rien n'est perdu.",
         "Saved and caught phrases": "Expressions enregistrées et capturées",
         "The phrases you're learning": "Les expressions que vous apprenez",
+        "Card": "Carte",
+        "Shows the whole card": "Affiche la carte entière",
     ]
 
     public static let es: [String: String] = [
@@ -601,6 +603,8 @@ public enum LocCatalog {
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Al menos estas tarjetas al día. Cada serie reparte proporcionalmente tarjetas nuevas, en aprendizaje y de repaso, elegidas al azar. Puedes estudiar más — o saltarte un día: no se pierde nada.",
         "Saved and caught phrases": "Frases guardadas y atrapadas",
         "The phrases you're learning": "Las frases que estás aprendiendo",
+        "Card": "Tarjeta",
+        "Shows the whole card": "Muestra la tarjeta completa",
     ]
 
     public static let de: [String: String] = [
@@ -897,6 +901,8 @@ public enum LocCatalog {
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Mindestens so viele Karten pro Tag. Jede Runde teilt sich anteilig auf neue, Lern- und Wiederholungskarten auf, zufällig gezogen. Lerne gern mehr — oder setze einen Tag aus: nichts geht verloren.",
         "Saved and caught phrases": "Gespeicherte und eingefangene Ausdrücke",
         "The phrases you're learning": "Die Ausdrücke, die du lernst",
+        "Card": "Karte",
+        "Shows the whole card": "Zeigt die ganze Karte",
     ]
 
     public static let it: [String: String] = [
@@ -1193,5 +1199,7 @@ public enum LocCatalog {
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Almeno queste schede al giorno. Ogni serie divide in proporzione schede nuove, in apprendimento e da ripassare, scelte a caso. Puoi studiare di più — o saltare un giorno: non si perde nulla.",
         "Saved and caught phrases": "Frasi salvate e catturate",
         "The phrases you're learning": "Le frasi che stai imparando",
+        "Card": "Scheda",
+        "Shows the whole card": "Mostra la scheda intera",
     ]
 }

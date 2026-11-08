@@ -77,6 +77,17 @@ final class FlashcardsUITests: XCTestCase {
             format: "label CONTAINS 'Recognize: young, reviews: 2' AND label CONTAINS 'Recall: new, reviews: 0'")).firstMatch
         XCTAssertTrue(status.exists, "the card status isn't shown")
         attach(app, "in-flashcards")
+
+        // Tapping the phrase shows the whole card — both sides and progress — without practising it.
+        studied.tap()
+        XCTAssertTrue(app.buttons["cardPreview.done"].waitForExistence(timeout: 3), "the card didn't open")
+        XCTAssertTrue(app.staticTexts["Я ценю это"].exists)
+        XCTAssertTrue(app.otherElements["cardPreview.progress"].exists || app.staticTexts.containing(
+            NSPredicate(format: "label BEGINSWITH 'Recognize: young'")).firstMatch.exists)
+        XCTAssertFalse(app.buttons["flashcards.rate.good"].exists, "a preview isn't practice")
+        attach(app, "card-preview")
+        app.buttons["cardPreview.done"].tap()
+        XCTAssertTrue(status.waitForExistence(timeout: 3), "looking at the card changed its progress")
     }
 
     /// Caught → Move all (confirmed) empties the list; In flashcards then lists both phrases, and a
