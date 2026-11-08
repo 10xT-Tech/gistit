@@ -43,6 +43,8 @@ public final class AppContainer: Sendable {
     public let studyList: any StudyListUseCase
     /// Flashcard practice over the study list (FSRS spaced repetition, on-device).
     public let flashcards: any FlashcardsUseCase
+    /// Caught → From photos: photos → vocabulary cards.
+    public let catchFromPhotos: any CatchCardsFromPhotosUseCase
     public let requestHistory: any RequestHistoryUseCase
     public let exportDeck: any ExportDeckUseCase        // AlgoApp .xml
     public let exportAnkiDeck: any ExportDeckUseCase    // Anki .txt
@@ -113,6 +115,7 @@ public final class AppContainer: Sendable {
         self.enrich = EnrichExpressionInteractor(llm: llm)
         self.studyList = StudyListInteractor(repository: expressions, cards: reviewCards)
         self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards, analytics: analytics)
+        self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -320,8 +323,9 @@ public final class AppContainer: Sendable {
         )
     }
 
+    /// Caught (default) or In flashcards.
     @MainActor
-    public func makeStudyListViewModel() -> StudyListViewModel {
+    public func makeStudyListViewModel(scope: StudyListViewModel.Scope = .caught) -> StudyListViewModel {
         StudyListViewModel(
             studyList: studyList,
             saveExpression: saveExpression,
@@ -329,7 +333,9 @@ public final class AppContainer: Sendable {
             exportAnki: exportAnkiDeck,
             pronounce: pronounce,
             isConfigured: config.isClaudeConfigured,
-            flashcards: flashcards
+            flashcards: flashcards,
+            catchFromPhotos: catchFromPhotos,
+            scope: scope
         )
     }
 

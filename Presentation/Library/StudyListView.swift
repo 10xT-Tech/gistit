@@ -2,50 +2,117 @@
 //  StudyListView.swift
 //  EnglishHelper — Presentation
 //
-//  "Saved for later" — pushed from the Study dashboard. Everything saved from Say it / Get it / See it
-//  (or added here) that isn't in flashcards yet: swipe left to delete, swipe right or tap the stack
-//  icon to move it into flashcards; add by hand; export every saved expression (.xml / Anki).
+//  A list of saved expressions, pushed from the Study dashboard, in one of two scopes:
+//  - Caught: everything saved from Say it / Get it / See it, or caught here — "+" generates a card
+//    from a phrase or catches cards from photos. Swipe left to delete; swipe right or tap the stack
+//    icon to move one into flashcards, or move them all; copy every card as text; export.
+//  - In flashcards: the expressions being learned — swipe left to delete (with their cards).
 //
 
 import SwiftUI
 import UIKit
+import PhotosUI
 import Domain
 import DesignSystem
 
 public struct StudyListView: View {
     @State private var model: StudyListViewModel
     @State private var shareItem: ShareItem?
+    @State private var showPhotoPicker = false
+    @State private var photoItems: [PhotosPickerItem] = []
     @Environment(AppUIState.self) private var ui
+    @Environment(SubscriptionState.self) private var subscription
+
+    /// Photos per batch — one model request each.
+    private static let maxPhotos = 10
 
     public init(model: StudyListViewModel) {
         self.model = model
     }
+
+    private var caught: Bool { model.scope == .caught }
 
     public var body: some View {
         ZStack {
             ScreenBackground()
             contentSection
         }
-        .navigationTitle(Loc.t("Отложенные", "Saved for later"))
+        .navigationTitle(caught ? Loc.t("Пойманные", "Caught") : Loc.t("Во флеш-картах", "In flashcards"))
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    ForEach(StudyListViewModel.ExportFormat.allCases, id: \.self) { format in
-                        Button(format.title) { model.export(format) }
+            if caught {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        ForEach(StudyListViewModel.ExportFormat.allCases, id: \.self) { format in
+                            Button(format.title) { model.export(format) }
+                        }
+                        Button {
+                            UIPasteboard.general.string = model.allCardsText
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        } label: {
+                            Label(Loc.t("Скопировать все карточки", "Copy all cards"), systemImage: "doc.on.doc")
+                        }
+                        .disabled(model.expressions.isEmpty)
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
                     }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
+                    .accessibilityLabel(Loc.t("Экспортировать список", "Export list"))
                 }
-                .accessibilityLabel(Loc.t("Экспортировать список", "Export list"))
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { model.showAddSheet = true } label: { Image(systemName: "plus") }
-                    .accessibilityLabel(Loc.t("Добавить выражение", "Add expression"))
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { model.showAddSheet = true } label: {
+                            Label(Loc.t("Сгенерировать по фразе", "Generate from a phrase"), systemImage: "sparkles")
+                        }
+                        if model.canCatchFromPhotos {
+                            Button { showPhotoPicker = true } label: {
+                                Label(Loc.t("Распознать с фото", "From photos"), systemImage: "photo.on.rectangle")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(Loc.t("Добавить карточку", "Add a card"))
+                    .accessibilityIdentifier("caught.add")
+                }
             }
         }
-        .task { await model.load() }
+        .task {
+            await model.load()
+            #if DEBUG
+            // XCUI can't drive the system photo picker: `-uiTestCatchPhotos` catches from two blank images.
+            if caught, ProcessInfo.processInfo.arguments.contains("-uiTestCatchPhotos"), model.catchSession == nil {
+                let blank = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).pngData { _ in }
+                model.startCatch(photoCount: 2)?.run([blank, blank])
+            }
+            #endif
+        }
         .sheet(isPresented: $model.showAddSheet) { addSheet }
         .sheet(item: $shareItem) { item in ShareSheet(items: [item.url]) }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItems,
+                      maxSelectionCount: Self.maxPhotos, matching: .images)
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            photoItems = []
+            catchCards(from: items)
+        }
+        .sheet(item: $model.catchSession, onDismiss: { model.endCatch() }) { session in
+            CatchFromPhotosView(model: session) { model.catchSession = nil }
+                .environment(subscription)
+        }
+        .confirmationDialog(
+            Loc.t("Перенести все во флеш-карты?", "Move all to flashcards?"),
+            isPresented: $model.showMoveAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(Loc.t("Перенести (\(model.expressions.count))", "Move (\(model.expressions.count))",
+                         "Déplacer (\(model.expressions.count))", "Mover (\(model.expressions.count))",
+                         "Verschieben (\(model.expressions.count))", "Sposta (\(model.expressions.count))")) {
+                model.moveAllToFlashcards()
+            }
+            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
+        } message: {
+            Text(Loc.t("Все фразы из «Пойманных» станут флеш-картами, список очистится.",
+                       "Every phrase in Caught becomes flashcards, and the list empties."))
+        }
         .onChange(of: model.exportedDeck) { _, deck in
             guard let deck else { return }
             if let url = writeTemp(deck) {
@@ -70,6 +137,22 @@ public struct StudyListView: View {
         }
     }
 
+    /// Open the progress sheet at once, then load + downscale the picked photos and start.
+    private func catchCards(from items: [PhotosPickerItem]) {
+        guard let session = model.startCatch(photoCount: items.count) else { return }
+        Task {
+            var photos: [Data?] = []
+            for item in items {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    photos.append(await ImagePreparation.prepare(data))
+                } else {
+                    photos.append(nil)
+                }
+            }
+            session.run(photos)
+        }
+    }
+
     // MARK: Content
 
     @ViewBuilder private var contentSection: some View {
@@ -81,10 +164,16 @@ public struct StudyListView: View {
                        message: model.errorMessage,
                        actionTitle: Loc.t("Повторить", "Retry"), action: { Task { await model.load() } })
         case .empty:
-            StatusView(systemImage: "tray", title: Loc.t("Пока пусто", "Nothing yet"),
-                       message: Loc.t("Сохраняйте фразы из «Сказать», «Понять» или «Смотреть» — или добавьте вручную.",
-                                      "Save phrases from “Say it”, “Get it”, or “See it” — or add them manually."),
-                       actionTitle: Loc.t("Добавить", "Add"), action: { model.showAddSheet = true })
+            if caught {
+                StatusView(systemImage: "tray", title: Loc.t("Пока пусто", "Nothing yet"),
+                           message: Loc.t("Сохраняйте фразы из «Сказать», «Понять» или «Смотреть», генерируйте карточки по фразе или распознавайте с фото.",
+                                          "Save phrases from “Say it”, “Get it”, or “See it”, generate a card from a phrase, or catch cards from photos."),
+                           actionTitle: Loc.t("Добавить", "Add"), action: { model.showAddSheet = true })
+            } else {
+                StatusView(systemImage: "rectangle.stack", title: Loc.t("Пока пусто", "Nothing yet"),
+                           message: Loc.t("Перенесите фразы из «Пойманных», чтобы учить их во флеш-картах.",
+                                          "Move phrases from Caught to learn them as flashcards."))
+            }
         case .loaded:
             list
         }
@@ -92,6 +181,15 @@ public struct StudyListView: View {
 
     private var list: some View {
         List {
+            if model.canMoveToFlashcards {
+                EHButton(Loc.t("Перенести все во флеш-карты", "Move all to flashcards"),
+                         icon: "rectangle.stack.badge.plus", kind: .tonal, fillWidth: true,
+                         accessibilityID: "caught.moveAll") { model.showMoveAllConfirmation = true }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
+                                              bottom: Tokens.Space.s8, trailing: Tokens.Space.s16))
+            }
             ForEach(model.expressions) { expression in
                 StudyRow(expression: expression,
                          isPlaying: model.isPlaying(expression),
@@ -138,7 +236,8 @@ public struct StudyListView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    GlassField(Loc.t("Английское выражение", "English expression"), text: $model.newEnglish)
+                    GlassField(Loc.t("Фраза на изучаемом языке", "A phrase in the language you're learning"),
+                               text: $model.newEnglish)
                     GlassField(Loc.t("Контекст (необязательно)", "Context (optional)"), text: $model.newContext)
 
                     if let addError = model.addError {
@@ -151,7 +250,8 @@ public struct StudyListView: View {
                     if model.isAdding {
                         LoadingView(Loc.t("Дополняю переводом и примерами…", "Adding translation and examples…"))
                     } else {
-                        EHButton(Loc.t("Сохранить", "Save"), icon: "sparkles", kind: .primary, fillWidth: true) {
+                        EHButton(Loc.t("Сгенерировать карточку", "Generate the card"), icon: "sparkles", kind: .primary,
+                                 fillWidth: true) {
                             model.add()
                         }
                         .disabled(!model.canAdd)   // EHButton dims itself when disabled
@@ -160,7 +260,7 @@ public struct StudyListView: View {
                 .padding(Tokens.Space.s20)
             }
             .background(Tokens.Surface.background)
-            .navigationTitle(Loc.t("Новое выражение", "New expression"))
+            .navigationTitle(Loc.t("Новая карточка", "New card"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -239,10 +339,11 @@ private struct StudyRow: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(Loc.t("Объяснить", "Explain"))
 
-                    CopyButton(expression.en, style: .icon,
-                               accessibilityLabel: Loc.t("Скопировать выражение", "Copy expression"))
-                    ShareButton(expression.en, style: .icon,
-                                accessibilityLabel: Loc.t("Поделиться выражением", "Share expression"))
+                    // The whole card as four lines (expression, translation, example, synonyms).
+                    CopyButton(expression.cardText, style: .icon,
+                               accessibilityLabel: Loc.t("Скопировать карточку", "Copy card"))
+                    ShareButton(expression.cardText, style: .icon,
+                                accessibilityLabel: Loc.t("Поделиться карточкой", "Share card"))
                 }
                 if let onStudy {
                     // The swipe-right action, as a visible button.
@@ -265,10 +366,10 @@ private struct StudyRow: View {
         .accessibilityAction(named: Loc.t("Озвучить", "Play")) { onPlay() }
         .accessibilityAction(named: Loc.t("Объяснить", "Explain")) { onExplain() }
         .accessibilityAction(named: Loc.t("Скопировать", "Copy")) {
-            UIPasteboard.general.string = expression.en
+            UIPasteboard.general.string = expression.cardText
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
-        .accessibilityAction(named: Loc.t("Поделиться", "Share")) { ShareSheetPresenter.share(expression.en) }
+        .accessibilityAction(named: Loc.t("Поделиться", "Share")) { ShareSheetPresenter.share(expression.cardText) }
         .modifier(StudyAction(onStudy: onStudy))
     }
 }

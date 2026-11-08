@@ -5,10 +5,10 @@
 //  Flashcard practice over the saved expressions: moving an expression into flashcards, today's
 //  queue, answering a card (FSRS scheduling), and the Study dashboard's numbers.
 //
-//  Saving from Say it / Get it / See it puts an expression on the "saved for later" list. The user
-//  moves the ones worth learning into flashcards (`enroll`), which creates its two cards — recognition
-//  and recall — as `.new`. Saved-for-later = expressions without cards; deleting an expression deletes
-//  its cards (StudyListInteractor).
+//  Saving from Say it / Get it / See it (or catching cards from a phrase or photos) puts an expression
+//  on the Caught list. The user moves the ones worth learning into flashcards (`enroll`), which creates
+//  its two cards — recognition and recall — as `.new`. Caught = expressions without cards; deleting an
+//  expression deletes its cards (StudyListInteractor).
 //
 //  Today's queue, in order:
 //  1. learning / relearning cards due within the learn-ahead window (they're mid-step);
@@ -85,8 +85,8 @@ public struct StudyStats: Sendable, Equatable {
     public let today: FlashcardsSummary
     /// Expressions in flashcards.
     public let inStudy: Int
-    /// Expressions saved for later (not in flashcards).
-    public let saved: Int
+    /// Expressions caught (saved, not in flashcards yet).
+    public let caught: Int
     public let distribution: CardDistribution
     /// The last `StudyStats.days` days, oldest first; the last entry is today.
     public let reviewsByDay: [DailyReviews]
@@ -94,11 +94,11 @@ public struct StudyStats: Sendable, Equatable {
 
     public static let days = 7
 
-    public init(today: FlashcardsSummary, inStudy: Int, saved: Int, distribution: CardDistribution,
+    public init(today: FlashcardsSummary, inStudy: Int, caught: Int, distribution: CardDistribution,
                 reviewsByDay: [DailyReviews]) {
         self.today = today
         self.inStudy = inStudy
-        self.saved = saved
+        self.caught = caught
         self.distribution = distribution
         self.reviewsByDay = reviewsByDay
     }
@@ -107,9 +107,9 @@ public struct StudyStats: Sendable, Equatable {
 public protocol FlashcardsUseCase: Sendable {
     func stats(now: Date) async throws -> StudyStats
     func queue(now: Date) async throws -> [Flashcard]
-    /// Move a saved expression into flashcards (both directions). No-op if it's already there.
+    /// Move a caught expression into flashcards (both directions). No-op if it's already there.
     func enroll(_ expressionID: UUID, now: Date) async throws
-    /// Expressions that are in flashcards — everything else is saved for later.
+    /// Expressions that are in flashcards — everything else is on the Caught list.
     func enrolledExpressionIDs() async throws -> Set<UUID>
     /// Answer a card: reschedules it, stores it, logs the answer and returns the card's new state.
     func rate(_ card: ReviewCard, _ rating: ReviewRating, now: Date) async throws -> ReviewCard
@@ -169,7 +169,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         return StudyStats(
             today: FlashcardsSummary(due: parts.learning.count + parts.reviews.count, new: parts.new.count),
             inStudy: deck.enrolled.count,
-            saved: deck.expressions.count - deck.enrolled.count,
+            caught: deck.expressions.count - deck.enrolled.count,
             distribution: CardDistribution(new: new, learning: learning, young: young, mature: mature),
             reviewsByDay: reviewsByDay
         )

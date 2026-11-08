@@ -135,7 +135,7 @@ import Adapters
         #expect(sut.previews(for: answered, now: now)[.again] == 60)
     }
 
-    /// The dashboard: today's counts, phrases in study vs saved for later, cards by stage (young vs
+    /// The dashboard: today's counts, phrases in study vs caught, cards by stage (young vs
     /// mature at 21 days), answers per day for the last week.
     @Test func statsForTheDashboard() async throws {
         let studied = expression("studied", ageDays: 40), saved = expression("saved")
@@ -157,7 +157,7 @@ import Adapters
         let stats = try await sut.stats(now: now)
         #expect(stats.today == FlashcardsSummary(due: 1, new: 0))
         #expect(stats.inStudy == 1)
-        #expect(stats.saved == 1)
+        #expect(stats.caught == 1)
         #expect(stats.distribution == CardDistribution(new: 0, learning: 0, young: 1, mature: 1))
         #expect(stats.reviewsByDay.count == 7)
         #expect(stats.reviewsToday == 2)

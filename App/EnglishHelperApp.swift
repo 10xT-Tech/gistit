@@ -65,6 +65,7 @@ struct EnglishHelperApp: App {
                     inbound: deps.inbound,       // "In": studied-language text → translate / explain
                     photo: deps.photo,
                     library: deps.library,
+                    studying: deps.studying,
                     study: deps.study,
                     history: deps.history,
                     settings: deps.settings,
@@ -123,6 +124,7 @@ private final class AppBoot {
         let inbound: InViewModel
         let photo: PhotoTranslateViewModel
         let library: StudyListViewModel
+        let studying: StudyListViewModel
         let study: StudyDashboardViewModel
         let history: HistoryViewModel
         let settings: SettingsViewModel
@@ -163,6 +165,7 @@ private final class AppBoot {
             inbound: container.makeInViewModel(),
             photo: container.makePhotoTranslateViewModel(),
             library: container.makeStudyListViewModel(),
+            studying: container.makeStudyListViewModel(scope: .studying),
             study: container.makeStudyDashboardViewModel(),
             history: container.makeHistoryViewModel(),
             settings: container.makeSettingsViewModel(),

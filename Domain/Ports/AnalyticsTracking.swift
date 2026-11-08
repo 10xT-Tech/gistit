@@ -34,6 +34,8 @@ public enum AnalyticsEvent: String, CaseIterable, Sendable {
     case deckExported            = "Library.deckExported"
     /// A flashcard was answered (any rating).
     case flashcardReviewed       = "Flashcards.reviewed"
+    /// Caught → From photos: one photo turned into cards.
+    case photoCardsCompleted     = "Photo.cardsCompleted"
 }
 
 /// Port for reporting `AnalyticsEvent`s. Implementations must be fire-and-forget and non-blocking

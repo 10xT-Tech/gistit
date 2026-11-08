@@ -85,7 +85,7 @@ import Presentation
         #expect(FlashcardSessionViewModel.intervalLabel(90 * 86_400).contains("3"))
     }
 
-    /// Saved for later → moved into flashcards → the dashboard counts it, a session practises it, and
+    /// Caught → moved into flashcards → the dashboard counts it, a session practises it, and
     /// the dashboard re-counts when the session closes.
     @Test func moveToFlashcardsThenPracticeFromTheDashboard() async throws {
         let repo = MockExpressionRepository(seed: MockExpressionRepository.defaultSeed)
@@ -105,10 +105,10 @@ import Presentation
         let dashboard = StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce)
 
         await list.load()
-        #expect(list.expressions.count == 2)                      // everything starts saved for later
+        #expect(list.expressions.count == 2)                      // everything starts on the Caught list
         await dashboard.load()
         #expect(dashboard.stats?.inStudy == 0)
-        #expect(dashboard.stats?.saved == 2)
+        #expect(dashboard.stats?.caught == 2)
 
         let phrase = try #require(list.expressions.first)
         list.moveToFlashcards(phrase)
@@ -120,7 +120,7 @@ import Presentation
         }
         await dashboard.load()
         #expect(dashboard.stats?.inStudy == 1)
-        #expect(dashboard.stats?.saved == 1)
+        #expect(dashboard.stats?.caught == 1)
         #expect(dashboard.stats?.today == FlashcardsSummary(due: 0, new: 1))
         await list.load()
         #expect(!list.expressions.contains { $0.id == phrase.id })

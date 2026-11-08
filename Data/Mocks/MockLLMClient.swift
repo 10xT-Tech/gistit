@@ -59,6 +59,17 @@ public final class MockLLMClient: LLMClient {
             return #"{"title":"Колизей","details":"Древнеримский амфитеатр в центре Рима, построен в I веке н. э. Здесь проходили гладиаторские бои. Сегодня это один из главных символов Италии и объект Всемирного наследия ЮНЕСКО."}"#
         case "healthCheck":
             return #"{"ok":true}"#
+        case "photoCards":
+            return """
+            {"cards":[
+              {"expression":"threshold","translation":"порог / граница",
+               "example":"the system triggers an alert when the value exceeds the threshold.",
+               "synonyms":["limit","boundary","cutoff"]},
+              {"expression":"discard","translation":"отбросить / отклонить",
+               "example":"we decided to discard the old approach and start fresh.",
+               "synonyms":["drop","reject","abandon"]}
+            ]}
+            """
         case "enrichCard":
             return """
             {"ru":"я ценю это","example":"Thanks for covering my shift — I really appreciate it.",

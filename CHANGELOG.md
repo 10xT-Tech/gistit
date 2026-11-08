@@ -12,10 +12,17 @@ back rarely, cards you struggle with come back sooner. Every phrase is practised
 learn to understand it, and from the next day you're also asked to say it from its meaning. Up to 20
 new cards a day, so a long list doesn't arrive all at once. Flashcards are part of **Gist It Pro**.
 
-**Saved for later.** What you save from Say it, Get it and See it now goes to **Saved for later** —
-your study list from before, with everything already in it. Pick what you want to learn: swipe a
-phrase right (or tap its card icon) to move it into flashcards; swipe left to delete it. Adding by
-hand and export to AlgoApp and Anki work as before.
+**Caught.** What you save from Say it, Get it and See it now goes to **Caught** — your study list
+from before, with everything already in it. Add cards two new ways with **+**: **Generate from a
+phrase** (type a phrase in the language you're learning; the translation, an example and synonyms are
+filled in for you) or **From photos** (pick one or more photos or screenshots; every meaningful word
+and expression in them becomes a card, with a progress bar while it works). Swipe a phrase right (or
+tap its card icon) to move it into flashcards, or **Move all to flashcards** at once — Caught empties.
+Swipe left to delete. **Copy** now copies the whole card as four lines (phrase, translation, example,
+synonyms), and **Copy all cards** in the share menu copies the list, ready to paste into another app.
+
+**In flashcards.** A list of the phrases you're learning, reached from the dashboard; swipe left to
+delete one.
 
 **A study dashboard.** Study now opens with your progress: what's due today, new cards, how many
 phrases you're learning, your reviews today and over the last week, and how your cards are spread

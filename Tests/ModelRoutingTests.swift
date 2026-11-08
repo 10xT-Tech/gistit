@@ -22,6 +22,9 @@ import Presentation
         #expect(HowToSayTemplate(tier: .fast).modelTier == .fast)
         #expect(HowToSayTemplate(tier: .standard).modelTier == .standard)
         #expect(WhatToSayTemplate(tier: .standard).modelTier == .standard)
+        // Generating a card's fields is translation-sized → the translation model.
+        #expect(EnrichCardTemplate().modelTier == .fast)
+        #expect(PhotoCardsTemplate().modelTier == .standard)
     }
 
     @Test func interactorPassesProviderTierToTemplate() async throws {

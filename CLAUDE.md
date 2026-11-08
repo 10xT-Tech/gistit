@@ -4,8 +4,9 @@ Personal-use iOS app for living in a studied language (six languages, configurab
 pair; originally EN-from-RU). Five tabs: **Say it** (thought → 3 phrasings / situation → phrases),
 **Get it** (Translate / Explain / **Online** — a live interpreter that listens to surrounding speech
 and translates it in real time via Soniox), **See it** (photo → explain or translate), **Study**
-(a learning dashboard + in-app **flashcards** with FSRS spaced repetition (Pro); saved phrases wait in
-**Saved for later** until moved into flashcards; export to AlgoApp/Anki), **History** (every request;
+(a learning dashboard + in-app **flashcards** with FSRS spaced repetition (Pro); saved phrases — and
+cards generated from a phrase or caught from photos — wait in **Caught** until moved into flashcards;
+export to AlgoApp/Anki), **History** (every request;
 live sessions keep their audio; swipe-to-delete).
 
 - iOS 26 · Swift 6 · SwiftUI · Xcode 27 (iOS 27 SDK; deployment target stays iOS 26) · SwiftData (persistence) · async/await + actors.
@@ -51,7 +52,7 @@ are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 ### Prompt templates (Domain)
 `PromptTemplate` owns a system prompt + output JSON schema + typed decoder. Templates (all in
 `Domain/Prompts/Templates.swift`): `howToSay` (3 variants), `whatToSay`, `explainExpression`,
-`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `healthCheck`. Adding a use case = adding
+`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `healthCheck`. Adding a use case = adding
 a template; the LLM adapter never changes.
 
 ## Folder layout
@@ -127,12 +128,20 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
-**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Saved for later,
-flashcards.** Saving (Say it / Get it / See it / manual add) stores an `Expression` = **Saved for later**
-(`StudyListView` + `StudyListViewModel`, pushed from the dashboard; swipe-left delete, swipe-right or
-the stack icon → `FlashcardsUseCase.enroll`). Enrolling creates two stored `.new` `ReviewCard`s
-(recognition: studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users'
-whole old list lands in Saved for later. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
+**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
+flashcards.** Saving (Say it / Get it / See it) stores an `Expression` = **Caught** (`StudyListView` +
+`StudyListViewModel`, scope `.caught`, pushed from the dashboard; swipe-left delete, swipe-right or the
+stack icon → `FlashcardsUseCase.enroll`, "Move all" → enroll every one, oldest first, list empties).
+"+" = Generate from a phrase (`EnrichCardTemplate`, now `.fast` = the translation model) or From
+photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
+photo — the backend allows one image — via `PhotoCardsTemplate`, skipping already-saved expressions;
+a bad photo is skipped, offline / plan limit / no key stop the batch; `CatchFromPhotosView` shows the
+progress; DEBUG `-uiTestCatchPhotos` fakes two images for XCUI). `PhotoCardsTemplate`'s opening is NOT
+a backend free opening → metered like explanations on the free plan. Copy/Share on a card = 4-line
+`Expression.cardText`; "Copy all cards" = `cardsText` joined by `---`. Scope `.studying` = "In
+flashcards" (delete only). Enrolling creates two stored `.new` `ReviewCard`s (recognition:
+studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
+lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
 (Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90% retention, no
 fuzz). Storage: `ReviewCardModel` + `ReviewLogModel` (every answer — daily counts, future FSRS
 fitting), SwiftData schema **V3**, lightweight stage; cards link by `expressionID` and are deleted with
@@ -140,7 +149,7 @@ their expression in `StudyListInteractor`. `FlashcardsInteractor` queue: learnin
 (learn-ahead) → reviews due today → new in the order moved in (`newCardsPerDay` 20 incl. cards first
 answered today; recall only after recognition was introduced on an EARLIER day). `stats(now:)` feeds
 `StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
-Start — free plan → lock + paywall), Saved-for-later row, reviews per day (7 bars, today emphasised),
+Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
 cards by stage (new/learning/young/mature at 21 d) — monochrome `Tokens.Chart` ramp validated with
 the dataviz validator for both modes. Session: full-screen `FlashcardSessionView`. XCUI
 `FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and

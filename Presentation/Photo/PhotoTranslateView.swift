@@ -382,27 +382,9 @@ public struct PhotoTranslateView: View {
         model.imageData.flatMap(UIImage.init(data:))
     }
 
-    /// Run the CPU-heavy downscale/JPEG-encode on a background task so it never hitches the main
-    /// thread (it was previously synchronous on the @MainActor View, stalling the UI as the camera
-    /// sheet dismissed). Returns nil if the data isn't a decodable image.
+    /// Downscale/encode off the main actor (see `ImagePreparation`).
     private static func prepareDetached(_ data: Data) async -> Data? {
-        await Task.detached { prepareImageData(data) }.value
-    }
-
-    /// Downscale (max 1536px) and re-encode to JPEG: keeps the upload small and a format Claude accepts.
-    /// `nonisolated static` so it can run off the main actor.
-    nonisolated private static func prepareImageData(_ data: Data) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
-        let maxDimension: CGFloat = 1536
-        let longest = max(image.size.width, image.size.height)
-        let scale = longest > maxDimension ? maxDimension / longest : 1
-        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let rendered: UIImage = scale < 1
-            ? UIGraphicsImageRenderer(size: target).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: target))
-              }
-            : image
-        return rendered.jpegData(compressionQuality: 0.8)
+        await ImagePreparation.prepare(data)
     }
 }
 

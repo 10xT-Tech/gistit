@@ -592,6 +592,9 @@ public struct EnrichCardTemplate: PromptTemplate {
     public let id = "enrichCard"
     public init() {}
 
+    /// The translation model: filling in a card is a translation-sized task.
+    public var modelTier: ModelTier { .fast }
+
     public var systemPrompt: String {
         """
         Enrich an English expression for a study card. Return:
@@ -630,6 +633,94 @@ public struct EnrichCardTemplate: PromptTemplate {
             example: PlainText.clean(raw.example),
             synonyms: Array(synonyms)
         )
+    }
+}
+
+// MARK: - photoCards (multimodal: photo / screenshot → vocabulary cards)
+
+/// One card the model drafted from a photo.
+public struct CardDraft: Codable, Sendable, Equatable {
+    public let expression: String
+    public let translation: String
+    public let example: String
+    public let synonyms: [String]
+
+    public init(expression: String, translation: String, example: String, synonyms: [String]) {
+        self.expression = expression
+        self.translation = translation
+        self.example = example
+        self.synonyms = synonyms
+    }
+}
+
+/// `{ "cards": [ { expression, translation, example, synonyms } ] }`.
+public struct PhotoCardsResult: Codable, Sendable, Equatable {
+    public let cards: [CardDraft]
+}
+
+/// A photo or screenshot → a vocabulary card for every meaningful studied-language word and fixed
+/// expression in it (Caught → "From photos"). Metered like explanations on the free plan: its opening
+/// isn't one of the backend's free translation openings.
+public struct PhotoCardsTemplate: PromptTemplate {
+    public typealias Input = RecognizableImage
+    public typealias Output = PhotoCardsResult
+
+    public let id = "photoCards"
+    public let studiedLanguage: String
+    public let nativeLanguage: String
+    public init(studiedLanguage: String = "English", nativeLanguage: String = "Russian") {
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
+    }
+
+    // A dense screenshot can yield dozens of cards; vision + extraction favours accuracy over speed.
+    public var maxOutputTokens: Int { 16384 }
+    public var prefersFastResponse: Bool { false }
+
+    public var systemPrompt: String {
+        """
+        You are a \(studiedLanguage) vocabulary card generator for a \(nativeLanguage) speaker. The image is
+        a photo or a screenshot with \(studiedLanguage) text. Extract ALL meaningful \(studiedLanguage) words
+        and expressions from it — skip articles, prepositions and common function words unless they form
+        a fixed expression. Process every meaningful word and expression; do not skip anything. Ignore
+        text in other languages. If there is no \(studiedLanguage) text, return an empty "cards" array.
+
+        For each word or expression return one card:
+        - "expression": the word or expression in \(studiedLanguage) (single words in their dictionary form).
+        - "translation": its \(nativeLanguage) translation — one or two variants separated by " / ".
+        - "example": one example sentence in \(studiedLanguage) that uses it.
+        - "synonyms": 2 to 3 \(studiedLanguage) synonyms.
+        Use lowercase letters everywhere, except where \(studiedLanguage) spelling requires a capital (for
+        example German nouns or proper names). No commentary.
+        \(plainTextRule)
+        """
+    }
+
+    public var outputJSONSchema: String {
+        """
+        {"type":"object","properties":{"cards":{"type":"array","items":{"type":"object",
+        "properties":{"expression":{"type":"string"},"translation":{"type":"string"},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}}},
+        "required":["expression","translation","example","synonyms"],"additionalProperties":false}}},
+        "required":["cards"],"additionalProperties":false}
+        """
+    }
+
+    public func userMessage(for input: RecognizableImage) -> String {
+        "Make a \(studiedLanguage) vocabulary card for every meaningful word and expression in the image."
+    }
+
+    public func image(for input: RecognizableImage) -> Data? { input.data }
+
+    public func decode(_ rawJSON: String) throws -> PhotoCardsResult {
+        let raw = try decodeJSON(PhotoCardsResult.self, from: rawJSON)
+        let cards = raw.cards.map { card in
+            CardDraft(expression: PlainText.clean(card.expression),
+                      translation: PlainText.clean(card.translation),
+                      example: PlainText.clean(card.example),
+                      synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)))
+        }
+        return PhotoCardsResult(cards: cards.filter { !$0.expression.isEmpty })
     }
 }
 

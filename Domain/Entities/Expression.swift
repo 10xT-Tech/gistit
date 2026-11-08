@@ -45,3 +45,18 @@ public struct Expression: Codable, Sendable, Equatable, Identifiable, Hashable {
         self.createdAt = createdAt
     }
 }
+
+public extension Expression {
+    /// The card as four plain lines — expression, translation, example, synonyms joined by " / " —
+    /// with real line breaks, so it pastes as a card into another app (AlgoApp, Anki, notes).
+    var cardText: String {
+        [en, ru, example, synonyms.joined(separator: " / ")]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    /// Several cards, separated by a line with "---".
+    static func cardsText(_ expressions: [Expression]) -> String {
+        expressions.map(\.cardText).joined(separator: "\n---\n")
+    }
+}

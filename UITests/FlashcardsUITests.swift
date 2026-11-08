@@ -3,9 +3,9 @@
 //  EnglishHelper — UITests
 //
 //  The Study dashboard and flashcard practice end to end on the stub data (two saved expressions, none
-//  in flashcards): dashboard → Saved for later → swipe a phrase right into flashcards → back → Start →
-//  Show answer → Good (a 10-minute learning step, so it comes back) → Show answer → Good (graduates)
-//  → done → the dashboard counts the two answers.
+//  in flashcards): dashboard → Caught → swipe a phrase right into flashcards → back → Start → Show
+//  answer → Good (a 10-minute learning step, so it comes back) → Show answer → Good (graduates) → done
+//  → the dashboard counts the two answers. Plus: Move all, deleting from In flashcards, the paywall.
 //
 
 import XCTest
@@ -23,21 +23,21 @@ final class FlashcardsUITests: XCTestCase {
         app.launch()
         app.tab("Study").tap()
 
-        // Nothing in flashcards yet: the dashboard points to Saved for later.
-        XCTAssertTrue(app.buttons["flashcards.openSaved"].waitForExistence(timeout: 5))
+        // Nothing in flashcards yet: the dashboard points to Caught.
+        XCTAssertTrue(app.buttons["flashcards.openCaught"].waitForExistence(timeout: 5))
         attach(app, "dashboard-empty")
-        app.buttons["study.saved"].tap()
+        app.buttons["study.caught"].tap()
 
         // Swipe right: the phrase moves into flashcards and leaves the list.
-        XCTAssertTrue(app.navigationBars["Saved for later"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["Caught"].waitForExistence(timeout: 3))
         let row = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 3))
         attach(app, "saved")
         row.swipeRight()
         let learn = app.buttons["Learn"]
         if learn.waitForExistence(timeout: 2) { learn.tap() }   // a short swipe only reveals the action
-        XCTAssertTrue(row.waitForNonExistence(timeout: 3), "the phrase stayed in Saved for later")
-        app.navigationBars["Saved for later"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(row.waitForNonExistence(timeout: 3), "the phrase stayed in Caught")
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
 
         let start = app.buttons["flashcards.start"]
         XCTAssertTrue(start.waitForExistence(timeout: 5))
@@ -67,6 +67,72 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["All done for today — come back tomorrow."].waitForExistence(timeout: 3))
         XCTAssertFalse(start.isEnabled)
         attach(app, "dashboard-after")
+    }
+
+    /// Caught → Move all (confirmed) empties the list; In flashcards then lists both phrases, and a
+    /// swipe left deletes one.
+    func testMoveAllThenDeleteFromFlashcards() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        let caught = app.buttons["study.caught"]
+        XCTAssertTrue(caught.waitForExistence(timeout: 5))
+        caught.tap()
+
+        let moveAll = app.buttons["caught.moveAll"]
+        XCTAssertTrue(moveAll.waitForExistence(timeout: 3))
+        moveAll.tap()
+        let confirm = app.buttons["Move (2)"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        XCTAssertTrue(app.staticTexts["Nothing yet"].waitForExistence(timeout: 3), "Caught didn't empty")
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
+
+        let studying = app.buttons["study.studying"]
+        XCTAssertTrue(studying.waitForExistence(timeout: 3))
+        XCTAssertEqual(studying.label, "In flashcards: 2")
+        studying.tap()
+        XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 3))
+        let row = app.cells.firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.swipeLeft()
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        delete.tap()
+        XCTAssertTrue(app.cells.element(boundBy: 1).waitForNonExistence(timeout: 3), "the phrase wasn't deleted")
+        app.navigationBars["In flashcards"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["study.studying"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons["study.studying"].label, "In flashcards: 1")
+    }
+
+    /// Caught → From photos: the progress sheet runs over the photos (stubbed: two blank images, the
+    /// stub model answers two cards), Done closes it and the caught cards are on the list.
+    func testCatchCardsFromPhotos() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES", "-uiTestCatchPhotos",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        let caught = app.buttons["study.caught"]
+        XCTAssertTrue(caught.waitForExistence(timeout: 5))
+        caught.tap()
+
+        XCTAssertTrue(app.progressIndicators["catch.progress"].waitForExistence(timeout: 5))
+        attach(app, "catch-running")
+        let done = app.buttons["catch.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Cards: 2"].exists)
+        attach(app, "catch-done")
+        done.tap()
+
+        let threshold = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'threshold'")).firstMatch
+        XCTAssertTrue(threshold.waitForExistence(timeout: 3), "the caught cards aren't on the list")
     }
 
     /// Flashcards are Pro: on the free plan Start carries a lock and opens the paywall.

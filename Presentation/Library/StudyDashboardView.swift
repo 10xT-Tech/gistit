@@ -3,8 +3,8 @@
 //  EnglishHelper — Presentation
 //
 //  The Study tab: a learning dashboard. Practice (due today, new, expressions in flashcards, Start —
-//  Pro), the "Saved for later" list (pushed), answers per day for the last week, and how the cards are
-//  distributed by stage. Charts follow the dataviz rules: the reviews bars are one series (one tone,
+//  Pro), the Caught and In-flashcards lists (pushed), answers per day for the last week, and how the
+//  cards are distributed by stage. Charts follow the dataviz rules: the reviews bars are one series (one tone,
 //  today emphasised), the stages are ordinal (the validated `Tokens.Chart.stage` ramp) with a legend
 //  and counts, so nothing is told by tone alone; VoiceOver reads the numbers.
 //
@@ -15,14 +15,17 @@ import DesignSystem
 
 public struct StudyDashboardView: View {
     @State private var model: StudyDashboardViewModel
-    @State private var list: StudyListViewModel
-    @State private var showSaved = false
+    @State private var caught: StudyListViewModel
+    @State private var studying: StudyListViewModel
+    @State private var showCaught = false
+    @State private var showStudying = false
     @Environment(AppUIState.self) private var ui
     @Environment(SubscriptionState.self) private var subscription
 
-    public init(model: StudyDashboardViewModel, list: StudyListViewModel) {
+    public init(model: StudyDashboardViewModel, caught: StudyListViewModel, studying: StudyListViewModel) {
         self.model = model
-        self.list = list
+        self.caught = caught
+        self.studying = studying
     }
 
     public var body: some View {
@@ -33,7 +36,15 @@ public struct StudyDashboardView: View {
                     VerticalScrollView {
                         VStack(spacing: Tokens.Space.s12) {
                             practiceCard(stats)
-                            savedRow(stats)
+                            listRow(icon: "tray", title: Loc.t("Пойманные", "Caught"),
+                                    subtitle: Loc.t("Сохранённые и распознанные фразы — перенесите нужные во флеш-карты",
+                                                    "Saved and caught phrases — move the ones to learn into flashcards"),
+                                    count: stats.caught, id: "study.caught") { showCaught = true }
+                            if stats.inStudy > 0 {
+                                listRow(icon: "rectangle.stack", title: Loc.t("Во флеш-картах", "In flashcards"),
+                                        subtitle: Loc.t("Фразы, которые вы учите", "The phrases you're learning"),
+                                        count: stats.inStudy, id: "study.studying") { showStudying = true }
+                            }
                             if stats.distribution.total > 0 || stats.reviewsByDay.contains(where: { $0.count > 0 }) {
                                 ReviewsCard(days: stats.reviewsByDay)
                                 DistributionCard(distribution: stats.distribution)
@@ -48,8 +59,9 @@ public struct StudyDashboardView: View {
             }
             .navigationTitle(Loc.t("Изучаю", "Study"))
             .settingsTrigger()
-            .navigationDestination(isPresented: $showSaved) { StudyListView(model: list) }
-            // Every return here (launch, tab switch, back from Saved for later, a closed session) re-counts.
+            .navigationDestination(isPresented: $showCaught) { StudyListView(model: caught) }
+            .navigationDestination(isPresented: $showStudying) { StudyListView(model: studying) }
+            // Every return here (launch, tab switch, back from a list, a closed session) re-counts.
             .onAppear { Task { await model.load() } }
             .fullScreenCover(item: $model.session, onDismiss: { model.endPractice() }) { session in
                 FlashcardSessionView(model: session) { model.session = nil }
@@ -71,8 +83,8 @@ public struct StudyDashboardView: View {
                 StatTile(value: stats.inStudy, label: Loc.t("фраз в обучении", "phrases in study"))
             }
             if stats.inStudy == 0 {
-                Text(Loc.t("Перенесите фразы из «Отложенных», чтобы начать учить.",
-                           "Move phrases from “Saved for later” to start learning."))
+                Text(Loc.t("Перенесите фразы из «Пойманных», чтобы начать учить.",
+                           "Move phrases from Caught to start learning."))
                     .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -82,8 +94,8 @@ public struct StudyDashboardView: View {
                     .foregroundStyle(Tokens.Content.secondary)
             }
             if stats.inStudy == 0 && !locked {
-                EHButton(Loc.t("Открыть отложенные", "Open saved for later"), icon: "tray", kind: .tonal,
-                         fillWidth: true, accessibilityID: "flashcards.openSaved") { showSaved = true }
+                EHButton(Loc.t("Открыть «Пойманные»", "Open Caught"), icon: "tray", kind: .tonal,
+                         fillWidth: true, accessibilityID: "flashcards.openCaught") { showCaught = true }
             } else {
                 EHButton(Loc.t("Начать", "Start"), icon: locked ? "lock.fill" : nil, kind: .primary,
                          fillWidth: true, accessibilityID: "flashcards.start") {
@@ -97,28 +109,28 @@ public struct StudyDashboardView: View {
         .glassPanel(cornerRadius: Tokens.Radius.card)
     }
 
-    // MARK: Saved for later
+    // MARK: Lists
 
-    private func savedRow(_ stats: StudyStats) -> some View {
-        Button { showSaved = true } label: {
+    private func listRow(icon: String, title: String, subtitle: String, count: Int, id: String,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             HStack(spacing: Tokens.Space.s12) {
-                Image(systemName: "tray")
+                Image(systemName: icon)
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(Tokens.Content.secondary)
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(Loc.t("Отложенные", "Saved for later"))
+                    Text(title)
                         .textStyle(Tokens.Text.headline)
                         .foregroundStyle(Tokens.Content.primary)
-                    Text(Loc.t("Сохранённые фразы — перенесите нужные во флеш-карты",
-                               "Saved phrases — move the ones to learn into flashcards"))
+                    Text(subtitle)
                         .textStyle(Tokens.Text.footnote)
                         .foregroundStyle(Tokens.Content.secondary)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: Tokens.Space.s8)
-                Text("\(stats.saved)")
+                Text("\(count)")
                     .textStyle(Tokens.Text.title3)
                     .foregroundStyle(Tokens.Content.primary)
                     .monospacedDigit()
@@ -131,10 +143,8 @@ public struct StudyDashboardView: View {
         }
         .buttonStyle(.plain)
         .glassPanel(cornerRadius: Tokens.Radius.card)
-        .accessibilityLabel(Loc.t("Отложенные: \(stats.saved)", "Saved for later: \(stats.saved)",
-                                  "Mis de côté : \(stats.saved)", "Guardadas para luego: \(stats.saved)",
-                                  "Für später: \(stats.saved)", "Salvate per dopo: \(stats.saved)"))
-        .accessibilityIdentifier("study.saved")
+        .accessibilityLabel("\(title): \(count)")
+        .accessibilityIdentifier(id)
     }
 }
 

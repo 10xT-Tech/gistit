@@ -2,9 +2,11 @@
 //  StudyListViewModel.swift
 //  EnglishHelper — Presentation
 //
-//  "Saved for later" — the expressions saved from Say it / Get it / See it (or added by hand) that
-//  aren't in flashcards yet. Manual add (enrich-then-store), delete, move to flashcards, play, and
-//  export of every saved expression to an AlgoApp .xml / Anki deck.
+//  The saved expressions, in one of two scopes:
+//  - Caught: saved from Say it / Get it / See it or caught here (generated from a phrase, or from
+//    photos) and not in flashcards yet — delete, move one or all into flashcards, copy as cards,
+//    export every saved expression to an AlgoApp .xml / Anki deck.
+//  - In flashcards: the expressions being learned — delete only (with their cards).
 //
 
 import Foundation
@@ -14,6 +16,9 @@ import Domain
 @Observable
 public final class StudyListViewModel {
     public enum Phase: Equatable { case loading, loaded, empty, failed }
+    public enum Scope: Sendable { case caught, studying }
+
+    public let scope: Scope
 
     public private(set) var phase: Phase = .loading
     public private(set) var expressions: [Domain.Expression] = []   // Domain.* avoids Foundation.Expression
@@ -45,6 +50,11 @@ public final class StudyListViewModel {
 
     public private(set) var playingID: UUID?
 
+    /// "Move all to flashcards" asks first.
+    public var showMoveAllConfirmation = false
+    /// Caught → From photos, on screen while non-nil.
+    public var catchSession: CatchFromPhotosViewModel?
+
     private let studyList: any StudyListUseCase
     private let saveExpression: any SaveExpressionUseCase
     private let exportAlgoApp: any ExportDeckUseCase
@@ -52,6 +62,7 @@ public final class StudyListViewModel {
     private let pronounce: any PlayPronunciationUseCase
     private let isConfigured: Bool
     private let flashcards: (any FlashcardsUseCase)?
+    private let catchFromPhotos: (any CatchCardsFromPhotosUseCase)?
     private var playTask: Task<Void, Never>?
 
     public init(
@@ -61,7 +72,9 @@ public final class StudyListViewModel {
         exportAnki: any ExportDeckUseCase,
         pronounce: any PlayPronunciationUseCase,
         isConfigured: Bool,
-        flashcards: (any FlashcardsUseCase)? = nil
+        flashcards: (any FlashcardsUseCase)? = nil,
+        catchFromPhotos: (any CatchCardsFromPhotosUseCase)? = nil,
+        scope: Scope = .caught
     ) {
         self.studyList = studyList
         self.saveExpression = saveExpression
@@ -70,6 +83,8 @@ public final class StudyListViewModel {
         self.pronounce = pronounce
         self.isConfigured = isConfigured
         self.flashcards = flashcards
+        self.catchFromPhotos = catchFromPhotos
+        self.scope = scope
     }
 
     public var canAdd: Bool { !newEnglish.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -82,7 +97,7 @@ public final class StudyListViewModel {
         do {
             let all = try await studyList.list()
             let enrolled = try await flashcards?.enrolledExpressionIDs() ?? []
-            let items = all.filter { !enrolled.contains($0.id) }
+            let items = all.filter { enrolled.contains($0.id) == (scope == .studying) }
             expressions = items
             phase = items.isEmpty ? .empty : .loaded
         } catch {
@@ -159,8 +174,54 @@ public final class StudyListViewModel {
         }
     }
 
-    /// Whether rows offer "move to flashcards" (flashcards wired).
-    public var canMoveToFlashcards: Bool { flashcards != nil }
+    /// Whether Caught offers "move to flashcards" (flashcards wired).
+    public var canMoveToFlashcards: Bool { flashcards != nil && scope == .caught }
+
+    /// Move every caught expression into flashcards — the list empties. New cards are introduced in
+    /// list order, oldest first.
+    public func moveAllToFlashcards() {
+        guard let flashcards, canMoveToFlashcards, !expressions.isEmpty else { return }
+        let moving = expressions.sorted { $0.createdAt < $1.createdAt }
+        expressions = []
+        phase = .empty
+        Task { [weak self] in
+            guard let self else { return }
+            let now = Date()
+            var failed = false
+            for (index, expression) in moving.enumerated() {
+                // A millisecond apart: the queue introduces new cards in the order they were moved in.
+                do { try await flashcards.enroll(expression.id, now: now.addingTimeInterval(Double(index) / 1_000)) }
+                catch { failed = true }
+            }
+            if failed {
+                await self.load()
+                self.actionError = Loc.t("Не удалось перенести часть фраз. Попробуйте ещё раз.",
+                                         "Couldn't move some phrases. Try again.")
+            }
+        }
+    }
+
+    /// The whole list as cards — four lines each, separated by "---" (Copy all).
+    public var allCardsText: String { Domain.Expression.cardsText(expressions) }
+
+    // MARK: Catch from photos
+
+    public var canCatchFromPhotos: Bool { catchFromPhotos != nil && scope == .caught }
+
+    /// Open the progress sheet for `photoCount` picked photos; the view loads them and calls `run`.
+    public func startCatch(photoCount: Int) -> CatchFromPhotosViewModel? {
+        guard let catchFromPhotos, photoCount > 0, catchSession == nil else { return nil }
+        let session = CatchFromPhotosViewModel(photoCount: photoCount, catchCards: catchFromPhotos)
+        catchSession = session
+        return session
+    }
+
+    /// The sheet closed: the caught cards appear.
+    public func endCatch() {
+        catchSession?.cancel()
+        catchSession = nil
+        Task { await load() }
+    }
 
     public func export(_ format: ExportFormat) {
         exportError = nil

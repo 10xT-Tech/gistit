@@ -5,7 +5,7 @@
 //  One flashcard: a saved expression asked in ONE direction, plus its spaced-repetition memory state
 //  (FSRS — see `FSRS`). An expression the user moved to flashcards has two, scheduled independently:
 //  recognition (studied language → meaning) and recall (meaning → studied language). Expressions
-//  without cards are the "saved for later" list.
+//  without cards are the Caught list.
 //
 
 import Foundation
