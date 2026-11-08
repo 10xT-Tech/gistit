@@ -53,10 +53,11 @@ struct SplitMix64: RandomNumberGenerator {
     }
 
     private func make(_ expressions: [Domain.Expression], cards: [ReviewCard] = [], logs: [ReviewLog] = [],
-                      goal: Int = 50, seed: UInt64 = 1) -> (FlashcardsInteractor, MockReviewCardRepository) {
+                      goal: Int = 50, seed: UInt64 = 1,
+                      days: PracticeDayStoring = InMemoryPracticeDayStore()) -> (FlashcardsInteractor, MockReviewCardRepository) {
         let repo = MockReviewCardRepository(seed: cards, logs: logs)
         let interactor = FlashcardsInteractor(expressions: MockExpressionRepository(seed: expressions), cards: repo,
-                                              dailyGoal: { goal }, calendar: calendar,
+                                              dailyGoal: { goal }, days: days, calendar: calendar,
                                               makeRandom: { SplitMix64(seed: seed) })
         return (interactor, repo)
     }
@@ -117,33 +118,75 @@ struct SplitMix64: RandomNumberGenerator {
         }
     }
 
-    // MARK: The daily goal
+    // MARK: The day is one practice
 
-    /// The set is what's left of the goal; once it's met, "more" brings another goal-sized set.
-    @Test func setSizeFollowsTheGoal() async throws {
+    /// Start draws today's set; stopping and starting again continues the SAME set where it stopped;
+    /// with the goal met, "more" adds a new goal-sized draw.
+    @Test func theDayIsOnePracticeThatContinues() async throws {
         let phrases = (0..<40).map { expression("p\($0)") }
-        var cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
-        let (sut, _) = make(phrases, cards: cards, goal: 25)
-        #expect(try await sut.queue(now: now).count == 25)
+        let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        let days = InMemoryPracticeDayStore()
+        let (sut, _) = make(phrases, cards: cards, goal: 10, seed: 3, days: days)
 
-        // 10 recognition cards already answered today: 15 to go.
-        for i in 0..<10 {
-            let old = cards[i * 2]
-            cards[i * 2] = ReviewCard(id: old.id, expressionID: old.expressionID, direction: old.direction,
-                                      state: .review, due: now.addingTimeInterval(3 * day), stability: 3, difficulty: 5,
-                                      reps: 1, lastReview: now.addingTimeInterval(-60), firstReview: now.addingTimeInterval(-60))
+        let first = try await sut.queue(now: now)
+        #expect(first.count == 10)
+        // Interrupted before answering anything: the same set, same order — even with another random draw.
+        let (otherSeed, _) = make(phrases, cards: cards, goal: 10, seed: 99, days: days)
+        #expect(try await otherSeed.queue(now: now).map(\.id) == first.map(\.id))
+
+        // Four answered (Easy graduates them), then a pause: the other six, in the same order.
+        for card in first.prefix(4) { _ = try await sut.rate(card.card, .easy, now: now) }
+        let resumed = try await sut.queue(now: now.addingTimeInterval(3_600))
+        #expect(resumed.map(\.id) == first.dropFirst(4).map(\.id))
+        var plan = try await sut.stats(now: now).today
+        #expect(plan.studied == 4 && plan.pending.total == 6 && !plan.goalReached)
+
+        // The rest answered: the goal is met, nothing owed — "more" draws ten new cards.
+        for card in resumed { _ = try await sut.rate(card.card, .easy, now: now) }
+        #expect(try await sut.queue(now: now).isEmpty)
+        plan = try await sut.stats(now: now).today
+        #expect(plan.goalReached && plan.pending.total == 0 && plan.hasMore)
+        let more = try await sut.queue(now: now, extra: true)
+        #expect(more.count == 10)
+        #expect(Set(more.map(\.id)).isDisjoint(with: first.map(\.id)))
+
+        // A new day: a new set.
+        let tomorrow = now.addingTimeInterval(day)
+        #expect(try await sut.queue(now: tomorrow).map(\.id) != more.map(\.id))
+    }
+
+    /// Raising the goal during the day tops today's set up.
+    @Test func raisingTheGoalTopsTheDayUp() async throws {
+        let phrases = (0..<40).map { expression("p\($0)") }
+        let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        let days = InMemoryPracticeDayStore()
+        let (small, _) = make(phrases, cards: cards, goal: 10, days: days)
+        let first = try await small.queue(now: now)
+        let (bigger, _) = make(phrases, cards: cards, goal: 25, days: days)
+        let topped = try await bigger.queue(now: now)
+        #expect(topped.count == 25)
+        #expect(Array(topped.prefix(10)).map(\.id) == first.map(\.id))     // the day's set first
+    }
+
+    /// A card answered three times today is done for the day — restarting the practice can't bring
+    /// it back, and it isn't drawn again.
+    @Test func threeAnswersADayPerCard() async throws {
+        let hard = expression("hard"), easy = expression("easy")
+        let cards = newCards(hard, movedAt: now.addingTimeInterval(-day)) + newCards(easy, movedAt: now.addingTimeInterval(-day))
+        let (sut, _) = make([hard, easy], cards: cards, goal: 2)
+        let set = try await sut.queue(now: now)
+        var card = try #require(set.first { $0.expression.id == hard.id }).card
+        for minute in 0..<PracticeDay.maxAnswersPerCard {
+            card = try await sut.rate(card, .again, now: now.addingTimeInterval(Double(minute) * 60))
         }
-        let (partly, _) = make(phrases, cards: cards, goal: 25)
-        #expect(try await partly.queue(now: now).count == 15)
-        let plan = try await partly.stats(now: now).today
-        #expect(plan.studied == 10 && plan.remaining == 15 && !plan.goalReached)
-        #expect(try await partly.queue(now: now, extra: true).count == 25)
-
-        // Goal met: nothing owed, more on request.
-        let (done, _) = make(phrases, cards: cards, goal: 10)
-        #expect(try await done.queue(now: now).isEmpty)
-        #expect(try await done.stats(now: now).today.goalReached)
-        #expect(try await done.queue(now: now, extra: true).count == 10)
+        #expect(card.state == .learning)                                     // still not learned…
+        let later = try await sut.queue(now: now.addingTimeInterval(600))
+        #expect(!later.contains { $0.expression.id == hard.id })            // …but done for today
+        #expect(try await sut.queue(now: now.addingTimeInterval(600), extra: true)
+                    .allSatisfy { $0.expression.id != hard.id })
+        #expect(try await sut.answersToday(now: now)[card.id] == PracticeDay.maxAnswersPerCard)
+        // Tomorrow it's back.
+        #expect(try await sut.queue(now: now.addingTimeInterval(day)).contains { $0.id == card.id })
     }
 
     // MARK: Randomness

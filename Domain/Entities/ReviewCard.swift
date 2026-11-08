@@ -131,3 +131,19 @@ public struct ReviewLog: Codable, Sendable, Equatable, Identifiable {
         self.reviewedAt = reviewedAt
     }
 }
+
+/// One day's practice: the cards picked for it, in order (extra sets appended). The day is a single
+/// practice the user can interrupt and continue; a new day starts a new one.
+public struct PracticeDay: Codable, Sendable, Equatable {
+    /// Start of the day (local midnight).
+    public var day: Date
+    public var cardIDs: [UUID]
+
+    public init(day: Date, cardIDs: [UUID] = []) {
+        self.day = day
+        self.cardIDs = cardIDs
+    }
+
+    /// How many times one card may be answered in a day: a hard card can't loop the practice.
+    public static let maxAnswersPerCard = 3
+}

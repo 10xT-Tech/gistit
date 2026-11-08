@@ -102,11 +102,11 @@ public struct StudyDashboardView: View {
                     .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if plan.available.total == 0 {
+            } else if !plan.hasMore {
                 Text(Loc.t("На сегодня всё — возвращайтесь завтра.", "All done for today — come back tomorrow."))
                     .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
-            } else if plan.goalReached {
+            } else if plan.goalReached && plan.pending.total == 0 {
                 Text(Loc.t("Цель на сегодня выполнена — можно позаниматься ещё.",
                            "Today's goal reached — you can keep going."))
                     .textStyle(Tokens.Text.subhead)
@@ -116,15 +116,16 @@ public struct StudyDashboardView: View {
                 EHButton(Loc.t("Открыть «Пойманные»", "Open Caught"), icon: "tray", kind: .tonal,
                          fillWidth: true, accessibilityID: "flashcards.openCaught") { showCaught = true }
             } else {
-                let more = plan.goalReached && !locked
+                // The day is one practice: Start, then Continue after a pause; past the goal, more.
+                let more = plan.goalReached && plan.pending.total == 0 && !locked
                 EHButton(more ? Loc.t("Ещё \(plan.goal)", "\(plan.goal) more", "\(plan.goal) de plus", "\(plan.goal) más",
                                       "\(plan.goal) weitere", "Altre \(plan.goal)")
-                              : Loc.t("Начать", "Start"),
+                              : plan.studied > 0 && !locked ? Loc.t("Продолжить", "Continue") : Loc.t("Начать", "Start"),
                          icon: locked ? "lock.fill" : nil, kind: .primary,
                          fillWidth: true, accessibilityID: "flashcards.start") {
-                    if locked { ui.showPaywall = true } else { model.startPractice(extra: plan.goalReached) }
+                    if locked { ui.showPaywall = true } else { model.startPractice(extra: more) }
                 }
-                .disabled(!locked && plan.available.total == 0)
+                .disabled(!locked && !plan.hasMore)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

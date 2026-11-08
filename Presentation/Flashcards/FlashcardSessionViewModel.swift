@@ -2,11 +2,12 @@
 //  FlashcardSessionViewModel.swift
 //  EnglishHelper — Presentation
 //
-//  One practice session: a set sized by the daily goal, card by card — show the prompt, reveal the
-//  answer, rate it (Again / Hard / Good / Easy). A card that comes back within the learn-ahead window
-//  (a learning step, or a lapse) is queued again at the end of this session — at most
-//  `maxShowings` times in all, so a hard card can't loop the session; it returns next time. When the
-//  set is done, "more" brings another goal-sized set.
+//  Today's practice, card by card — show the prompt, reveal the answer, rate it (Again / Hard / Good /
+//  Easy). The day is one practice: closing the screen just pauses it, and the next Start continues
+//  today's set where it stopped. A card that comes back within the learn-ahead window (a learning
+//  step, or a lapse) is queued again — while it has answers left today
+//  (`PracticeDay.maxAnswersPerCard`), so a hard card can't loop the day. When today's set is done,
+//  "more" adds another goal-sized draw.
 //
 
 import Foundation
@@ -30,11 +31,9 @@ public final class FlashcardSessionViewModel: Identifiable {
     /// Today against the goal — refreshed at the start and the end of every set.
     public private(set) var plan: DailyPlan?
 
-    /// How many times one card may be shown in a session.
-    public static let maxShowings = 3
-
     private var queue: [Flashcard] = []
-    private var showings: [UUID: Int] = [:]
+    /// Answers per card today — this session's and earlier ones'.
+    private var answersToday: [UUID: Int] = [:]
     private var isSaving = false
     private var playTask: Task<Void, Never>?
     private let flashcards: any FlashcardsUseCase
@@ -58,19 +57,20 @@ public final class FlashcardSessionViewModel: Identifiable {
         await load(extra: startsExtra)
     }
 
-    /// Another goal-sized set beyond today's goal.
+    /// More practice: up to the goal if it isn't met yet, else another goal-sized draw.
     public func more() async {
-        await load(extra: true)
+        await load(extra: plan?.goalReached ?? true)
     }
 
-    /// Whether another set has cards to offer.
-    public var canStudyMore: Bool { (plan?.available.total ?? 0) > 0 }
+    /// Whether there's anything left to practise today.
+    public var canStudyMore: Bool { plan?.hasMore ?? false }
 
     private func load(extra: Bool) async {
         phase = .loading
         errorMessage = nil
         do {
             queue = try await flashcards.queue(now: now(), extra: extra)
+            answersToday = (try? await flashcards.answersToday(now: now())) ?? [:]
             plan = try? await flashcards.stats(now: now()).today
             advance()
         } catch {
@@ -94,9 +94,10 @@ public final class FlashcardSessionViewModel: Identifiable {
                 let answeredAt = self.now()
                 let next = try await self.flashcards.rate(card.card, rating, now: answeredAt)
                 self.reviewedCount += 1
+                self.answersToday[next.id, default: 0] += 1
                 if next.state == .learning || next.state == .relearning,
                    next.due <= answeredAt.addingTimeInterval(self.flashcards.learnAhead),
-                   self.showings[next.id, default: 0] < Self.maxShowings {
+                   self.answersToday[next.id, default: 0] < PracticeDay.maxAnswersPerCard {
                     self.queue.append(Flashcard(card: next, expression: card.expression))
                 }
                 if self.queue.isEmpty {
@@ -138,7 +139,6 @@ public final class FlashcardSessionViewModel: Identifiable {
             return
         }
         let next = queue.removeFirst()
-        showings[next.id, default: 0] += 1
         current = next
         intervals = flashcards.previews(for: next.card, now: now())
         phase = .studying

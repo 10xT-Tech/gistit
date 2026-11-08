@@ -15,9 +15,11 @@ Flashcards are part of **Gist It Pro**.
 **A daily goal.** In Settings, choose how many cards a day you plan to study at least: 25, 50, 75,
 100 or 150. Each set mixes new, learning and review cards in proportion to what's waiting, picked at
 random (cards that are overdue come up more often, so none waits forever), and never the same phrase
-both ways in one set. A card you keep getting wrong comes back at most three times in a session, then
-waits for the next one. Reached your goal? Keep going with another set. Studied less, or skipped a
-day? Nothing is lost — what's due simply waits. Study shows today's progress towards the goal.
+both ways in one set. The whole day is one practice: stop whenever you like, and **Continue** picks up
+today's set exactly where you left it. A card you keep getting wrong is asked at most three times a
+day, then waits until tomorrow. Reached your goal? Keep going with more. Raised the goal during the
+day? Today's set grows to match. Studied less, or skipped a day? Nothing is lost — what's due simply
+waits. Study shows today's progress towards the goal.
 
 **Caught.** What you save from Say it, Get it and See it now goes to **Caught** — your study list
 from before, with everything already in it. Add cards two new ways with **+**: **Generate from a

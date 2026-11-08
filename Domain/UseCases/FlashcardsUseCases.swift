@@ -10,10 +10,16 @@
 //  its two cards — recognition and recall — as `.new`. Caught = expressions without cards; deleting an
 //  expression deletes its cards (StudyListInteractor).
 //
-//  The DAILY GOAL (a minimum: 25 / 50 / 75 / 100 / 150 cards, Settings) sizes the practice set:
-//  - a set holds what's left of today's goal (distinct cards answered today count); once the goal is
-//    met, "more" sets of the goal's size can follow — studying more, less, or skipping a day all just
-//    move today's numbers, nothing is lost: an unanswered due card stays due;
+//  A DAY is one practice (`PracticeDay`, kept by `PracticeDayStoring`): the first Start of the day draws
+//  today's set and remembers it; the user may stop at any point, and Start continues the same set —
+//  its unanswered cards, plus learning cards coming back within the day's limit
+//  (`PracticeDay.maxAnswersPerCard` answers per card per day, so a hard card can't loop the day).
+//
+//  The DAILY GOAL (a minimum: 25 / 50 / 75 / 100 / 150 cards, Settings) sizes the set:
+//  - today's set holds the goal (distinct cards answered today count); if the goal is raised during
+//    the day the set is topped up; once the goal is met, "more" adds a goal-sized draw to the day —
+//    studying more, less, or skipping a day all just move today's numbers, nothing is lost: an
+//    unanswered due card stays due;
 //  - the set is split among the stages — learning, young, mature, new — PROPORTIONALLY to what's
 //    available today (`SetComposer.quotas`). New cards count at most the set's size, so a deck of
 //    thousands of new cards can't crowd out the reviews; the bigger the review backlog, the smaller
@@ -80,19 +86,27 @@ public struct DailyPlan: Sendable, Equatable {
     public let goal: Int
     /// Distinct cards answered today.
     public let studied: Int
-    /// Cards waiting today, by stage (learning, reviews due, new available).
+    /// Today's set, still to do — unanswered cards and learning cards coming back — by stage.
+    public let pending: StageCounts
+    /// Cards that could still be drawn into today's set, by stage.
     public let available: StageCounts
-    /// What the next set would hold, by stage.
+    /// What Start brings next (the rest of today's set and any top-up), by stage.
     public let nextSet: StageCounts
 
     public var remaining: Int { max(0, goal - studied) }
     public var goalReached: Bool { studied >= goal }
-    /// Learning and review cards due today — the backlog included.
-    public var due: Int { available.learning + available.young + available.mature }
+    /// Learning and review cards still due today — the backlog included.
+    public var due: Int {
+        pending.learning + pending.young + pending.mature + available.learning + available.young + available.mature
+    }
+    /// Anything left to practise today (today's set, or more to draw).
+    public var hasMore: Bool { pending.total > 0 || available.total > 0 }
 
-    public init(goal: Int, studied: Int, available: StageCounts, nextSet: StageCounts) {
+    public init(goal: Int, studied: Int, pending: StageCounts = StageCounts(), available: StageCounts,
+                nextSet: StageCounts) {
         self.goal = goal
         self.studied = studied
+        self.pending = pending
         self.available = available
         self.nextSet = nextSet
     }
@@ -139,8 +153,11 @@ public struct StudyStats: Sendable, Equatable {
 
 public protocol FlashcardsUseCase: Sendable {
     func stats(now: Date) async throws -> StudyStats
-    /// A practice set: what's left of today's goal, or — `extra` — another goal-sized set beyond it.
+    /// Today's practice from where it stopped: the rest of today's set, topped up to the goal — or,
+    /// `extra`, with another goal-sized draw added beyond it.
     func queue(now: Date, extra: Bool) async throws -> [Flashcard]
+    /// How many times each card was answered today (the day's per-card limit).
+    func answersToday(now: Date) async throws -> [UUID: Int]
     /// Move a caught expression into flashcards (both directions). No-op if it's already there.
     func enroll(_ expressionID: UUID, now: Date) async throws
     /// Expressions that are in flashcards — everything else is on the Caught list.
@@ -170,6 +187,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
     private let cards: ReviewCardRepository
     private let scheduler: FSRS
     private let dailyGoal: @Sendable () -> Int
+    private let days: PracticeDayStoring
     private let calendar: Calendar
     private let makeRandom: @Sendable () -> any RandomNumberGenerator
     private let analytics: (any AnalyticsTracking)?
@@ -177,6 +195,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
 
     public init(expressions: ExpressionRepository, cards: ReviewCardRepository, scheduler: FSRS = FSRS(),
                 dailyGoal: @escaping @Sendable () -> Int = { DailyGoalOptions.default },
+                days: PracticeDayStoring = InMemoryPracticeDayStore(),
                 calendar: Calendar = .current,
                 makeRandom: @escaping @Sendable () -> any RandomNumberGenerator = { SystemRandomNumberGenerator() },
                 analytics: (any AnalyticsTracking)? = nil) {
@@ -184,6 +203,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         self.cards = cards
         self.scheduler = scheduler
         self.dailyGoal = dailyGoal
+        self.days = days
         self.calendar = calendar
         self.makeRandom = makeRandom
         self.analytics = analytics
@@ -191,16 +211,19 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
 
     public func stats(now: Date) async throws -> StudyStats {
         let deck = try await loadDeck()
-        let pools = available(deck, now: now)
+        let today = try await today(deck, now: now)
 
         var distribution = CardDistribution()
         for card in deck.cards { distribution[card.stage] += 1 }
 
         let goal = dailyGoal()
-        let studied = studiedToday(deck, now: now)
-        let size = studied >= goal ? goal : goal - studied
-        let plan = DailyPlan(goal: goal, studied: studied, available: pools.counts,
-                             nextSet: SetComposer.quotas(size: size, available: pools.counts))
+        let pending = StageCounts(today.pending)
+        let available = StageCounts(today.drawable)
+        let topUp = drawSize(goal: goal, today: today, extra: today.studied >= goal && today.pending.isEmpty)
+        let next = SetComposer.quotas(size: topUp, available: available)
+        let plan = DailyPlan(goal: goal, studied: today.studied, pending: pending, available: available,
+                             nextSet: StageCounts(new: pending.new + next.new, learning: pending.learning + next.learning,
+                                                  young: pending.young + next.young, mature: pending.mature + next.mature))
 
         let startOfToday = calendar.startOfDay(for: now)
         let firstDay = calendar.date(byAdding: .day, value: -(StudyStats.days - 1), to: startOfToday) ?? startOfToday
@@ -219,11 +242,30 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
 
     public func queue(now: Date, extra: Bool) async throws -> [Flashcard] {
         let deck = try await loadDeck()
-        let goal = dailyGoal()
-        let size = extra ? goal : max(0, goal - studiedToday(deck, now: now))
-        guard size > 0 else { return [] }
-        var random = AnyRandom(makeRandom())
-        return SetComposer.compose(size: size, pools: available(deck, now: now).byStage, now: now, random: &random)
+        var today = try await today(deck, now: now)
+        let size = drawSize(goal: dailyGoal(), today: today, extra: extra)
+        var drawn: [Flashcard] = []
+        if size > 0 {
+            var random = AnyRandom(makeRandom())
+            var pools: [CardStage: [Flashcard]] = [:]
+            for card in today.drawable { pools[card.card.stage, default: []].append(card) }
+            drawn = SetComposer.compose(size: size, pools: pools, now: now, random: &random)
+        }
+        if !drawn.isEmpty || today.isNew {
+            today.day.cardIDs += drawn.map(\.id)
+            await days.save(today.day)
+        }
+        // Learning cards already due come first, then the rest of the set, then today's new draw, then
+        // learning cards due a little later.
+        let comingBack = today.pending.filter { today.answers[$0.id] != nil }
+        let dueNow = comingBack.filter { $0.card.due <= now }.sorted { $0.card.due < $1.card.due }
+        let later = comingBack.filter { $0.card.due > now }.sorted { $0.card.due < $1.card.due }
+        let unanswered = today.pending.filter { today.answers[$0.id] == nil }
+        return dueNow + unanswered + drawn + later
+    }
+
+    public func answersToday(now: Date) async throws -> [UUID: Int] {
+        try await answers(since: calendar.startOfDay(for: now))
     }
 
     public func enroll(_ expressionID: UUID, now: Date) async throws {
@@ -274,9 +316,61 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         return Deck(expressions: expressions, cards: cards, enrolled: enrolled, byExpression: byExpression)
     }
 
-    private func studiedToday(_ deck: Deck, now: Date) -> Int {
+    /// Today's practice as it stands: the day's set, what's left of it, what could still be drawn.
+    private struct Today {
+        var day: PracticeDay
+        /// The day had no set yet (the first Start of the day saves one, even if empty).
+        let isNew: Bool
+        let answers: [UUID: Int]
+        /// Distinct cards answered today.
+        let studied: Int
+        /// The day's set, still to do: unanswered, or learning and under the day's limit.
+        let pending: [Flashcard]
+        /// Cards that could join the day: waiting today, not in the set, under the day's limit.
+        let drawable: [Flashcard]
+    }
+
+    private func today(_ deck: Deck, now: Date) async throws -> Today {
         let startOfToday = calendar.startOfDay(for: now)
-        return deck.cards.filter { ($0.lastReview ?? .distantPast) >= startOfToday }.count
+        let stored = await days.load()
+        let isNew = stored?.day != startOfToday
+        let day = isNew ? PracticeDay(day: startOfToday) : stored!
+        let answers = try await answers(since: startOfToday)
+
+        var byID: [UUID: Flashcard] = [:]
+        for expression in deck.enrolled {
+            for card in (deck.byExpression[expression.id] ?? [:]).values {
+                byID[card.id] = Flashcard(card: card, expression: expression)
+            }
+        }
+        let limit = PracticeDay.maxAnswersPerCard
+        var inSet = Set<UUID>()
+        var pending: [Flashcard] = []
+        for id in day.cardIDs where inSet.insert(id).inserted {
+            guard let card = byID[id] else { continue }               // deleted since
+            let answered = answers[id] ?? 0
+            let learning = card.card.state == .learning || card.card.state == .relearning
+            if answered == 0 || (learning && answered < limit) { pending.append(card) }
+        }
+        let drawable = available(deck, now: now).byStage.values.joined()
+            .filter { !inSet.contains($0.id) && (answers[$0.id] ?? 0) < limit }
+        let studied = answers.keys.filter { byID[$0] != nil }.count
+        return Today(day: day, isNew: isNew, answers: answers, studied: studied, pending: pending,
+                     drawable: Array(drawable))
+    }
+
+    /// How many cards to draw now: up to the goal (cards still to do in the set count), or a full
+    /// goal-sized draw beyond it.
+    private func drawSize(goal: Int, today: Today, extra: Bool) -> Int {
+        if extra { return goal }
+        let unanswered = today.pending.filter { today.answers[$0.id] == nil }.count
+        return max(0, goal - today.studied - unanswered)
+    }
+
+    private func answers(since start: Date) async throws -> [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        for log in try await cards.logs(since: start) { counts[log.cardID, default: 0] += 1 }
+        return counts
     }
 
     /// What's waiting today, by stage.
@@ -303,6 +397,14 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         var counts = StageCounts()
         for (stage, cards) in pools { counts[stage] = cards.count }
         return (pools, counts)
+    }
+}
+
+extension StageCounts {
+    /// Cards counted by stage.
+    init(_ cards: [Flashcard]) {
+        self.init()
+        for card in cards { self[card.card.stage] += 1 }
     }
 }
 

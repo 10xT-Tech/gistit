@@ -72,21 +72,49 @@ import Presentation
         #expect(try await cards.all().first { $0.direction == .recognition }?.state == .review)
     }
 
-    /// "Again" again and again: the card comes back at most `maxShowings` times, then waits for the
-    /// next session — the session never loops on one card.
-    @Test func aHardCardCantLoopTheSession() async throws {
+    /// "Again" again and again: the card is answered at most three times a day — the practice never
+    /// loops on one card, and starting again the same day doesn't bring it back.
+    @Test func aHardCardCantLoopTheDay() async throws {
         let clock = Clock(start)
         let (vm, _) = make([Domain.Expression(en: "ineffable", ru: "невыразимый",
                                               createdAt: start.addingTimeInterval(-86_400))], clock: clock)
         await vm.start()
-        for answer in 1...FlashcardSessionViewModel.maxShowings {
+        for answer in 1...PracticeDay.maxAnswersPerCard {
             #expect(vm.phase == .studying)
             vm.reveal()
             vm.rate(.again)
             try await waitUntil { vm.reviewedCount == answer }
         }
         #expect(vm.phase == .finished)
-        #expect(vm.reviewedCount == FlashcardSessionViewModel.maxShowings)
+        #expect(vm.reviewedCount == PracticeDay.maxAnswersPerCard)
+    }
+
+    /// The day is one practice: close it mid-set, Start again — the rest of the same set comes, in order.
+    @Test func closingAndStartingAgainContinues() async throws {
+        let clock = Clock(start)
+        let phrases = (0..<3).map { Domain.Expression(en: "p\($0)", ru: "п\($0)", createdAt: start.addingTimeInterval(-86_400)) }
+        let cards = MockReviewCardRepository(seed: phrases.flatMap { e in
+            CardDirection.allCases.map { ReviewCard(expressionID: e.id, direction: $0, due: start) }
+        })
+        let flashcards = FlashcardsInteractor(expressions: MockExpressionRepository(seed: phrases), cards: cards,
+                                              dailyGoal: { 25 })
+        let pronounce = PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing())
+        let first = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce, now: { clock.now })
+        await first.start()
+        #expect(first.remaining == 3)
+        let answered = try #require(first.current)
+        first.reveal()
+        first.rate(.easy)
+        try await waitUntil { first.reviewedCount == 1 }
+        let next = try #require(first.current)                    // closed here
+
+        clock.now = start.addingTimeInterval(3_600)
+        let second = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce, now: { clock.now })
+        await second.start()
+        #expect(second.remaining == 2)
+        #expect(second.current?.id == next.id)                    // where it stopped
+        #expect(second.current?.id != answered.id)
+        #expect(second.plan?.studied == 1)
     }
 
     /// Goal met: the end screen offers another goal-sized set while cards are waiting.

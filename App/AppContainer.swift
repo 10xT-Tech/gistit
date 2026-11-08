@@ -78,6 +78,7 @@ public final class AppContainer: Sendable {
         textRecognizer: any TextRecognizing,
         expressions: any ExpressionRepository,
         reviewCards: any ReviewCardRepository = MockReviewCardRepository(),
+        practiceDays: any PracticeDayStoring = InMemoryPracticeDayStore(),
         history: any HistoryRepository,
         exporter: any DeckExporting,
         cache: (any TranslationCache)? = nil,
@@ -117,7 +118,8 @@ public final class AppContainer: Sendable {
         self.enrich = EnrichExpressionInteractor(llm: llm)
         self.studyList = StudyListInteractor(repository: expressions, cards: reviewCards)
         self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards,
-                                               dailyGoal: { DailyGoal.current }, analytics: analytics)
+                                               dailyGoal: { DailyGoal.current }, days: practiceDays,
+                                               analytics: analytics)
         self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
         self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
@@ -207,6 +209,7 @@ public final class AppContainer: Sendable {
             textRecognizer: VisionTextRecognizer(),         // ← swap OCR engine here (when OCR is used)
             expressions: SwiftDataExpressionRepository(modelContainer: modelContainer),
             reviewCards: SwiftDataReviewCardRepository(modelContainer: modelContainer),
+            practiceDays: UserDefaultsPracticeDayStore(),
             history: SwiftDataHistoryRepository(modelContainer: modelContainer, recordings: recordings),
             exporter: AlgoAppXMLExporter(),
             // Persistent translation cache: repeat text translations skip the model (Say it + Get-it Translate).

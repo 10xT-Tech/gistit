@@ -132,3 +132,18 @@ public enum TranslationCacheKey {
         return [kind.rawValue, studiedLanguage, nativeLanguage, toneKey, tierKey, normalized].joined(separator: "\u{1}")
     }
 }
+
+/// Today's practice set (`PracticeDay`) — kept between sessions so a practice interrupted at any
+/// point continues from where it stopped when Start is pressed again the same day.
+public protocol PracticeDayStoring: Sendable {
+    func load() async -> PracticeDay?
+    func save(_ day: PracticeDay) async
+}
+
+/// In-memory default (tests, previews, the stub boot): forgets on relaunch.
+public actor InMemoryPracticeDayStore: PracticeDayStoring {
+    private var day: PracticeDay?
+    public init(_ day: PracticeDay? = nil) { self.day = day }
+    public func load() async -> PracticeDay? { day }
+    public func save(_ day: PracticeDay) async { self.day = day }
+}
