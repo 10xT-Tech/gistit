@@ -47,6 +47,8 @@ public final class AppContainer: Sendable {
     public let catchFromPhotos: any CatchCardsFromPhotosUseCase
     /// Card files: export flashcards with progress, import straight into flashcards.
     public let cardTransfer: any CardTransferUseCase
+    /// In flashcards → Fix cards: capitals, grammar, verb markers / articles, missing fields.
+    public let fixCards: any FixCardsUseCase
     public let requestHistory: any RequestHistoryUseCase
     public let exportDeck: any ExportDeckUseCase        // AlgoApp .xml
     public let exportAnkiDeck: any ExportDeckUseCase    // Anki .txt
@@ -79,6 +81,7 @@ public final class AppContainer: Sendable {
         expressions: any ExpressionRepository,
         reviewCards: any ReviewCardRepository = MockReviewCardRepository(),
         practiceDays: any PracticeDayStoring = InMemoryPracticeDayStore(),
+        cardFixProgress: any CardFixProgressStoring = InMemoryCardFixProgressStore(),
         history: any HistoryRepository,
         exporter: any DeckExporting,
         cache: (any TranslationCache)? = nil,
@@ -122,6 +125,8 @@ public final class AppContainer: Sendable {
                                                analytics: analytics)
         self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
         self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards)
+        self.fixCards = FixCardsInteractor(llm: llm, expressions: expressions, cards: reviewCards,
+                                           progress: cardFixProgress)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -210,6 +215,7 @@ public final class AppContainer: Sendable {
             expressions: SwiftDataExpressionRepository(modelContainer: modelContainer),
             reviewCards: SwiftDataReviewCardRepository(modelContainer: modelContainer),
             practiceDays: UserDefaultsPracticeDayStore(),
+            cardFixProgress: UserDefaultsCardFixProgressStore(),
             history: SwiftDataHistoryRepository(modelContainer: modelContainer, recordings: recordings),
             exporter: AlgoAppXMLExporter(),
             // Persistent translation cache: repeat text translations skip the model (Say it + Get-it Translate).
@@ -343,6 +349,7 @@ public final class AppContainer: Sendable {
             flashcards: flashcards,
             catchFromPhotos: catchFromPhotos,
             cardTransfer: cardTransfer,
+            fixCards: fixCards,
             scope: scope
         )
     }

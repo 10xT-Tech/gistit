@@ -52,7 +52,7 @@ are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 ### Prompt templates (Domain)
 `PromptTemplate` owns a system prompt + output JSON schema + typed decoder. Templates (all in
 `Domain/Prompts/Templates.swift`): `howToSay` (3 variants), `whatToSay`, `explainExpression`,
-`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `healthCheck`. Adding a use case = adding
+`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `fixCards`, `healthCheck`. Adding a use case = adding
 a template; the LLM adapter never changes.
 
 ## Folder layout
@@ -145,7 +145,13 @@ FSRS `review`) via `CardTransferInteractor` — export = cards in flashcards wit
 STRAIGHT into flashcards (new → stored + two cards, restored from `review` if present; on Caught →
 enrolled; already in flashcards → untouched; repeats/empty skipped), written with the batch
 `ExpressionRepository.addAll` / `ReviewCardRepository.saveAll` (10k cards ≈ 2 s on the simulator).
-`tools/algoapp_to_cards.py` converts an AlgoApp deck (.zip/.xml) into a card file. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
+`tools/algoapp_to_cards.py` converts an AlgoApp deck (.zip/.xml) into a card file.
+"Fix cards" (In flashcards menu, Pro): `FixCardsInteractor` goes through the phrases in flashcards
+oldest-first in batches of 20 (`FixCardsTemplate`, `.fast`, metered on the free plan): grammar,
+verb marker / noun article, missing example / synonyms / note; capitals are applied locally
+(`capitalized`); one retry per batch, then capitals only; offline / plan limit / no key stop the run.
+The position after each batch is kept (`CardFixProgressStoring`, UserDefaults) — Stop and resume
+without sending a card twice; "start over" resets it. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
 studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
 lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
 (Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90% retention, no

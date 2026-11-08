@@ -156,6 +156,37 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(threshold.waitForExistence(timeout: 3), "the caught cards aren't on the list")
     }
 
+    /// In flashcards → Fix cards: confirm, the progress sheet runs over every phrase, Done.
+    func testFixCards() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        app.buttons["study.caught"].tap()
+        XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
+        app.buttons["caught.moveAll"].tap()
+        app.buttons["Move (2)"].tap()
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
+        app.buttons["study.studying"].tap()
+
+        let menu = app.buttons["cards.transfer"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        menu.tap()
+        app.buttons["Fix cards"].tap()
+        let start = app.buttons["Start (2)"]
+        XCTAssertTrue(start.waitForExistence(timeout: 3), "no confirmation before overwriting the cards")
+        start.tap()
+        let done = app.buttons["fix.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Phrases: 2 of 2"].exists)
+        attach(app, "fix-done")
+        done.tap()
+        XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 3))
+    }
+
     /// Flashcards are Pro: on the free plan Start carries a lock and opens the paywall.
     func testFreePlanGetsThePaywall() {
         let app = XCUIApplication()

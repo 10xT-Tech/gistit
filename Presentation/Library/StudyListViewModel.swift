@@ -57,6 +57,11 @@ public final class StudyListViewModel {
     public var showMoveAllConfirmation = false
     /// Caught → From photos, on screen while non-nil.
     public var catchSession: CatchFromPhotosViewModel?
+    /// "Fix cards": what a run would go through, asked before starting.
+    public private(set) var fixRemaining: (left: Int, total: Int)?
+    public var showFixConfirmation = false
+    /// The "Fix cards" run on screen while non-nil.
+    public var fixSession: FixCardsViewModel?
     /// A card-file import is running.
     public private(set) var isImporting = false
     /// The outcome of the last import, for an alert.
@@ -71,6 +76,7 @@ public final class StudyListViewModel {
     private let flashcards: (any FlashcardsUseCase)?
     private let catchFromPhotos: (any CatchCardsFromPhotosUseCase)?
     private let cardTransfer: (any CardTransferUseCase)?
+    private let fixCards: (any FixCardsUseCase)?
     private var playTask: Task<Void, Never>?
 
     public init(
@@ -83,6 +89,7 @@ public final class StudyListViewModel {
         flashcards: (any FlashcardsUseCase)? = nil,
         catchFromPhotos: (any CatchCardsFromPhotosUseCase)? = nil,
         cardTransfer: (any CardTransferUseCase)? = nil,
+        fixCards: (any FixCardsUseCase)? = nil,
         scope: Scope = .caught
     ) {
         self.studyList = studyList
@@ -94,6 +101,7 @@ public final class StudyListViewModel {
         self.flashcards = flashcards
         self.catchFromPhotos = catchFromPhotos
         self.cardTransfer = cardTransfer
+        self.fixCards = fixCards
         self.scope = scope
     }
 
@@ -220,6 +228,38 @@ public final class StudyListViewModel {
 
     /// The whole list as cards — four lines each, separated by "---" (Copy all).
     public var allCardsText: String { Domain.Expression.cardsText(expressions) }
+
+    // MARK: Fix cards
+
+    /// In flashcards offers "Fix cards".
+    public var canFixCards: Bool { fixCards != nil && scope == .studying }
+
+    /// Count what a run would cover, then ask (start / continue / start over).
+    public func prepareFix() {
+        guard let fixCards else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            if let remaining = try? await fixCards.remaining() {
+                self.fixRemaining = remaining
+                self.showFixConfirmation = remaining.total > 0
+            }
+        }
+    }
+
+    /// Run over the phrases — `restart`: all again, not from where the last run stopped.
+    public func startFix(restart: Bool) {
+        guard let fixCards, fixSession == nil else { return }
+        let session = FixCardsViewModel(fixCards: fixCards)
+        fixSession = session
+        session.run(restart: restart)
+    }
+
+    /// The sheet closed: the fixed texts appear.
+    public func endFix() {
+        fixSession?.stop()
+        fixSession = nil
+        Task { await load() }
+    }
 
     // MARK: Card files
 

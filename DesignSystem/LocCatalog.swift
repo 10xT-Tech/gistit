@@ -307,6 +307,13 @@ public enum LocCatalog {
         "The phrases you're learning": "Les expressions que vous apprenez",
         "Card": "Carte",
         "Shows the whole card": "Affiche la carte entière",
+        "Fix cards": "Corriger les cartes",
+        "Fix the cards?": "Corriger les cartes ?",
+        "Capital letters, grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is.": "Majuscules, grammaire, « to » pour les verbes et articles pour les noms, exemples, synonymes et notes manquants. Le texte des cartes est remplacé — exportez d'abord les cartes en sauvegarde si besoin. La progression d'apprentissage ne change pas.",
+        "Fixing cards": "Correction des cartes",
+        "Fixing the cards…": "Correction des cartes…",
+        "Stopped — it continues from here next time": "Arrêté — reprendra d'ici la prochaine fois",
+        "You can stop at any time — next time it continues from here.": "Vous pouvez arrêter à tout moment — la prochaine fois, ça reprend d'ici.",
     ]
 
     public static let es: [String: String] = [
@@ -605,6 +612,13 @@ public enum LocCatalog {
         "The phrases you're learning": "Las frases que estás aprendiendo",
         "Card": "Tarjeta",
         "Shows the whole card": "Muestra la tarjeta completa",
+        "Fix cards": "Corregir tarjetas",
+        "Fix the cards?": "¿Corregir las tarjetas?",
+        "Capital letters, grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is.": "Mayúsculas, gramática, «to» en los verbos y artículos en los sustantivos, ejemplos, sinónimos y notas que falten. El texto de las tarjetas se sobrescribe — puedes exportarlas antes como copia de seguridad. El progreso de aprendizaje no cambia.",
+        "Fixing cards": "Corrección de tarjetas",
+        "Fixing the cards…": "Corrigiendo las tarjetas…",
+        "Stopped — it continues from here next time": "Detenido — la próxima vez sigue desde aquí",
+        "You can stop at any time — next time it continues from here.": "Puedes detenerlo en cualquier momento — la próxima vez sigue desde aquí.",
     ]
 
     public static let de: [String: String] = [
@@ -903,6 +917,13 @@ public enum LocCatalog {
         "The phrases you're learning": "Die Ausdrücke, die du lernst",
         "Card": "Karte",
         "Shows the whole card": "Zeigt die ganze Karte",
+        "Fix cards": "Karten korrigieren",
+        "Fix the cards?": "Karten korrigieren?",
+        "Capital letters, grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is.": "Großschreibung, Grammatik, „to“ bei Verben und Artikel bei Nomen, fehlende Beispiele, Synonyme und Hinweise. Die Kartentexte werden überschrieben — exportiere die Karten vorher als Sicherung, wenn du magst. Der Lernfortschritt bleibt, wie er ist.",
+        "Fixing cards": "Karten korrigieren",
+        "Fixing the cards…": "Karten werden korrigiert…",
+        "Stopped — it continues from here next time": "Gestoppt — beim nächsten Mal geht es hier weiter",
+        "You can stop at any time — next time it continues from here.": "Du kannst jederzeit stoppen — beim nächsten Mal geht es hier weiter.",
     ]
 
     public static let it: [String: String] = [
@@ -1201,5 +1222,12 @@ public enum LocCatalog {
         "The phrases you're learning": "Le frasi che stai imparando",
         "Card": "Scheda",
         "Shows the whole card": "Mostra la scheda intera",
+        "Fix cards": "Correggi schede",
+        "Fix the cards?": "Correggere le schede?",
+        "Capital letters, grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is.": "Maiuscole, grammatica, «to» per i verbi e articoli per i sostantivi, esempi, sinonimi e note mancanti. Il testo delle schede viene sovrascritto — puoi prima esportarle come backup. I progressi di apprendimento non cambiano.",
+        "Fixing cards": "Correzione schede",
+        "Fixing the cards…": "Correggo le schede…",
+        "Stopped — it continues from here next time": "Interrotto — la prossima volta riprende da qui",
+        "You can stop at any time — next time it continues from here.": "Puoi fermarti in qualsiasi momento — la prossima volta riprende da qui.",
     ]
 }

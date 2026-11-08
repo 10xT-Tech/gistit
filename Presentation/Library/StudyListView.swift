@@ -56,6 +56,15 @@ public struct StudyListView: View {
                         Button { showImporter = true } label: {
                             Label(Loc.t("Импортировать карточки", "Import cards"), systemImage: "square.and.arrow.down")
                         }
+                        if model.canFixCards {
+                            Divider()
+                            Button {
+                                if subscription.tier.canUseFlashcards { model.prepareFix() } else { ui.showPaywall = true }
+                            } label: {
+                                Label(Loc.t("Исправить карточки", "Fix cards"), systemImage: "wand.and.stars")
+                            }
+                            .disabled(model.expressions.isEmpty)
+                        }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down.circle")
                     }
@@ -98,6 +107,38 @@ public struct StudyListView: View {
                     .accessibilityIdentifier("caught.add")
                 }
             }
+        }
+        .confirmationDialog(Loc.t("Исправить карточки?", "Fix the cards?"),
+                            isPresented: $model.showFixConfirmation, titleVisibility: .visible) {
+            if let remaining = model.fixRemaining {
+                if remaining.left == remaining.total {
+                    Button(Loc.t("Начать (\(remaining.total))", "Start (\(remaining.total))", "Commencer (\(remaining.total))",
+                                 "Empezar (\(remaining.total))", "Starten (\(remaining.total))", "Inizia (\(remaining.total))")) {
+                        model.startFix(restart: false)
+                    }
+                } else {
+                    if remaining.left > 0 {
+                        Button(Loc.t("Продолжить (осталось \(remaining.left))", "Continue (\(remaining.left) left)",
+                                     "Continuer (\(remaining.left) restantes)", "Continuar (quedan \(remaining.left))",
+                                     "Fortsetzen (noch \(remaining.left))", "Continua (\(remaining.left) rimanenti)")) {
+                            model.startFix(restart: false)
+                        }
+                    }
+                    Button(Loc.t("Начать заново (все \(remaining.total))", "Start over (all \(remaining.total))",
+                                 "Recommencer (toutes les \(remaining.total))", "Empezar de nuevo (las \(remaining.total))",
+                                 "Neu beginnen (alle \(remaining.total))", "Ricomincia (tutte le \(remaining.total))")) {
+                        model.startFix(restart: true)
+                    }
+                }
+            }
+            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
+        } message: {
+            Text(Loc.t("Заглавные буквы, грамматика, «to» у глаголов и артикли у существительных, недостающие примеры, синонимы и пояснения. Тексты карточек перезаписываются — можно сначала экспортировать карточки как резервную копию. Прогресс изучения не меняется.",
+                       "Capital letters, grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is."))
+        }
+        .sheet(item: $model.fixSession, onDismiss: { model.endFix() }) { session in
+            FixCardsView(model: session) { model.fixSession = nil }
+                .environment(subscription)
         }
         .sheet(item: $previewed) { expression in
             CardPreviewView(expression: expression, cards: model.cards(for: expression),

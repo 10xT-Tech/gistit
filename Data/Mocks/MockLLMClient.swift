@@ -16,7 +16,24 @@ public final class MockLLMClient: LLMClient {
         _ template: Template,
         input: Template.Input
     ) async throws -> Template.Output {
-        try template.decode(Self.cannedJSON(for: template.id))
+        try template.decode(Self.cannedJSON(for: template, input: input))
+    }
+
+    /// Canned output — computed from the input where a fixed answer can't fit (`fixCards` answers
+    /// card by card, by id).
+    static func cannedJSON<Template: PromptTemplate>(for template: Template, input: Template.Input) -> String {
+        if let cards = input as? [FixCardItem] {
+            // Echo every card, filling what's missing — the way the real model completes a card.
+            let fixed = cards.map { card in
+                FixCardItem(id: card.id, expression: card.expression, translation: card.translation,
+                            example: card.example.isEmpty ? "An example with \(card.expression)." : card.example,
+                            synonyms: card.synonyms.isEmpty ? ["similar"] : card.synonyms,
+                            context: card.context.isEmpty ? "Нейтрально." : card.context)
+            }
+            let data = (try? JSONEncoder().encode(FixCardsResult(cards: fixed))) ?? Data()
+            return String(decoding: data, as: UTF8.self)
+        }
+        return cannedJSON(for: template.id)
     }
 
     static func cannedJSON(for templateID: String) -> String {

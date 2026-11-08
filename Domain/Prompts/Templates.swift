@@ -724,6 +724,111 @@ public struct PhotoCardsTemplate: PromptTemplate {
     }
 }
 
+// MARK: - fixCards (batch: tidy up flashcards already in study)
+
+/// One card as sent to / returned by `FixCardsTemplate` — `id` ties the answer to the card.
+public struct FixCardItem: Codable, Sendable, Equatable {
+    public let id: String
+    public var expression: String
+    public var translation: String
+    public var example: String
+    public var synonyms: [String]
+    public var context: String
+
+    public init(id: String, expression: String, translation: String, example: String, synonyms: [String],
+                context: String) {
+        self.id = id
+        self.expression = expression
+        self.translation = translation
+        self.example = example
+        self.synonyms = synonyms
+        self.context = context
+    }
+}
+
+/// `{ "cards": [ FixCardItem ] }`.
+public struct FixCardsResult: Codable, Sendable, Equatable {
+    public let cards: [FixCardItem]
+    public init(cards: [FixCardItem]) { self.cards = cards }
+}
+
+/// A batch of flashcards → the same cards corrected and completed: grammar and spelling fixed, a
+/// single verb given its infinitive marker and a single noun its article (as the studied language's
+/// vocabulary lists do), missing example / synonyms / usage note filled in. Correct text is kept.
+/// Capitalisation is the app's job (deterministic), not the model's. Metered on the free plan.
+public struct FixCardsTemplate: PromptTemplate {
+    public typealias Input = [FixCardItem]
+    public typealias Output = FixCardsResult
+
+    public let id = "fixCards"
+    public let studiedLanguage: String
+    public let nativeLanguage: String
+    public init(studiedLanguage: String = "English", nativeLanguage: String = "Russian") {
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
+    }
+
+    /// The translation model: a batch of small, well-defined edits.
+    public var modelTier: ModelTier { .fast }
+    /// Twenty cards with filled-in examples, synonyms and notes.
+    public var maxOutputTokens: Int { 12_000 }
+
+    public var systemPrompt: String {
+        """
+        You tidy up vocabulary flashcards of a \(nativeLanguage) speaker who is learning \(studiedLanguage). You
+        get a JSON list of cards; return EVERY card, with the same "id", corrected and completed:
+        - "expression" (\(studiedLanguage)): fix grammar and spelling mistakes. Keep the meaning, the register and
+          any wording that is already correct — never paraphrase a correct expression. If it is a single
+          verb, give its dictionary form with the infinitive marker \(studiedLanguage) vocabulary lists use
+          (English: "to abandon"). If it is a single noun, add the article \(studiedLanguage) vocabulary lists use
+          (English "a"/"an" for countable nouns; German "der"/"die"/"das"; French "le"/"la"/"l'"; Spanish
+          "el"/"la"; Italian "il"/"lo"/"la"/"l'"); a language without articles gets none. Leave multi-word
+          phrases and idioms as they are apart from fixing mistakes.
+        - "translation" (\(nativeLanguage)): fix mistakes; keep it if it is right; one or two variants separated by
+          " / ".
+        - "example" (\(studiedLanguage)): fix mistakes; if empty, write ONE natural sentence that uses the
+          expression.
+        - "synonyms" (\(studiedLanguage)): keep the correct ones; if empty, give 2 to 3 near-equivalents — fewer if
+          none fit, never invented.
+        - "context" (\(nativeLanguage)): keep it; if empty, write one short note on when and how the expression is
+          used (register, typical situation).
+        \(plainTextRule)
+        """
+    }
+
+    public var outputJSONSchema: String {
+        """
+        {"type":"object","properties":{"cards":{"type":"array","items":{"type":"object",
+        "properties":{"id":{"type":"string"},"expression":{"type":"string"},"translation":{"type":"string"},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
+        "context":{"type":"string"}},
+        "required":["id","expression","translation","example","synonyms","context"],
+        "additionalProperties":false}}},
+        "required":["cards"],"additionalProperties":false}
+        """
+    }
+
+    public func userMessage(for input: [FixCardItem]) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = (try? encoder.encode(FixCardsResult(cards: input))) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public func decode(_ rawJSON: String) throws -> FixCardsResult {
+        let raw = try decodeJSON(FixCardsResult.self, from: rawJSON)
+        let cards = raw.cards.map { card in
+            FixCardItem(id: card.id,
+                        expression: PlainText.clean(card.expression),
+                        translation: PlainText.clean(card.translation),
+                        example: PlainText.clean(card.example),
+                        synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)),
+                        context: PlainText.clean(card.context))
+        }
+        return FixCardsResult(cards: cards.filter { !$0.expression.isEmpty && !$0.translation.isEmpty })
+    }
+}
+
 // MARK: - healthCheck (connection probe)
 
 /// Minimal probe used by the Settings live health check — the cheapest possible round-trip.
