@@ -76,23 +76,52 @@ public struct FlashcardSessionView: View {
                        message: model.errorMessage,
                        actionTitle: Loc.t("Повторить", "Retry"), action: { Task { await model.start() } })
         case .finished:
-            StatusView(systemImage: "checkmark.seal",
-                       title: Loc.t("На сегодня всё", "All done for today"),
-                       message: model.reviewedCount == 0
-                           ? Loc.t("Карточек к повторению нет — возвращайтесь завтра.",
-                                   "No cards to review — come back tomorrow.")
-                           : Loc.t("Ответов: \(model.reviewedCount). Следующие карточки придут по расписанию.",
-                                   "Answers: \(model.reviewedCount). The next cards will come on schedule.",
-                                   "Réponses : \(model.reviewedCount). Les prochaines cartes arriveront selon le planning.",
-                                   "Respuestas: \(model.reviewedCount). Las siguientes tarjetas llegarán según lo previsto.",
-                                   "Antworten: \(model.reviewedCount). Die nächsten Karten kommen nach Plan.",
-                                   "Risposte: \(model.reviewedCount). Le prossime schede arriveranno secondo il piano."),
-                       actionTitle: Loc.t("Закрыть", "Close"), action: onClose)
-                .accessibilityIdentifier("flashcards.done")
+            finished
         case .studying:
             if let card = model.current {
                 studying(card)
             }
+        }
+    }
+
+    // MARK: Finished
+
+    /// The set is done: today against the goal, and another set while cards are waiting.
+    private var finished: some View {
+        let plan = model.plan
+        let reached = plan?.goalReached == true
+        return VStack(spacing: Tokens.Space.s16) {
+            Spacer()
+            Image(systemName: reached ? "checkmark.seal.fill" : "checkmark.seal")
+                .font(.system(size: 44, weight: .medium))
+                .foregroundStyle(Tokens.Content.primary)
+                .accessibilityHidden(true)
+            Text(reached ? Loc.t("Цель на сегодня выполнена", "Today's goal reached")
+                         : Loc.t("На сегодня всё", "All done for today"))
+                .textStyle(Tokens.Text.title2)
+                .foregroundStyle(Tokens.Content.primary)
+                .multilineTextAlignment(.center)
+            if let plan {
+                GoalProgress(plan: plan)
+                    .frame(maxWidth: 280)
+            }
+            if !model.canStudyMore {
+                Text(Loc.t("Больше карточек на сегодня нет — возвращайтесь завтра.",
+                           "No more cards for today — come back tomorrow."))
+                    .textStyle(Tokens.Text.subhead)
+                    .foregroundStyle(Tokens.Content.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Spacer()
+            if model.canStudyMore, let plan {
+                EHButton(Loc.t("Ещё \(plan.goal)", "\(plan.goal) more", "\(plan.goal) de plus", "\(plan.goal) más",
+                               "\(plan.goal) weitere", "Altre \(plan.goal)"),
+                         icon: "plus", kind: .primary, fillWidth: true, accessibilityID: "flashcards.more") {
+                    Task { await model.more() }
+                }
+            }
+            EHButton(Loc.t("Закрыть", "Close"), kind: model.canStudyMore ? .tonal : .primary, fillWidth: true,
+                     accessibilityID: "flashcards.done", action: onClose)
         }
     }
 
@@ -228,5 +257,25 @@ public struct FlashcardSessionView: View {
     private var errorBinding: Binding<Bool> {
         Binding(get: { model.errorMessage != nil && model.phase == .studying },
                 set: { if !$0 { model.clearError() } })
+    }
+}
+
+/// "Today: 12 of 50" with a bar — the session's end and the dashboard.
+struct GoalProgress: View {
+    let plan: DailyPlan
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s4) {
+            ProgressView(value: Double(min(plan.studied, plan.goal)), total: Double(max(plan.goal, 1)))
+                .tint(Tokens.Content.primary)
+            Text(Loc.t("Сегодня: \(plan.studied) из \(plan.goal)", "Today: \(plan.studied) of \(plan.goal)",
+                       "Aujourd'hui : \(plan.studied) sur \(plan.goal)", "Hoy: \(plan.studied) de \(plan.goal)",
+                       "Heute: \(plan.studied) von \(plan.goal)", "Oggi: \(plan.studied) di \(plan.goal)"))
+                .textStyle(Tokens.Text.footnote)
+                .foregroundStyle(Tokens.Content.secondary)
+                .monospacedDigit()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("flashcards.goalProgress")
     }
 }

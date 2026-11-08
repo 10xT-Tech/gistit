@@ -116,7 +116,8 @@ public final class AppContainer: Sendable {
                                                    analytics: analytics)              // "See it" Explain mode
         self.enrich = EnrichExpressionInteractor(llm: llm)
         self.studyList = StudyListInteractor(repository: expressions, cards: reviewCards)
-        self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards, analytics: analytics)
+        self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards,
+                                               dailyGoal: { DailyGoal.current }, analytics: analytics)
         self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
         self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)

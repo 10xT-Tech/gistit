@@ -41,6 +41,16 @@ public enum ToneOfVoice: String, CaseIterable, Sendable {
     static let storageKey = "toneOfVoice"
 }
 
+/// Flashcards: the daily goal — at least this many cards a day (Settings). Read by the flashcards use
+/// case every time it builds a set or counts the day.
+public enum DailyGoal {
+    public static var current: Int {
+        let stored = Prefs.store.integer(forKey: storageKey)
+        return DailyGoalOptions.all.contains(stored) ? stored : DailyGoalOptions.default
+    }
+    static let storageKey = "flashcardsDailyGoal"
+}
+
 public enum ThemePreference: String, CaseIterable, Sendable {
     case system, light, dark
     public var title: String {

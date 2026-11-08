@@ -72,6 +72,47 @@ import Presentation
         #expect(try await cards.all().first { $0.direction == .recognition }?.state == .review)
     }
 
+    /// "Again" again and again: the card comes back at most `maxShowings` times, then waits for the
+    /// next session — the session never loops on one card.
+    @Test func aHardCardCantLoopTheSession() async throws {
+        let clock = Clock(start)
+        let (vm, _) = make([Domain.Expression(en: "ineffable", ru: "невыразимый",
+                                              createdAt: start.addingTimeInterval(-86_400))], clock: clock)
+        await vm.start()
+        for answer in 1...FlashcardSessionViewModel.maxShowings {
+            #expect(vm.phase == .studying)
+            vm.reveal()
+            vm.rate(.again)
+            try await waitUntil { vm.reviewedCount == answer }
+        }
+        #expect(vm.phase == .finished)
+        #expect(vm.reviewedCount == FlashcardSessionViewModel.maxShowings)
+    }
+
+    /// Goal met: the end screen offers another goal-sized set while cards are waiting.
+    @Test func moreAfterTheGoal() async throws {
+        let clock = Clock(start)
+        let phrases = (0..<3).map { Domain.Expression(en: "p\($0)", ru: "п\($0)", createdAt: start.addingTimeInterval(-86_400)) }
+        let cards = MockReviewCardRepository(seed: phrases.flatMap { e in
+            CardDirection.allCases.map { ReviewCard(expressionID: e.id, direction: $0, due: start) }
+        })
+        let flashcards = FlashcardsInteractor(expressions: MockExpressionRepository(seed: phrases), cards: cards,
+                                              dailyGoal: { 1 })
+        let vm = FlashcardSessionViewModel(flashcards: flashcards,
+                                           pronounce: PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing()),
+                                           now: { clock.now })
+        await vm.start()
+        #expect(vm.remaining == 1)                                // the goal: one card
+        vm.reveal()
+        vm.rate(.easy)
+        try await waitUntil { vm.phase == .finished }
+        #expect(vm.plan?.goalReached == true)
+        #expect(vm.canStudyMore)
+        await vm.more()
+        #expect(vm.phase == .studying)
+        #expect(vm.remaining == 1)
+    }
+
     @Test func emptyQueueFinishesAtOnce() async {
         let (vm, _) = make([], clock: Clock(start))
         await vm.start()
@@ -121,7 +162,7 @@ import Presentation
         await dashboard.load()
         #expect(dashboard.stats?.inStudy == 1)
         #expect(dashboard.stats?.caught == 1)
-        #expect(dashboard.stats?.today == FlashcardsSummary(due: 0, new: 1))
+        #expect(dashboard.stats?.today.nextSet == StageCounts(new: 1))
         await list.load()
         #expect(!list.expressions.contains { $0.id == phrase.id })
 
@@ -134,7 +175,7 @@ import Presentation
 
         dashboard.endPractice()
         #expect(dashboard.session == nil)
-        try await waitUntil { dashboard.stats?.today.total == 0 }
+        try await waitUntil { dashboard.stats?.today.available.total == 0 }
         #expect(dashboard.stats?.reviewsToday == 1)
         #expect(dashboard.stats?.distribution.young == 1)
     }

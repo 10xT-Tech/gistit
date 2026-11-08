@@ -2,20 +2,27 @@
 //  FlashcardsUseCases.swift
 //  EnglishHelper — Domain (use cases)
 //
-//  Flashcard practice over the saved expressions: moving an expression into flashcards, today's
-//  queue, answering a card (FSRS scheduling), and the Study dashboard's numbers.
+//  Flashcard practice over the saved expressions: moving an expression into flashcards, the daily
+//  plan and practice sets, answering a card (FSRS scheduling), and the Study dashboard's numbers.
 //
 //  Saving from Say it / Get it / See it (or catching cards from a phrase or photos) puts an expression
 //  on the Caught list. The user moves the ones worth learning into flashcards (`enroll`), which creates
 //  its two cards — recognition and recall — as `.new`. Caught = expressions without cards; deleting an
 //  expression deletes its cards (StudyListInteractor).
 //
-//  Today's queue, in order:
-//  1. learning / relearning cards due within the learn-ahead window (they're mid-step);
-//  2. review cards due before the end of today, oldest due first;
-//  3. new cards in the order they were moved in, up to `newCardsPerDay` (cards first answered today
-//     count). A recall card is introduced only after its recognition card was first answered on an
-//     earlier day — you learn to understand a phrase before you're asked to produce it.
+//  The DAILY GOAL (a minimum: 25 / 50 / 75 / 100 / 150 cards, Settings) sizes the practice set:
+//  - a set holds what's left of today's goal (distinct cards answered today count); once the goal is
+//    met, "more" sets of the goal's size can follow — studying more, less, or skipping a day all just
+//    move today's numbers, nothing is lost: an unanswered due card stays due;
+//  - the set is split among the stages — learning, young, mature, new — PROPORTIONALLY to what's
+//    available today (`SetComposer.quotas`). New cards count at most the set's size, so a deck of
+//    thousands of new cards can't crowd out the reviews; the bigger the review backlog, the smaller
+//    the new share;
+//  - within a stage the cards are drawn AT RANDOM, weighted by how overdue they are (an overdue card
+//    is likelier, so none is postponed forever), and both directions of one expression aren't put in
+//    the same set while other cards can fill it; the set is shuffled;
+//  - available today: learning cards, review cards due before the end of today, and new cards — a
+//    recall card only after its recognition card was first answered on an earlier day.
 //
 
 import Foundation
@@ -32,39 +39,67 @@ public struct Flashcard: Sendable, Equatable, Identifiable {
     }
 }
 
-/// What today's practice holds.
-public struct FlashcardsSummary: Sendable, Equatable {
-    /// Learning and review cards due today.
-    public let due: Int
-    /// New cards available today (after the daily limit).
-    public let new: Int
-    public var total: Int { due + new }
-
-    public init(due: Int, new: Int) {
-        self.due = due
-        self.new = new
-    }
-}
-
-/// Cards by how well they're known — the dashboard's distribution bar.
-public struct CardDistribution: Sendable, Equatable {
-    /// Never answered.
-    public let new: Int
-    /// In (re)learning steps.
-    public let learning: Int
-    /// In review with an interval under `CardStage.matureInterval` days.
-    public let young: Int
-    /// In review with an interval of `CardStage.matureInterval` days or more (Anki's "mature").
-    public let mature: Int
+/// How many cards of each stage a set holds (or could hold).
+public struct StageCounts: Sendable, Equatable {
+    public var new: Int
+    public var learning: Int
+    public var young: Int
+    public var mature: Int
     public var total: Int { new + learning + young + mature }
 
-    public init(new: Int, learning: Int, young: Int, mature: Int) {
+    public init(new: Int = 0, learning: Int = 0, young: Int = 0, mature: Int = 0) {
         self.new = new
         self.learning = learning
         self.young = young
         self.mature = mature
     }
+
+    public subscript(stage: CardStage) -> Int {
+        get {
+            switch stage {
+            case .new: new
+            case .learning: learning
+            case .young: young
+            case .mature: mature
+            }
+        }
+        set {
+            switch stage {
+            case .new: new = newValue
+            case .learning: learning = newValue
+            case .young: young = newValue
+            case .mature: mature = newValue
+            }
+        }
+    }
 }
+
+/// Today against the daily goal.
+public struct DailyPlan: Sendable, Equatable {
+    /// The daily goal (a minimum).
+    public let goal: Int
+    /// Distinct cards answered today.
+    public let studied: Int
+    /// Cards waiting today, by stage (learning, reviews due, new available).
+    public let available: StageCounts
+    /// What the next set would hold, by stage.
+    public let nextSet: StageCounts
+
+    public var remaining: Int { max(0, goal - studied) }
+    public var goalReached: Bool { studied >= goal }
+    /// Learning and review cards due today — the backlog included.
+    public var due: Int { available.learning + available.young + available.mature }
+
+    public init(goal: Int, studied: Int, available: StageCounts, nextSet: StageCounts) {
+        self.goal = goal
+        self.studied = studied
+        self.available = available
+        self.nextSet = nextSet
+    }
+}
+
+/// Cards by how well they're known — the dashboard's distribution bar.
+public typealias CardDistribution = StageCounts
 
 /// Answers given on one calendar day.
 public struct DailyReviews: Sendable, Equatable {
@@ -80,7 +115,7 @@ public struct DailyReviews: Sendable, Equatable {
 
 /// Everything the Study dashboard shows.
 public struct StudyStats: Sendable, Equatable {
-    public let today: FlashcardsSummary
+    public let today: DailyPlan
     /// Expressions in flashcards.
     public let inStudy: Int
     /// Expressions caught (saved, not in flashcards yet).
@@ -92,7 +127,7 @@ public struct StudyStats: Sendable, Equatable {
 
     public static let days = 7
 
-    public init(today: FlashcardsSummary, inStudy: Int, caught: Int, distribution: CardDistribution,
+    public init(today: DailyPlan, inStudy: Int, caught: Int, distribution: CardDistribution,
                 reviewsByDay: [DailyReviews]) {
         self.today = today
         self.inStudy = inStudy
@@ -104,7 +139,8 @@ public struct StudyStats: Sendable, Equatable {
 
 public protocol FlashcardsUseCase: Sendable {
     func stats(now: Date) async throws -> StudyStats
-    func queue(now: Date) async throws -> [Flashcard]
+    /// A practice set: what's left of today's goal, or — `extra` — another goal-sized set beyond it.
+    func queue(now: Date, extra: Bool) async throws -> [Flashcard]
     /// Move a caught expression into flashcards (both directions). No-op if it's already there.
     func enroll(_ expressionID: UUID, now: Date) async throws
     /// Expressions that are in flashcards — everything else is on the Caught list.
@@ -115,45 +151,56 @@ public protocol FlashcardsUseCase: Sendable {
     func rate(_ card: ReviewCard, _ rating: ReviewRating, now: Date) async throws -> ReviewCard
     /// How long until the card returns for each possible answer.
     func previews(for card: ReviewCard, now: Date) -> [ReviewRating: TimeInterval]
-    /// Learning cards due within this window are shown in the current session rather than later.
+    /// Learning cards due within this window come back in the current session rather than later.
     var learnAhead: TimeInterval { get }
 }
 
-public struct FlashcardsInteractor: FlashcardsUseCase {
-    public static let defaultNewCardsPerDay = 20
+public extension FlashcardsUseCase {
+    func queue(now: Date) async throws -> [Flashcard] { try await queue(now: now, extra: false) }
+}
 
+/// The goals Settings offers.
+public enum DailyGoalOptions {
+    public static let all = [25, 50, 75, 100, 150]
+    public static let `default` = 50
+}
+
+public struct FlashcardsInteractor: FlashcardsUseCase {
     private let expressions: ExpressionRepository
     private let cards: ReviewCardRepository
     private let scheduler: FSRS
-    private let newCardsPerDay: Int
+    private let dailyGoal: @Sendable () -> Int
     private let calendar: Calendar
+    private let makeRandom: @Sendable () -> any RandomNumberGenerator
     private let analytics: (any AnalyticsTracking)?
     public let learnAhead: TimeInterval = 20 * 60   // Anki's default
 
     public init(expressions: ExpressionRepository, cards: ReviewCardRepository, scheduler: FSRS = FSRS(),
-                newCardsPerDay: Int = FlashcardsInteractor.defaultNewCardsPerDay,
-                calendar: Calendar = .current, analytics: (any AnalyticsTracking)? = nil) {
+                dailyGoal: @escaping @Sendable () -> Int = { DailyGoalOptions.default },
+                calendar: Calendar = .current,
+                makeRandom: @escaping @Sendable () -> any RandomNumberGenerator = { SystemRandomNumberGenerator() },
+                analytics: (any AnalyticsTracking)? = nil) {
         self.expressions = expressions
         self.cards = cards
         self.scheduler = scheduler
-        self.newCardsPerDay = newCardsPerDay
+        self.dailyGoal = dailyGoal
         self.calendar = calendar
+        self.makeRandom = makeRandom
         self.analytics = analytics
     }
 
     public func stats(now: Date) async throws -> StudyStats {
         let deck = try await loadDeck()
-        let parts = buildQueue(deck, now: now)
+        let pools = available(deck, now: now)
 
-        var new = 0, learning = 0, young = 0, mature = 0
-        for card in deck.cards {
-            switch card.stage {
-            case .new: new += 1
-            case .learning: learning += 1
-            case .young: young += 1
-            case .mature: mature += 1
-            }
-        }
+        var distribution = CardDistribution()
+        for card in deck.cards { distribution[card.stage] += 1 }
+
+        let goal = dailyGoal()
+        let studied = studiedToday(deck, now: now)
+        let size = studied >= goal ? goal : goal - studied
+        let plan = DailyPlan(goal: goal, studied: studied, available: pools.counts,
+                             nextSet: SetComposer.quotas(size: size, available: pools.counts))
 
         let startOfToday = calendar.startOfDay(for: now)
         let firstDay = calendar.date(byAdding: .day, value: -(StudyStats.days - 1), to: startOfToday) ?? startOfToday
@@ -165,18 +212,18 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
             return DailyReviews(day: day, count: perDay[day] ?? 0)
         }
 
-        return StudyStats(
-            today: FlashcardsSummary(due: parts.learning.count + parts.reviews.count, new: parts.new.count),
-            inStudy: deck.enrolled.count,
-            caught: deck.expressions.count - deck.enrolled.count,
-            distribution: CardDistribution(new: new, learning: learning, young: young, mature: mature),
-            reviewsByDay: reviewsByDay
-        )
+        return StudyStats(today: plan, inStudy: deck.enrolled.count,
+                          caught: deck.expressions.count - deck.enrolled.count,
+                          distribution: distribution, reviewsByDay: reviewsByDay)
     }
 
-    public func queue(now: Date) async throws -> [Flashcard] {
-        let parts = buildQueue(try await loadDeck(), now: now)
-        return parts.learning + parts.reviews + parts.new
+    public func queue(now: Date, extra: Bool) async throws -> [Flashcard] {
+        let deck = try await loadDeck()
+        let goal = dailyGoal()
+        let size = extra ? goal : max(0, goal - studiedToday(deck, now: now))
+        guard size > 0 else { return [] }
+        var random = AnyRandom(makeRandom())
+        return SetComposer.compose(size: size, pools: available(deck, now: now).byStage, now: now, random: &random)
     }
 
     public func enroll(_ expressionID: UUID, now: Date) async throws {
@@ -207,7 +254,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         scheduler.preview(card, at: now).mapValues { $0.timeIntervalSince(now) }
     }
 
-    // MARK: Queue
+    // MARK: Deck
 
     /// The saved expressions and the cards of those still on the list (orphans are ignored).
     private struct Deck {
@@ -227,14 +274,16 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         return Deck(expressions: expressions, cards: cards, enrolled: enrolled, byExpression: byExpression)
     }
 
-    private func buildQueue(_ deck: Deck, now: Date)
-        -> (learning: [Flashcard], reviews: [Flashcard], new: [Flashcard]) {
+    private func studiedToday(_ deck: Deck, now: Date) -> Int {
+        let startOfToday = calendar.startOfDay(for: now)
+        return deck.cards.filter { ($0.lastReview ?? .distantPast) >= startOfToday }.count
+    }
+
+    /// What's waiting today, by stage.
+    private func available(_ deck: Deck, now: Date) -> (byStage: [CardStage: [Flashcard]], counts: StageCounts) {
         let startOfToday = calendar.startOfDay(for: now)
         let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? now
-        let learnAheadLimit = now.addingTimeInterval(learnAhead)
-        let introducedToday = deck.cards.filter { ($0.firstReview ?? .distantPast) >= startOfToday }.count
-
-        var learning: [Flashcard] = [], reviews: [Flashcard] = [], candidates: [Flashcard] = []
+        var pools: [CardStage: [Flashcard]] = [:]
         for expression in deck.enrolled {
             let cards = deck.byExpression[expression.id] ?? [:]
             for card in cards.values {
@@ -243,20 +292,94 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
                     if card.direction == .recall {
                         guard let first = cards[.recognition]?.firstReview, first < startOfToday else { continue }
                     }
-                    candidates.append(Flashcard(card: card, expression: expression))
                 case .learning, .relearning:
-                    if card.due <= learnAheadLimit { learning.append(Flashcard(card: card, expression: expression)) }
+                    break                                   // mid-steps: always waiting
                 case .review:
-                    if card.due < endOfToday { reviews.append(Flashcard(card: card, expression: expression)) }
+                    guard card.due < endOfToday else { continue }
                 }
+                pools[card.stage, default: []].append(Flashcard(card: card, expression: expression))
             }
         }
-        learning.sort { $0.card.due < $1.card.due }
-        reviews.sort { $0.card.due < $1.card.due }
-        // New cards in the order they were moved in (their `due` is the moment of moving).
-        candidates.sort { ($0.card.due, $0.card.direction == .recognition ? 0 : 1)
-                        < ($1.card.due, $1.card.direction == .recognition ? 0 : 1) }
-        let new = Array(candidates.prefix(max(0, newCardsPerDay - introducedToday)))
-        return (learning, reviews, new)
+        var counts = StageCounts()
+        for (stage, cards) in pools { counts[stage] = cards.count }
+        return (pools, counts)
     }
+}
+
+/// Builds a practice set from today's available cards (pure; the random source is injected).
+public enum SetComposer {
+    /// Split `size` among the stages proportionally to what's available — new cards counting at most
+    /// `size` — rounding by largest remainders and passing any stage's shortfall on to the others.
+    public static func quotas(size: Int, available: StageCounts) -> StageCounts {
+        let stages = CardStage.allCases
+        let target = min(size, available.total)
+        guard target > 0 else { return StageCounts() }
+        let weight: (CardStage) -> Double = { stage in
+            Double(stage == .new ? min(available.new, size) : available[stage])
+        }
+        let totalWeight = stages.map(weight).reduce(0, +)
+        var quotas = StageCounts()
+        var remainders: [(CardStage, Double)] = []
+        for stage in stages {
+            let exact = Double(target) * weight(stage) / totalWeight
+            quotas[stage] = min(Int(exact.rounded(.down)), available[stage])
+            remainders.append((stage, exact - exact.rounded(.down)))
+        }
+        // Hand out what rounding (or a capped stage) left: largest remainder first, then any stage
+        // with cards to spare.
+        var left = target - quotas.total
+        for (stage, _) in remainders.sorted(by: { $0.1 > $1.1 }) where left > 0 && quotas[stage] < available[stage] {
+            quotas[stage] += 1
+            left -= 1
+        }
+        while left > 0, let stage = stages.first(where: { quotas[$0] < available[$0] }) {
+            let add = min(left, available[stage] - quotas[stage])
+            quotas[stage] += add
+            left -= add
+        }
+        return quotas
+    }
+
+    /// The set: `quotas` per stage, drawn at random — weighted by days overdue, one direction per
+    /// expression while others can fill the quota — then shuffled.
+    public static func compose<R: RandomNumberGenerator>(size: Int, pools: [CardStage: [Flashcard]], now: Date,
+                                                         random: inout R) -> [Flashcard] {
+        var counts = StageCounts()
+        for (stage, cards) in pools { counts[stage] = cards.count }
+        let quotas = quotas(size: size, available: counts)
+        var picked: [Flashcard] = []
+        var usedExpressions = Set<UUID>()
+        // Learning first (mid-steps, most urgent), then reviews, then new.
+        for stage in [CardStage.learning, .mature, .young, .new] {
+            let quota = quotas[stage]
+            guard quota > 0, let pool = pools[stage] else { continue }
+            // Efraimidis–Spirakis weighted sampling: key = u^(1/w), take the largest keys.
+            let ranked = pool.map { card -> (Flashcard, Double) in
+                let overdueDays = max(0, now.timeIntervalSince(card.card.due) / 86_400)
+                let u = Double.random(in: Double.leastNonzeroMagnitude..<1, using: &random)
+                return (card, pow(u, 1 / (1 + overdueDays)))
+            }.sorted { $0.1 > $1.1 }.map(\.0)
+            var chosen: [Flashcard] = [], siblings: [Flashcard] = []
+            for card in ranked where chosen.count < quota {
+                if usedExpressions.contains(card.expression.id) {
+                    siblings.append(card)
+                } else {
+                    chosen.append(card)
+                    usedExpressions.insert(card.expression.id)
+                }
+            }
+            // A sibling only when nothing else could fill the quota.
+            for card in siblings where chosen.count < quota { chosen.append(card) }
+            picked += chosen
+        }
+        picked.shuffle(using: &random)
+        return picked
+    }
+}
+
+/// Type-erases a random number generator so it can be passed `inout`.
+struct AnyRandom: RandomNumberGenerator {
+    private var base: any RandomNumberGenerator
+    init(_ base: any RandomNumberGenerator) { self.base = base }
+    mutating func next() -> UInt64 { base.next() }
 }

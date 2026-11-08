@@ -62,6 +62,7 @@ final class FlashcardsUITests: XCTestCase {
         good.tap()
 
         XCTAssertTrue(app.staticTexts["All done for today"].waitForExistence(timeout: 3))
+        attach(app, "finished")
         app.buttons["Close"].firstMatch.tap()
 
         XCTAssertTrue(app.staticTexts["All done for today — come back tomorrow."].waitForExistence(timeout: 3))

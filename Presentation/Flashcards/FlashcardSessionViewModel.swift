@@ -2,9 +2,11 @@
 //  FlashcardSessionViewModel.swift
 //  EnglishHelper — Presentation
 //
-//  One practice session: today's queue, card by card — show the prompt, reveal the answer, rate it
-//  (Again / Hard / Good / Easy). A card that comes back within the learn-ahead window (a learning
-//  step, or a lapse) is queued again at the end of this session, as in Anki.
+//  One practice session: a set sized by the daily goal, card by card — show the prompt, reveal the
+//  answer, rate it (Again / Hard / Good / Easy). A card that comes back within the learn-ahead window
+//  (a learning step, or a lapse) is queued again at the end of this session — at most
+//  `maxShowings` times in all, so a hard card can't loop the session; it returns next time. When the
+//  set is done, "more" brings another goal-sized set.
 //
 
 import Foundation
@@ -25,18 +27,27 @@ public final class FlashcardSessionViewModel: Identifiable {
     public private(set) var intervals: [ReviewRating: TimeInterval] = [:]
     public private(set) var isPlaying = false
     public private(set) var errorMessage: String?
+    /// Today against the goal — refreshed at the start and the end of every set.
+    public private(set) var plan: DailyPlan?
+
+    /// How many times one card may be shown in a session.
+    public static let maxShowings = 3
 
     private var queue: [Flashcard] = []
+    private var showings: [UUID: Int] = [:]
     private var isSaving = false
     private var playTask: Task<Void, Never>?
     private let flashcards: any FlashcardsUseCase
     private let pronounce: any PlayPronunciationUseCase
     private let now: () -> Date
+    /// The first set goes beyond today's goal (it's already met).
+    private let startsExtra: Bool
 
-    public init(flashcards: any FlashcardsUseCase, pronounce: any PlayPronunciationUseCase,
+    public init(flashcards: any FlashcardsUseCase, pronounce: any PlayPronunciationUseCase, extra: Bool = false,
                 now: @escaping () -> Date = Date.init) {
         self.flashcards = flashcards
         self.pronounce = pronounce
+        self.startsExtra = extra
         self.now = now
     }
 
@@ -44,10 +55,23 @@ public final class FlashcardSessionViewModel: Identifiable {
     public var remaining: Int { queue.count + (current == nil ? 0 : 1) }
 
     public func start() async {
+        await load(extra: startsExtra)
+    }
+
+    /// Another goal-sized set beyond today's goal.
+    public func more() async {
+        await load(extra: true)
+    }
+
+    /// Whether another set has cards to offer.
+    public var canStudyMore: Bool { (plan?.available.total ?? 0) > 0 }
+
+    private func load(extra: Bool) async {
         phase = .loading
         errorMessage = nil
         do {
-            queue = try await flashcards.queue(now: now())
+            queue = try await flashcards.queue(now: now(), extra: extra)
+            plan = try? await flashcards.stats(now: now()).today
             advance()
         } catch {
             errorMessage = Loc.t("Не удалось загрузить карточки.", "Couldn't load the cards.")
@@ -71,8 +95,12 @@ public final class FlashcardSessionViewModel: Identifiable {
                 let next = try await self.flashcards.rate(card.card, rating, now: answeredAt)
                 self.reviewedCount += 1
                 if next.state == .learning || next.state == .relearning,
-                   next.due <= answeredAt.addingTimeInterval(self.flashcards.learnAhead) {
+                   next.due <= answeredAt.addingTimeInterval(self.flashcards.learnAhead),
+                   self.showings[next.id, default: 0] < Self.maxShowings {
                     self.queue.append(Flashcard(card: next, expression: card.expression))
+                }
+                if self.queue.isEmpty {
+                    self.plan = try? await self.flashcards.stats(now: self.now()).today
                 }
                 self.advance()
             } catch {
@@ -110,6 +138,7 @@ public final class FlashcardSessionViewModel: Identifiable {
             return
         }
         let next = queue.removeFirst()
+        showings[next.id, default: 0] += 1
         current = next
         intervals = flashcards.previews(for: next.card, now: now())
         phase = .studying

@@ -32,10 +32,11 @@ public final class StudyDashboardViewModel {
         if let stats = try? await flashcards.stats(now: now()) { self.stats = stats }
     }
 
-    /// Open a practice session. The paywall check for the free plan is the view's (it owns the plan).
-    public func startPractice() {
+    /// Open a practice session — `extra`: today's goal is met, a goal-sized set beyond it. The paywall
+    /// check for the free plan is the view's (it owns the plan).
+    public func startPractice(extra: Bool = false) {
         guard session == nil else { return }
-        session = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce, now: now)
+        session = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce, extra: extra, now: now)
     }
 
     /// The session screen closed.

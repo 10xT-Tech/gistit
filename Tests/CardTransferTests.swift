@@ -145,10 +145,11 @@ import Presentation
         var stats: StudyStats?
         let statsTime = try await clock.measure { stats = try await flashcards.stats(now: now) }
         #expect(stats?.inStudy == 10_000)
-        #expect(stats?.today.new == FlashcardsInteractor.defaultNewCardsPerDay)
+        #expect(stats?.today.nextSet == StageCounts(new: DailyGoalOptions.default))
         #expect(stats?.distribution.new == 20_000)
         let queue = try await flashcards.queue(now: now)
-        #expect(queue.first?.expression.en == "phrase 0")                          // file order
+        #expect(queue.count == DailyGoalOptions.default)
+        #expect(queue.allSatisfy { $0.card.direction == .recognition && $0.card.state == .new })
         print("10k import: \(importTime), stats: \(statsTime)")
         #expect(importTime < .seconds(30))
         #expect(statsTime < .seconds(5))

@@ -9,8 +9,15 @@ through your cards one by one: see the phrase, recall what it means, tap **Show 
 and say how it went: **Again**, **Hard**, **Good** or **Easy**. Each button shows when you'll see the
 card again. Behind it is FSRS, the spaced-repetition method modern Anki uses: cards you know well come
 back rarely, cards you struggle with come back sooner. Every phrase is practised both ways: first you
-learn to understand it, and from the next day you're also asked to say it from its meaning. Up to 20
-new cards a day, so a long list doesn't arrive all at once. Flashcards are part of **Gist It Pro**.
+learn to understand it, and from the next day you're also asked to say it from its meaning.
+Flashcards are part of **Gist It Pro**.
+
+**A daily goal.** In Settings, choose how many cards a day you plan to study at least: 25, 50, 75,
+100 or 150. Each set mixes new, learning and review cards in proportion to what's waiting, picked at
+random (cards that are overdue come up more often, so none waits forever), and never the same phrase
+both ways in one set. A card you keep getting wrong comes back at most three times in a session, then
+waits for the next one. Reached your goal? Keep going with another set. Studied less, or skipped a
+day? Nothing is lost — what's due simply waits. Study shows today's progress towards the goal.
 
 **Caught.** What you save from Say it, Get it and See it now goes to **Caught** — your study list
 from before, with everything already in it. Add cards two new ways with **+**: **Generate from a
@@ -32,7 +39,8 @@ The four answer buttons look the same, so no answer is suggested — you rate ev
 your flashcards — with how well you know each one — to a file you can keep as a backup or move to
 another device. **Import cards** reads such a file straight into flashcards, without stopping in
 Caught: new phrases start as new cards, phrases you already learn keep their progress, and repeats
-are skipped. Up to 20 new cards are introduced a day, so even a deck of thousands arrives gradually.
+are skipped. New cards are introduced as your daily goal allows, so even a deck of thousands arrives
+gradually.
 
 **A study dashboard.** Study now opens with your progress: what's due today, new cards, how many
 phrases you're learning, your reviews today and over the last week, and how your cards are spread

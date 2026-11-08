@@ -64,6 +64,8 @@ public struct StudyDashboardView: View {
             .navigationDestination(isPresented: $showStudying) { StudyListView(model: studying) }
             // Every return here (launch, tab switch, back from a list, a closed session) re-counts.
             .onAppear { Task { await model.load() } }
+            // The goal is set in Settings (a sheet over this screen): re-count when it closes.
+            .onChange(of: ui.showSettings) { _, shown in if !shown { Task { await model.load() } } }
             .fullScreenCover(item: $model.session, onDismiss: { model.endPractice() }) { session in
                 FlashcardSessionView(model: session) { model.session = nil }
             }
@@ -74,13 +76,24 @@ public struct StudyDashboardView: View {
 
     private func practiceCard(_ stats: StudyStats) -> some View {
         let locked = !subscription.tier.canUseFlashcards
+        let plan = stats.today
         return VStack(alignment: .leading, spacing: Tokens.Space.s16) {
-            Text(Loc.t("Флеш-карты", "Flashcards"))
-                .textStyle(Tokens.Text.headline)
-                .foregroundStyle(Tokens.Content.primary)
+            HStack(alignment: .firstTextBaseline) {
+                Text(Loc.t("Флеш-карты", "Flashcards"))
+                    .textStyle(Tokens.Text.headline)
+                    .foregroundStyle(Tokens.Content.primary)
+                Spacer()
+                Text(Loc.t("Цель: \(plan.goal) в день", "Goal: \(plan.goal) a day", "Objectif : \(plan.goal) par jour",
+                           "Objetivo: \(plan.goal) al día", "Ziel: \(plan.goal) pro Tag", "Obiettivo: \(plan.goal) al giorno"))
+                    .textStyle(Tokens.Text.footnote)
+                    .foregroundStyle(Tokens.Content.secondary)
+            }
+            if stats.inStudy > 0 {
+                GoalProgress(plan: plan)
+            }
             HStack(alignment: .top, spacing: Tokens.Space.s8) {
-                StatTile(value: stats.today.due, label: Loc.t("к повторению", "to review"))
-                StatTile(value: stats.today.new, label: Loc.t("новых сегодня", "new today"))
+                StatTile(value: plan.due, label: Loc.t("к повторению", "to review"))
+                StatTile(value: plan.nextSet.new, label: Loc.t("новых в наборе", "new in the set"))
                 StatTile(value: stats.inStudy, label: Loc.t("фраз в обучении", "phrases in study"))
             }
             if stats.inStudy == 0 {
@@ -89,8 +102,13 @@ public struct StudyDashboardView: View {
                     .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if stats.today.total == 0 {
+            } else if plan.available.total == 0 {
                 Text(Loc.t("На сегодня всё — возвращайтесь завтра.", "All done for today — come back tomorrow."))
+                    .textStyle(Tokens.Text.subhead)
+                    .foregroundStyle(Tokens.Content.secondary)
+            } else if plan.goalReached {
+                Text(Loc.t("Цель на сегодня выполнена — можно позаниматься ещё.",
+                           "Today's goal reached — you can keep going."))
                     .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
             }
@@ -98,11 +116,15 @@ public struct StudyDashboardView: View {
                 EHButton(Loc.t("Открыть «Пойманные»", "Open Caught"), icon: "tray", kind: .tonal,
                          fillWidth: true, accessibilityID: "flashcards.openCaught") { showCaught = true }
             } else {
-                EHButton(Loc.t("Начать", "Start"), icon: locked ? "lock.fill" : nil, kind: .primary,
+                let more = plan.goalReached && !locked
+                EHButton(more ? Loc.t("Ещё \(plan.goal)", "\(plan.goal) more", "\(plan.goal) de plus", "\(plan.goal) más",
+                                      "\(plan.goal) weitere", "Altre \(plan.goal)")
+                              : Loc.t("Начать", "Start"),
+                         icon: locked ? "lock.fill" : nil, kind: .primary,
                          fillWidth: true, accessibilityID: "flashcards.start") {
-                    if locked { ui.showPaywall = true } else { model.startPractice() }
+                    if locked { ui.showPaywall = true } else { model.startPractice(extra: plan.goalReached) }
                 }
-                .disabled(!locked && stats.today.total == 0)
+                .disabled(!locked && plan.available.total == 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

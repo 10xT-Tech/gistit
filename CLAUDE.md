@@ -154,9 +154,14 @@ future FSRS fitting; schema **V4**), lightweight stages. NEVER change a schema v
 build has used it — a store matching no version fails with `unknownDataStoreSchema` and the app runs
 on the in-memory fallback ("Saved data is unavailable"); add the next version instead
 (`PersistenceMigrationTests` opens a store of every version, incl. the dev-build variants); cards link by `expressionID` and are deleted with
-their expression in `StudyListInteractor`. `FlashcardsInteractor` queue: learning due within 20 min
-(learn-ahead) → reviews due today → new in the order moved in (`newCardsPerDay` 20 incl. cards first
-answered today; recall only after recognition was introduced on an EARLIER day). `stats(now:)` feeds
+their expression in `StudyListInteractor`. Sets are sized by the DAILY GOAL (Settings 25/50/75/100/150, `DailyGoal`
+→ `FlashcardsInteractor.dailyGoal`): a set = what's left of the goal (distinct cards answered today),
+"more" = another goal-sized set; `SetComposer.quotas` splits it among learning / young / mature / new
+proportionally to today's available counts (new counted at most the set size), `compose` draws within a
+stage at random weighted by days overdue (Efraimidis–Spirakis; injected RNG → `SplitMix64` in tests),
+one direction per expression per set while others can fill it, then shuffles. Available today:
+learning cards, reviews due before end of day, new (recall only after recognition was introduced on an
+EARLIER day). A session re-queues a learning card at most `maxShowings` (3) times. `stats(now:)` feeds
 `StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
 Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
 cards by stage (new/learning/young/mature at 21 d) — monochrome `Tokens.Chart` ramp validated with
