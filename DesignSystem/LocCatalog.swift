@@ -260,12 +260,10 @@ public enum LocCatalog {
         "Young": "Jeunes",
         "Mature": "Matures",
         "Cards by stage": "Cartes par étape",
-        "Mature: cards with an interval of 21+ days.": "Matures : cartes avec un intervalle de 21 jours ou plus.",
         "Learn": "Apprendre",
         "Study in flashcards": "Apprendre avec les cartes mémoire",
         "Couldn't move to flashcards. Try again.": "Impossible de déplacer vers les cartes mémoire. Réessayez.",
         "Caught": "Capturées",
-        "Saved and caught phrases — move the ones to learn into flashcards": "Expressions enregistrées et capturées — déplacez celles à apprendre vers les cartes mémoire",
         "In flashcards": "Dans les cartes mémoire",
         "Move phrases from Caught to start learning.": "Déplacez des expressions depuis « Capturées » pour commencer.",
         "Open Caught": "Ouvrir « Capturées »",
@@ -298,7 +296,6 @@ public enum LocCatalog {
         "Couldn't import the cards. Try again.": "Impossible d'importer les cartes. Réessayez.",
         "Couldn't open the file.": "Impossible d'ouvrir le fichier.",
         "Move phrases from Caught, or import a card file.": "Déplacez des expressions depuis « Capturées » ou importez un fichier de cartes.",
-        "The phrases you're learning · import and export cards": "Les expressions que vous apprenez · importer et exporter des cartes",
         "Today's goal reached": "Objectif du jour atteint",
         "No more cards for today — come back tomorrow.": "Plus de cartes pour aujourd'hui — revenez demain.",
         "new in the set": "nouvelles dans la série",
@@ -306,6 +303,8 @@ public enum LocCatalog {
         "Flashcards: daily goal": "Cartes mémoire : objectif quotidien",
         "Cards a day": "Cartes par jour",
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Au moins ce nombre de cartes par jour. Chaque série répartit proportionnellement les cartes nouvelles, en apprentissage et à réviser, tirées au hasard. Vous pouvez en faire plus — ou sauter un jour : rien n'est perdu.",
+        "Saved and caught phrases": "Expressions enregistrées et capturées",
+        "The phrases you're learning": "Les expressions que vous apprenez",
     ]
 
     public static let es: [String: String] = [
@@ -557,12 +556,10 @@ public enum LocCatalog {
         "Young": "Jóvenes",
         "Mature": "Maduras",
         "Cards by stage": "Tarjetas por etapa",
-        "Mature: cards with an interval of 21+ days.": "Maduras: tarjetas con un intervalo de 21 días o más.",
         "Learn": "Aprender",
         "Study in flashcards": "Aprender con tarjetas",
         "Couldn't move to flashcards. Try again.": "No se pudo mover a las tarjetas. Inténtalo de nuevo.",
         "Caught": "Atrapadas",
-        "Saved and caught phrases — move the ones to learn into flashcards": "Frases guardadas y atrapadas: mueve las que quieras aprender a las tarjetas",
         "In flashcards": "En las tarjetas",
         "Move phrases from Caught to start learning.": "Mueve frases desde «Atrapadas» para empezar.",
         "Open Caught": "Abrir «Atrapadas»",
@@ -595,7 +592,6 @@ public enum LocCatalog {
         "Couldn't import the cards. Try again.": "No se pudieron importar las tarjetas. Inténtalo de nuevo.",
         "Couldn't open the file.": "No se pudo abrir el archivo.",
         "Move phrases from Caught, or import a card file.": "Mueve frases desde «Atrapadas» o importa un archivo de tarjetas.",
-        "The phrases you're learning · import and export cards": "Las frases que estás aprendiendo · importar y exportar tarjetas",
         "Today's goal reached": "Objetivo de hoy cumplido",
         "No more cards for today — come back tomorrow.": "No hay más tarjetas por hoy — vuelve mañana.",
         "new in the set": "nuevas en la serie",
@@ -603,6 +599,8 @@ public enum LocCatalog {
         "Flashcards: daily goal": "Tarjetas: objetivo diario",
         "Cards a day": "Tarjetas al día",
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Al menos estas tarjetas al día. Cada serie reparte proporcionalmente tarjetas nuevas, en aprendizaje y de repaso, elegidas al azar. Puedes estudiar más — o saltarte un día: no se pierde nada.",
+        "Saved and caught phrases": "Frases guardadas y atrapadas",
+        "The phrases you're learning": "Las frases que estás aprendiendo",
     ]
 
     public static let de: [String: String] = [
@@ -854,12 +852,10 @@ public enum LocCatalog {
         "Young": "Jung",
         "Mature": "Gefestigt",
         "Cards by stage": "Karten nach Stufe",
-        "Mature: cards with an interval of 21+ days.": "Gefestigt: Karten mit einem Intervall ab 21 Tagen.",
         "Learn": "Lernen",
         "Study in flashcards": "Mit Karteikarten lernen",
         "Couldn't move to flashcards. Try again.": "Verschieben in die Karteikarten fehlgeschlagen. Versuch es noch einmal.",
         "Caught": "Eingefangen",
-        "Saved and caught phrases — move the ones to learn into flashcards": "Gespeicherte und eingefangene Ausdrücke — verschiebe die zu lernenden in die Karteikarten",
         "In flashcards": "In den Karteikarten",
         "Move phrases from Caught to start learning.": "Verschiebe Ausdrücke aus „Eingefangen“, um mit dem Lernen zu beginnen.",
         "Open Caught": "„Eingefangen“ öffnen",
@@ -892,7 +888,6 @@ public enum LocCatalog {
         "Couldn't import the cards. Try again.": "Die Karten konnten nicht importiert werden. Versuch es noch einmal.",
         "Couldn't open the file.": "Die Datei konnte nicht geöffnet werden.",
         "Move phrases from Caught, or import a card file.": "Verschiebe Ausdrücke aus „Eingefangen“ oder importiere eine Kartendatei.",
-        "The phrases you're learning · import and export cards": "Die Ausdrücke, die du lernst · Karten importieren und exportieren",
         "Today's goal reached": "Tagesziel erreicht",
         "No more cards for today — come back tomorrow.": "Keine Karten mehr für heute — komm morgen wieder.",
         "new in the set": "neu in der Runde",
@@ -900,6 +895,8 @@ public enum LocCatalog {
         "Flashcards: daily goal": "Karteikarten: Tagesziel",
         "Cards a day": "Karten pro Tag",
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Mindestens so viele Karten pro Tag. Jede Runde teilt sich anteilig auf neue, Lern- und Wiederholungskarten auf, zufällig gezogen. Lerne gern mehr — oder setze einen Tag aus: nichts geht verloren.",
+        "Saved and caught phrases": "Gespeicherte und eingefangene Ausdrücke",
+        "The phrases you're learning": "Die Ausdrücke, die du lernst",
     ]
 
     public static let it: [String: String] = [
@@ -1151,12 +1148,10 @@ public enum LocCatalog {
         "Young": "Giovani",
         "Mature": "Mature",
         "Cards by stage": "Schede per fase",
-        "Mature: cards with an interval of 21+ days.": "Mature: schede con un intervallo di 21 giorni o più.",
         "Learn": "Impara",
         "Study in flashcards": "Impara con le flashcard",
         "Couldn't move to flashcards. Try again.": "Impossibile spostare nelle flashcard. Riprova.",
         "Caught": "Catturate",
-        "Saved and caught phrases — move the ones to learn into flashcards": "Frasi salvate e catturate: sposta nelle flashcard quelle da imparare",
         "In flashcards": "Nelle flashcard",
         "Move phrases from Caught to start learning.": "Sposta le frasi da «Catturate» per iniziare.",
         "Open Caught": "Apri «Catturate»",
@@ -1189,7 +1184,6 @@ public enum LocCatalog {
         "Couldn't import the cards. Try again.": "Impossibile importare le schede. Riprova.",
         "Couldn't open the file.": "Impossibile aprire il file.",
         "Move phrases from Caught, or import a card file.": "Sposta le frasi da «Catturate» o importa un file di schede.",
-        "The phrases you're learning · import and export cards": "Le frasi che stai imparando · importa ed esporta schede",
         "Today's goal reached": "Obiettivo di oggi raggiunto",
         "No more cards for today — come back tomorrow.": "Niente più schede per oggi — torna domani.",
         "new in the set": "nuove nella serie",
@@ -1197,5 +1191,7 @@ public enum LocCatalog {
         "Flashcards: daily goal": "Flashcard: obiettivo giornaliero",
         "Cards a day": "Schede al giorno",
         "At least this many cards a day. A set is shared out among new, learning and review cards in proportion, the cards drawn at random. Study more if you like — or skip a day: nothing is lost.": "Almeno queste schede al giorno. Ogni serie divide in proporzione schede nuove, in apprendimento e da ripassare, scelte a caso. Puoi studiare di più — o saltare un giorno: non si perde nulla.",
+        "Saved and caught phrases": "Frasi salvate e catturate",
+        "The phrases you're learning": "Le frasi che stai imparando",
     ]
 }

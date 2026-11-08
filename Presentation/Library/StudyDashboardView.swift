@@ -37,12 +37,10 @@ public struct StudyDashboardView: View {
                         VStack(spacing: Tokens.Space.s12) {
                             practiceCard(stats)
                             listRow(icon: "tray", title: Loc.t("Пойманные", "Caught"),
-                                    subtitle: Loc.t("Сохранённые и распознанные фразы — перенесите нужные во флеш-карты",
-                                                    "Saved and caught phrases — move the ones to learn into flashcards"),
+                                    subtitle: Loc.t("Сохранённые и распознанные фразы", "Saved and caught phrases"),
                                     count: stats.caught, id: "study.caught") { showCaught = true }
                             listRow(icon: "rectangle.stack", title: Loc.t("Во флеш-картах", "In flashcards"),
-                                    subtitle: Loc.t("Фразы, которые вы учите · импорт и экспорт карточек",
-                                                    "The phrases you're learning · import and export cards"),
+                                    subtitle: Loc.t("Фразы, которые вы учите", "The phrases you're learning"),
                                     count: stats.inStudy, id: "study.studying") { showStudying = true }
                             if stats.distribution.total > 0 || stats.reviewsByDay.contains(where: { $0.count > 0 }) {
                                 ReviewsCard(days: stats.reviewsByDay)
@@ -230,7 +228,7 @@ private struct ReviewsCard: View {
 
     private var bars: some View {
         let peak = max(days.map(\.count).max() ?? 0, 1)
-        let height: CGFloat = 56
+        let height: CGFloat = 44
         return HStack(alignment: .bottom, spacing: Tokens.Space.s8) {
             ForEach(Array(days.enumerated()), id: \.offset) { index, day in
                 let isToday = index == days.count - 1
@@ -298,9 +296,6 @@ private struct DistributionCard: View {
             }
             bar
             legend
-            Text(Loc.t("Зрелые — карточки с интервалом от 21 дня.", "Mature: cards with an interval of 21+ days."))
-                .textStyle(Tokens.Text.caption)
-                .foregroundStyle(Tokens.Content.tertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)
@@ -331,22 +326,31 @@ private struct DistributionCard: View {
         .accessibilityValue(stages.map { "\($0.label) \($0.count)" }.joined(separator: ", "))
     }
 
+    /// One row when it fits (keeps the card short); two columns with large text.
     private var legend: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
-                  alignment: .leading, spacing: Tokens.Space.s8) {
-            ForEach(stages, id: \.label) { stage in
-                HStack(spacing: Tokens.Space.s8) {
-                    RoundedRectangle(cornerRadius: 2).fill(stage.color).frame(width: 10, height: 10)
-                    Text(stage.label)
-                        .textStyle(Tokens.Text.subhead)
-                        .foregroundStyle(Tokens.Content.secondary)
-                    Text("\(stage.count)")
-                        .textStyle(Tokens.Text.subhead)
-                        .foregroundStyle(Tokens.Content.primary)
-                        .monospacedDigit()
-                }
-                .accessibilityElement(children: .combine)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Tokens.Space.s12) {
+                ForEach(stages, id: \.label) { legendItem($0) }
+            }
+            LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
+                      alignment: .leading, spacing: Tokens.Space.s8) {
+                ForEach(stages, id: \.label) { legendItem($0) }
             }
         }
+    }
+
+    private func legendItem(_ stage: (label: String, count: Int, color: Color)) -> some View {
+        HStack(spacing: Tokens.Space.s4) {
+            RoundedRectangle(cornerRadius: 2).fill(stage.color).frame(width: 10, height: 10)
+            Text(stage.label)
+                .textStyle(Tokens.Text.subhead)
+                .foregroundStyle(Tokens.Content.secondary)
+            Text("\(stage.count)")
+                .textStyle(Tokens.Text.subhead)
+                .foregroundStyle(Tokens.Content.primary)
+                .monospacedDigit()
+        }
+        .fixedSize()
+        .accessibilityElement(children: .combine)
     }
 }
