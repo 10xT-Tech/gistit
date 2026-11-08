@@ -15,11 +15,14 @@ public enum AccessTier: Sendable, Equatable {
     /// App Store / TestFlight build with an active subscription.
     case subscribed(expires: Date?)
     /// App Store / TestFlight build without one: translations are unlimited; explanations and Say it
-    /// share one request per 5 minutes (whatever the model); live translation is unavailable.
+    /// share one request per 5 minutes (whatever the model); live translation and flashcards are
+    /// unavailable.
     case free
 
     public var hasUnlimitedExplanations: Bool { self != .free }
     public var canUseLiveTranslation: Bool { self != .free }
+    /// Flashcard practice (on-device, so the app is the only gate).
+    public var canUseFlashcards: Bool { self != .free }
     /// Whether the app should offer the subscription at all.
     public var offersSubscription: Bool { self != .unlimited }
 }

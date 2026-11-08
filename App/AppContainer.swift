@@ -41,6 +41,8 @@ public final class AppContainer: Sendable {
     public let photoExplain: any PhotoExplainUseCase
     public let enrich: any EnrichExpressionUseCase
     public let studyList: any StudyListUseCase
+    /// Flashcard practice over the study list (FSRS spaced repetition, on-device).
+    public let flashcards: any FlashcardsUseCase
     public let requestHistory: any RequestHistoryUseCase
     public let exportDeck: any ExportDeckUseCase        // AlgoApp .xml
     public let exportAnkiDeck: any ExportDeckUseCase    // Anki .txt
@@ -71,6 +73,7 @@ public final class AppContainer: Sendable {
         speechSynthesizer: any SpeechSynthesizing,
         textRecognizer: any TextRecognizing,
         expressions: any ExpressionRepository,
+        reviewCards: any ReviewCardRepository = MockReviewCardRepository(),
         history: any HistoryRepository,
         exporter: any DeckExporting,
         cache: (any TranslationCache)? = nil,
@@ -108,7 +111,8 @@ public final class AppContainer: Sendable {
         self.photoExplain = PhotoExplainInteractor(llm: llm, history: history,
                                                    analytics: analytics)              // "See it" Explain mode
         self.enrich = EnrichExpressionInteractor(llm: llm)
-        self.studyList = StudyListInteractor(repository: expressions)
+        self.studyList = StudyListInteractor(repository: expressions, cards: reviewCards)
+        self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards, analytics: analytics)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -195,6 +199,7 @@ public final class AppContainer: Sendable {
             // on-device OCR adapter is wired for the port contract / future use but NOT consumed today.
             textRecognizer: VisionTextRecognizer(),         // ← swap OCR engine here (when OCR is used)
             expressions: SwiftDataExpressionRepository(modelContainer: modelContainer),
+            reviewCards: SwiftDataReviewCardRepository(modelContainer: modelContainer),
             history: SwiftDataHistoryRepository(modelContainer: modelContainer, recordings: recordings),
             exporter: AlgoAppXMLExporter(),
             // Persistent translation cache: repeat text translations skip the model (Say it + Get-it Translate).
@@ -248,7 +253,10 @@ public final class AppContainer: Sendable {
             textRecognizer: StubTextRecognizing(),
             expressions: MockExpressionRepository(),
             history: MockHistoryRepository(),
-            exporter: MockDeckExporting()
+            exporter: MockDeckExporting(),
+            // `-uiTestFreePlan`: the free plan's gates (paywall instead of Pro features).
+            subscriptions: ProcessInfo.processInfo.arguments.contains("-uiTestFreePlan")
+                ? StubSubscriptionManaging(tier: .free) : UnlimitedAccess()
         )
     }
 
@@ -320,7 +328,8 @@ public final class AppContainer: Sendable {
             exportAlgoApp: exportDeck,
             exportAnki: exportAnkiDeck,
             pronounce: pronounce,
-            isConfigured: config.isClaudeConfigured
+            isConfigured: config.isClaudeConfigured,
+            flashcards: flashcards
         )
     }
 

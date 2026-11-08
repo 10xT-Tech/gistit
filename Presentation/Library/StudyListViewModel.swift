@@ -2,8 +2,9 @@
 //  StudyListViewModel.swift
 //  EnglishHelper — Presentation
 //
-//  "Изучаю" — the flat study list. Manual add (enrich-then-store), swipe-delete, toggle learned,
-//  export to an AlgoApp .xml deck.
+//  "Изучаю" — the study list. Manual add (enrich-then-store), swipe-delete, toggle learned,
+//  export to an AlgoApp .xml / Anki deck, and the entry to flashcard practice (today's counts +
+//  the running session).
 //
 
 import Foundation
@@ -44,12 +45,18 @@ public final class StudyListViewModel {
 
     public private(set) var playingID: UUID?
 
+    /// Today's flashcard counts; nil while unknown or with flashcards off (no use case wired).
+    public private(set) var practice: FlashcardsSummary?
+    /// The practice session on screen (presented full screen while non-nil).
+    public var session: FlashcardSessionViewModel?
+
     private let studyList: any StudyListUseCase
     private let saveExpression: any SaveExpressionUseCase
     private let exportAlgoApp: any ExportDeckUseCase
     private let exportAnki: any ExportDeckUseCase
     private let pronounce: any PlayPronunciationUseCase
     private let isConfigured: Bool
+    private let flashcards: (any FlashcardsUseCase)?
     private var playTask: Task<Void, Never>?
 
     public init(
@@ -58,7 +65,8 @@ public final class StudyListViewModel {
         exportAlgoApp: any ExportDeckUseCase,
         exportAnki: any ExportDeckUseCase,
         pronounce: any PlayPronunciationUseCase,
-        isConfigured: Bool
+        isConfigured: Bool,
+        flashcards: (any FlashcardsUseCase)? = nil
     ) {
         self.studyList = studyList
         self.saveExpression = saveExpression
@@ -66,6 +74,7 @@ public final class StudyListViewModel {
         self.exportAnki = exportAnki
         self.pronounce = pronounce
         self.isConfigured = isConfigured
+        self.flashcards = flashcards
     }
 
     public var canAdd: Bool { !newEnglish.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -79,6 +88,7 @@ public final class StudyListViewModel {
             let items = try await studyList.list()
             expressions = items
             phase = items.isEmpty ? .empty : .loaded
+            await refreshPractice()
         } catch {
             errorMessage = Loc.t("Не удалось загрузить список.", "Couldn't load the list.")
             phase = .failed
@@ -123,6 +133,7 @@ public final class StudyListViewModel {
             guard let self else { return }
             do {
                 try await self.studyList.delete(id: expression.id)
+                await self.refreshPractice()
             } catch {
                 // Persisted delete failed → re-insert so the visible list can't diverge from the store.
                 self.expressions.insert(removed, at: min(index, self.expressions.count))
@@ -156,6 +167,8 @@ public final class StudyListViewModel {
                 await self.load()
                 self.actionError = Loc.t("Не удалось удалить часть карточек. Попробуйте ещё раз.",
                                          "Couldn't delete some cards. Try again.")
+            } else {
+                await self.refreshPractice()
             }
         }
     }
@@ -169,6 +182,7 @@ public final class StudyListViewModel {
             guard let self else { return }
             do {
                 try await self.studyList.setLearned(newValue, id: expression.id)
+                await self.refreshPractice()   // learned expressions leave practice
             } catch {
                 // Revert the optimistic flip so the toggle reflects what's actually persisted.
                 if let index = self.expressions.firstIndex(where: { $0.id == expression.id }) {
@@ -201,6 +215,26 @@ public final class StudyListViewModel {
         exportedDeck = nil
         exportError = Loc.t("Не удалось подготовить файл для отправки.",
                             "Couldn't prepare the file for sharing.")
+    }
+
+    // MARK: Flashcards
+
+    /// Re-count today's cards (after loading, list edits, or a finished session).
+    public func refreshPractice() async {
+        guard let flashcards else { return }
+        practice = try? await flashcards.summary(now: Date())
+    }
+
+    /// Open a practice session. The paywall check for the free plan is the view's (it owns the plan).
+    public func startPractice() {
+        guard let flashcards, session == nil else { return }
+        session = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce)
+    }
+
+    /// The session screen closed.
+    public func endPractice() {
+        session = nil
+        Task { await refreshPractice() }
     }
 
     // MARK: Playback

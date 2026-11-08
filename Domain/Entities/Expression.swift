@@ -7,8 +7,8 @@ import Foundation
 
 /// A curated study-list item.
 ///
-/// FLAT by design: no SRS, no intervals, no review state. This list is a staging area the user
-/// curates and then exports to an external spaced-repetition app (AlgoApp) via `DeckExporting`.
+/// Practised in-app as two flashcards (`ReviewCard` — their spaced-repetition state lives there, not
+/// here) and exportable to an external SRS app (AlgoApp / Anki) via `DeckExporting`.
 public struct Expression: Codable, Sendable, Equatable, Identifiable, Hashable {
     public let id: UUID
     /// The English expression.
@@ -21,7 +21,7 @@ public struct Expression: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var synonyms: [String]
     /// Free-form usage context.
     public var context: String
-    /// User-marked "learned" (staging flag only — not a review state).
+    /// User-marked "learned": the expression is retired from flashcard practice (and can be cleaned up).
     public var learned: Bool
     public let createdAt: Date
 

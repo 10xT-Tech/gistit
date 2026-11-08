@@ -2,8 +2,8 @@
 //  StudyListView.swift
 //  EnglishHelper — Presentation
 //
-//  "Изучаю" — flat study list: add (enrich-then-store), swipe-delete, toggle learned, clean up
-//  learned (confirmed bulk delete), export .xml.
+//  "Изучаю" — the study list: flashcard practice (Pro), add (enrich-then-store), swipe-delete,
+//  toggle learned, clean up learned (confirmed bulk delete), export .xml / Anki.
 //
 
 import SwiftUI
@@ -15,6 +15,7 @@ public struct StudyListView: View {
     @State private var model: StudyListViewModel
     @State private var shareItem: ShareItem?
     @Environment(AppUIState.self) private var ui
+    @Environment(SubscriptionState.self) private var subscription
 
     public init(model: StudyListViewModel) {
         self.model = model
@@ -66,6 +67,9 @@ public struct StudyListView: View {
                            "Cards marked as learned will be removed from the list. This can't be undone."))
             }
             .task { await model.load() }
+            .fullScreenCover(item: $model.session, onDismiss: { model.endPractice() }) { session in
+                FlashcardSessionView(model: session) { model.session = nil }
+            }
             .sheet(isPresented: $model.showAddSheet) { addSheet }
             .sheet(item: $shareItem) { item in ShareSheet(items: [item.url]) }
             .onChange(of: model.exportedDeck) { _, deck in
@@ -115,6 +119,15 @@ public struct StudyListView: View {
 
     private var list: some View {
         List {
+            if let practice = model.practice {
+                PracticeCard(summary: practice, locked: !subscription.tier.canUseFlashcards) {
+                    if subscription.tier.canUseFlashcards { model.startPractice() } else { ui.showPaywall = true }
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
+                                          bottom: Tokens.Space.s8, trailing: Tokens.Space.s16))
+            }
             ForEach(model.expressions) { expression in
                 StudyRow(expression: expression,
                          isPlaying: model.isPlaying(expression),
@@ -281,5 +294,46 @@ private struct StudyRow: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
         .accessibilityAction(named: Loc.t("Поделиться", "Share")) { ShareSheetPresenter.share(expression.en) }
+    }
+}
+
+/// The flashcard entry at the top of the study list: today's counts and Start (Pro — the free plan
+/// sees a lock and gets the paywall).
+private struct PracticeCard: View {
+    let summary: FlashcardsSummary
+    let locked: Bool
+    let onStart: () -> Void
+
+    var body: some View {
+        HStack(spacing: Tokens.Space.s12) {
+            VStack(alignment: .leading, spacing: Tokens.Space.s4) {
+                Text(Loc.t("Флеш-карты", "Flashcards"))
+                    .textStyle(Tokens.Text.headline)
+                    .foregroundStyle(Tokens.Content.primary)
+                Text(subtitle)
+                    .textStyle(Tokens.Text.subhead)
+                    .foregroundStyle(Tokens.Content.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Tokens.Space.s8)
+            EHButton(Loc.t("Начать", "Start"), icon: locked ? "lock.fill" : nil, kind: .primary,
+                     accessibilityID: "flashcards.start", action: onStart)
+                .disabled(!locked && summary.total == 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Tokens.Space.s16)
+        .glassPanel(cornerRadius: Tokens.Radius.card)
+    }
+
+    private var subtitle: String {
+        guard summary.total > 0 else {
+            return Loc.t("На сегодня всё — возвращайтесь завтра.", "All done for today — come back tomorrow.")
+        }
+        return Loc.t("Повторить: \(summary.due) · новых: \(summary.new)",
+                     "To review: \(summary.due) · new: \(summary.new)",
+                     "À réviser : \(summary.due) · nouvelles : \(summary.new)",
+                     "Para repasar: \(summary.due) · nuevas: \(summary.new)",
+                     "Wiederholen: \(summary.due) · neu: \(summary.new)",
+                     "Da ripassare: \(summary.due) · nuove: \(summary.new)")
     }
 }

@@ -158,3 +158,19 @@ public final class StubTextRecognizing: TextRecognizing {
         }
     }
 }
+
+// MARK: - Subscription
+
+/// A fixed plan — UI tests of the free-plan gates (`-uiTestFreePlan`), which StoreKit can't fake
+/// without a purchase flow.
+public struct StubSubscriptionManaging: SubscriptionManaging {
+    private let tier: AccessTier
+    public init(tier: AccessTier) { self.tier = tier }
+    public func currentTier() async -> AccessTier { tier }
+    public func tierUpdates() -> AsyncStream<AccessTier> {
+        let tier = self.tier
+        return AsyncStream { $0.yield(tier); $0.finish() }
+    }
+    public func refresh() async {}
+    public func restorePurchases() async throws {}
+}

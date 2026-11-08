@@ -18,6 +18,16 @@ public protocol ExpressionRepository: Sendable {
     func find(en: String) async throws -> Expression?
 }
 
+/// Spaced-repetition state of the study-list flashcards (`ReviewCard`, two per expression). Cards
+/// are stored once first answered — until then the queue treats an expression's missing card as new.
+public protocol ReviewCardRepository: Sendable {
+    func all() async throws -> [ReviewCard]
+    /// Insert or update, matched by `id`.
+    func save(_ card: ReviewCard) async throws
+    /// Remove an expression's cards (it left the study list).
+    func delete(expressionID: UUID) async throws
+}
+
 public extension ExpressionRepository {
     /// Normalized key for content-level matching of an expression's `en`.
     static func normalizedKey(_ en: String) -> String {

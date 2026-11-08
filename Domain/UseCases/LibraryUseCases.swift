@@ -19,12 +19,21 @@ public protocol StudyListUseCase: Sendable {
 
 public struct StudyListInteractor: StudyListUseCase {
     private let repository: ExpressionRepository
-    public init(repository: ExpressionRepository) { self.repository = repository }
+    private let cards: (any ReviewCardRepository)?
+    public init(repository: ExpressionRepository, cards: (any ReviewCardRepository)? = nil) {
+        self.repository = repository
+        self.cards = cards
+    }
 
     public func list() async throws -> [Expression] { try await repository.all() }
     public func add(_ expression: Expression) async throws { try await repository.add(expression) }
     public func update(_ expression: Expression) async throws { try await repository.update(expression) }
-    public func delete(id: Expression.ID) async throws { try await repository.delete(id: id) }
+    public func delete(id: Expression.ID) async throws {
+        try await repository.delete(id: id)
+        // Its flashcards go too. Best-effort: a leftover card is never shown (the queue is built from
+        // the study list) and only costs a row.
+        try? await cards?.delete(expressionID: id)
+    }
     public func setLearned(_ learned: Bool, id: Expression.ID) async throws {
         try await repository.setLearned(learned, id: id)
     }

@@ -26,11 +26,21 @@ public enum AppSchemaV2: VersionedSchema {
     }
 }
 
+/// v3 (2.0) — adds `ReviewCardModel` (flashcard spaced-repetition state). A new entity again, so the
+/// V2→V3 stage is lightweight too: the study list and history are untouched.
+public enum AppSchemaV3: VersionedSchema {
+    public static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
+    public static var models: [any PersistentModel.Type] {
+        [ExpressionModel.self, HistoryModel.self, CachedTranslationModel.self, ReviewCardModel.self]
+    }
+}
+
 /// Migration plan across schema versions. Append a new `AppSchemaVn` and a `MigrationStage`
 /// (lightweight or custom) for every breaking change — never just bump the models.
 public enum AppMigrationPlan: SchemaMigrationPlan {
-    public static var schemas: [any VersionedSchema.Type] { [AppSchemaV1.self, AppSchemaV2.self] }
+    public static var schemas: [any VersionedSchema.Type] { [AppSchemaV1.self, AppSchemaV2.self, AppSchemaV3.self] }
     public static var stages: [MigrationStage] {
-        [.lightweight(fromVersion: AppSchemaV1.self, toVersion: AppSchemaV2.self)]
+        [.lightweight(fromVersion: AppSchemaV1.self, toVersion: AppSchemaV2.self),
+         .lightweight(fromVersion: AppSchemaV2.self, toVersion: AppSchemaV3.self)]
     }
 }

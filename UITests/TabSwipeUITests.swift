@@ -83,8 +83,9 @@ final class TabSwipeUITests: XCTestCase {
 
         // Study: rows have actions on both edges — neither direction switches tabs.
         app.tab("Study").tap()
-        let studyRow = app.cells.firstMatch
-        XCTAssertTrue(studyRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.cells.firstMatch.waitForExistence(timeout: 5))
+        // The first cell is the Flashcards card (no swipe actions); the phrases follow it.
+        let studyRow = app.cells.allElementsBoundByIndex.last!
         studyRow.swipeLeft()
         XCTAssertTrue(app.buttons["Delete"].waitForExistence(timeout: 3), "Study delete action did not appear")
         assertOn(app, "Study")

@@ -32,6 +32,8 @@ public enum AnalyticsEvent: String, CaseIterable, Sendable {
     case expressionSaved         = "Library.expressionSaved"
     /// The study list was exported as a deck file (AlgoApp or Anki).
     case deckExported            = "Library.deckExported"
+    /// A flashcard was answered (any rating).
+    case flashcardReviewed       = "Flashcards.reviewed"
 }
 
 /// Port for reporting `AnalyticsEvent`s. Implementations must be fire-and-forget and non-blocking

@@ -111,8 +111,8 @@ public struct SettingsView: View {
                 restoreButton
             case .free:
                 infoRow(Loc.t("План", "Plan"), Loc.t("Бесплатный", "Free"))
-                Text(Loc.t("Перевод — бесплатно. Объяснения и «Сказать» — один запрос в 5 минут, с подпиской без ограничений. Онлайн-перевод — по подписке.",
-                           "Translation: free. Explanations and Say it: one request every 5 minutes, unlimited with a subscription. Online translation: with a subscription."))
+                Text(Loc.t("Перевод — бесплатно. Объяснения и «Сказать» — один запрос в 5 минут, с подпиской без ограничений. Онлайн-перевод и флеш-карты — по подписке.",
+                           "Translation: free. Explanations and Say it: one request every 5 minutes, unlimited with a subscription. Online translation and flashcards: with a subscription."))
                     .textStyle(Tokens.Text.footnote)
                     .foregroundStyle(Tokens.Content.tertiary)
                 Button { showPaywall = true } label: {

@@ -2,6 +2,24 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
+## 2.0.0 — in development
+
+**Flashcards.** Practise the words and phrases you've saved right in the app. Study now opens with a
+**Flashcards** card showing what's due today; tap **Start** and go through your cards one by one: see
+the phrase, recall what it means, tap **Show answer** (or the card) and say how it went: **Again**,
+**Hard**, **Good** or **Easy**. Each button shows when you'll see the card again. Behind it is FSRS,
+the spaced-repetition method modern Anki uses: cards you know well come back rarely, cards you
+struggle with come back sooner. Every phrase is practised both ways: first you learn to understand
+it, and from the next day you're also asked to say it from its meaning. Up to 20 new cards a day, so
+a long list doesn't arrive all at once. Phrases you mark as learned leave practice; export to
+AlgoApp and Anki works as before. Flashcards are part of **Gist It Pro**.
+
+**The system tab bar.** The bar at the bottom of the screen is now the real iOS Liquid Glass tab bar:
+press and drag across it to slide the selection to another screen, as in Apple's own apps.
+
+**Steadier swipes between screens.** A swipe that drifts up or down no longer scrolls the screen
+while it slides sideways.
+
 ## 1.5.3 — 2026-10-15
 
 **Share to any app.** Every card you can copy now has a **Share** button next to **Copy**: the

@@ -4,8 +4,8 @@ Personal-use iOS app for living in a studied language (six languages, configurab
 pair; originally EN-from-RU). Five tabs: **Say it** (thought → 3 phrasings / situation → phrases),
 **Get it** (Translate / Explain / **Online** — a live interpreter that listens to surrounding speech
 and translates it in real time via Soniox), **See it** (photo → explain or translate), **Study**
-(flat list, exported to AlgoApp/Anki), **History** (every request; live sessions keep their audio;
-swipe-to-delete). Curated phrases go into the study list for the external SRS app.
+(the saved phrases + in-app **flashcards** with FSRS spaced repetition (Pro); also exported to
+AlgoApp/Anki), **History** (every request; live sessions keep their audio; swipe-to-delete).
 
 - iOS 26 · Swift 6 · SwiftUI · Xcode 27 (iOS 27 SDK; deployment target stays iOS 26) · SwiftData (persistence) · async/await + actors.
 - Online-first; the LLM is Claude (Sonnet 5.5 / Haiku 5.5) via the Anthropic API; live speech translation is
@@ -42,8 +42,9 @@ Each layer is a **separate framework module**, so the compiler enforces the depe
 ### Ports (Domain) → adapters (Data)
 `LLMClient`, `SpeechRecognizing`, `SpeechSynthesizing`, `TextRecognizing`, `LiveTranslating`
 (live mic→cloud interpreter stream) + `SessionRecordingsManaging` (stored session audio),
-`TranscriptionServiceChecking` (Soniox health probe), `ExpressionRepository`, `HistoryRepository`
-(append/recent/delete), `TranslationCache`, `DeckExporting`, `AnalyticsTracking`. The media ports
+`TranscriptionServiceChecking` (Soniox health probe), `ExpressionRepository`, `ReviewCardRepository`
+(flashcard SRS state), `HistoryRepository` (append/recent/delete), `TranslationCache`, `DeckExporting`,
+`AnalyticsTracking`, `SubscriptionManaging`. The media ports
 are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 
 ### Prompt templates (Domain)
@@ -100,7 +101,8 @@ with `#include?`). Two credential modes:
   `[config=Release]` overrides) — a Release build without `BACKEND_URL` has no live Claude/Soniox.
 **Subscription (App Store + TestFlight).** One monthly auto-renewable product
 (`AppConfig.subscriptionProductID`). Free plan, by SCENARIO not model: translations (Get it/See it →
-Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode.
+Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode,
+no flashcards (on-device, so the APP is the only gate: `AccessTier.canUseFlashcards`).
 Subscribers and Xcode builds (`AppDistribution.local`): unlimited, no paywall. TestFlight shows the
 REAL plan + paywall because App Review runs in the same sandbox and can't be told apart — 1.5.3 was
 rejected (2.1(b)) when the reviewer saw an unlocked "test build"; testers subscribe for free. The
@@ -123,6 +125,19 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 `SonioxCredential` (Soniox) — the adapters don't know which mode they're in.
 
 ## Current Status
+
+**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — flashcards.** Every non-learned study-list
+expression is two `ReviewCard`s (recognition: studied→native; recall: native→studied), scheduled by
+`FSRS` (Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90%
+retention, no fuzz). A card is stored only once answered (`ReviewCardModel`, SwiftData schema **V3**,
+lightweight stage; linked by `expressionID`, deleted with its expression in `StudyListInteractor`);
+`FlashcardsInteractor` builds today's queue: learning due within 20 min (learn-ahead) → reviews due
+today → new (oldest first, `newCardsPerDay` 20 incl. cards first answered today; recall only after
+recognition was introduced on an EARLIER day). UI: `PracticeCard` atop the Study list (counts + Start;
+free plan → lock + paywall) → full-screen `FlashcardSessionView` (reveal, Again/Hard/Good/Easy with
+interval labels, same-session re-queue of learning steps). XCUI `FlashcardsUITests` (`-uiTestFreePlan`
+= `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
+sideways-only tab swipes from 1.5.3 (3) ship here too.
 
 **v1.5.1 (2026-10-12) — swipe between the main tabs.** NO system `TabView` any more: `RootView` mounts the
 SELECTED screen only, under `GlassTabBar` (DesignSystem — a STANDALONE system `UITabBar`, so the real iOS 26 Liquid Glass bar

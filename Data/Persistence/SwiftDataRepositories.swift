@@ -70,6 +70,36 @@ public actor SwiftDataExpressionRepository: ExpressionRepository {
 }
 
 @ModelActor
+public actor SwiftDataReviewCardRepository: ReviewCardRepository {
+    public func all() async throws -> [ReviewCard] {
+        try modelContext.fetch(FetchDescriptor<ReviewCardModel>()).compactMap { $0.toDomain() }
+    }
+
+    public func save(_ card: ReviewCard) async throws {
+        let id = card.id
+        var descriptor = FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        if let model = try modelContext.fetch(descriptor).first {
+            model.apply(card)
+        } else {
+            modelContext.insert(ReviewCardModel(card))
+        }
+        try save()
+    }
+
+    public func delete(expressionID: UUID) async throws {
+        let descriptor = FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.expressionID == expressionID })
+        for model in try modelContext.fetch(descriptor) { modelContext.delete(model) }
+        try save()
+    }
+
+    private func save() throws {
+        do { try modelContext.save() }
+        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+    }
+}
+
+@ModelActor
 public actor SwiftDataHistoryRepository: HistoryRepository {
     /// Keep only the newest N requests so history doesn't grow without bound. MUST be ≥ the History
     /// screen's read limit (`HistoryViewModel.limit`, 200), otherwise the screen can never show its
@@ -215,7 +245,7 @@ public actor SwiftDataTranslationCache: TranslationCache {
 public enum PersistenceSchema {
     /// The model types the app's ModelContainer must register (single source of truth — `bootLive`
     /// and migrations both read this rather than re-listing the @Model types).
-    public static let models: [any PersistentModel.Type] = AppSchemaV2.models
+    public static let models: [any PersistentModel.Type] = AppSchemaV3.models
     /// The current versioned schema, paired with `AppMigrationPlan` when opening the store.
-    public static let current = Schema(versionedSchema: AppSchemaV2.self)
+    public static let current = Schema(versionedSchema: AppSchemaV3.self)
 }
