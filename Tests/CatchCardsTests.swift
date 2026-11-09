@@ -100,7 +100,9 @@ import Presentation
             steps.append(step)
         }
         #expect(steps.map(\.processed) == [0, 1, 2])
-        #expect(steps.last == CatchProgress(processed: 2, total: 2, added: 1, failed: 0))
+        // "discard" was saved before (as "Discard"): listed once; photo 2's "threshold" is a repeat of
+        // photo 1's — not listed.
+        #expect(steps.last == CatchProgress(processed: 2, total: 2, added: 1, failed: 0, alreadySaved: ["Discard"]))
         let stored = try await repo.all().map(\.en)
         #expect(stored.sorted() == ["Discard", "threshold"])     // "discard" matched the saved "Discard"
         let card = try #require(try await repo.all().first { $0.en == "threshold" })
@@ -155,6 +157,17 @@ import Presentation
         #expect(vm.progress == CatchProgress(processed: 3, total: 3, added: 2, failed: 0))
         #expect(vm.unloaded == 1)                                  // told apart from a failed request
         #expect(vm.progress.fraction == 1)
+    }
+
+    /// The sheet hears which phrases were already in the cards (it lists them).
+    @Test func progressSheetListsWhatWasAlreadySaved() async throws {
+        let repo = MockExpressionRepository(seed: [Domain.Expression(en: "Discard", ru: "отбросить")])
+        let vm = CatchFromPhotosViewModel(photoCount: 1,
+                                          catchCards: CatchCardsFromPhotosInteractor(llm: MockLLMClient(), repository: repo),
+                                          studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+        vm.run([Data([1])])
+        try await waitUntil { vm.phase == .done }
+        #expect(vm.progress.alreadySaved == ["Discard"] && vm.progress.added == 1)
     }
 
     /// The sheet hears of the photos with nothing featured or marked (its hint to mark them).

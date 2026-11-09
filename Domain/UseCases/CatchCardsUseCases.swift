@@ -22,16 +22,21 @@ public struct CatchProgress: Sendable, Equatable {
     public let empty: Int
     /// Why the last failed photo failed — the sheet says it.
     public let lastError: LLMError?
+    /// Phrases skipped because a card had them already (as written there) — a repeat within the batch
+    /// isn't listed.
+    public let alreadySaved: [String]
 
     public var fraction: Double { total == 0 ? 1 : Double(processed) / Double(total) }
 
-    public init(processed: Int, total: Int, added: Int, failed: Int, empty: Int = 0, lastError: LLMError? = nil) {
+    public init(processed: Int, total: Int, added: Int, failed: Int, empty: Int = 0, lastError: LLMError? = nil,
+                alreadySaved: [String] = []) {
         self.processed = processed
         self.total = total
         self.added = added
         self.failed = failed
         self.empty = empty
         self.lastError = lastError
+        self.alreadySaved = alreadySaved
     }
 }
 
@@ -61,6 +66,8 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
             let task = Task {
                 var added = 0, failed = 0, empty = 0
                 var lastError: LLMError?
+                var alreadySaved: [String] = []
+                var addedNow = Set<UUID>()             // cards this batch stored — repeats, not "already saved"
                 continuation.yield(CatchProgress(processed: 0, total: images.count, added: 0, failed: 0))
                 for (index, image) in images.enumerated() {
                     do {
@@ -68,14 +75,20 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                         let result = try await Self.ask(llm, template, about: image)
                         if result.cards.isEmpty { empty += 1 }
                         for draft in result.cards {
-                            guard try await repository.find(en: draft.expression) == nil else { continue }
+                            if let existing = try await repository.find(en: draft.expression) {
+                                if !addedNow.contains(existing.id), !alreadySaved.contains(existing.en) {
+                                    alreadySaved.append(existing.en)
+                                }
+                                continue
+                            }
                             // The letter case Fix cards writes, whatever the model did ("i'm" → "I'm").
                             let studied = { FixCardsInteractor.lettercase($0, language: studiedLanguage) }
                             let native = { FixCardsInteractor.lettercase($0, language: nativeLanguage) }
-                            try await repository.add(Expression(en: studied(draft.expression), ru: native(draft.translation),
-                                                                example: studied(draft.example),
-                                                                synonyms: draft.synonyms.map(studied),
-                                                                context: native(draft.context)))
+                            let card = Expression(en: studied(draft.expression), ru: native(draft.translation),
+                                                  example: studied(draft.example), synonyms: draft.synonyms.map(studied),
+                                                  context: native(draft.context))
+                            try await repository.add(card)
+                            addedNow.insert(card.id)
                             added += 1
                         }
                         analytics?.track(.photoCardsCompleted)
@@ -89,7 +102,7 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                     }
                     continuation.yield(CatchProgress(processed: index + 1, total: images.count,
                                                       added: added, failed: failed, empty: empty,
-                                                      lastError: lastError))
+                                                      lastError: lastError, alreadySaved: alreadySaved))
                 }
                 continuation.finish()
             }

@@ -67,6 +67,10 @@ struct CatchFromPhotosView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("catch.empty")
                 }
+                if !model.progress.alreadySaved.isEmpty {
+                    note(alreadySavedNote)
+                        .accessibilityIdentifier("catch.alreadySaved")
+                }
                 if model.unloaded > 0 {
                     note(Loc.t("Не загрузилось из галереи: \(model.unloaded). Если фото хранится в iCloud, откройте его в «Фото», чтобы оно скачалось, и попробуйте снова.",
                                "Couldn't load from the library: \(model.unloaded). If the photo is in iCloud, open it in Photos so it downloads, and try again."))
@@ -130,6 +134,19 @@ struct CatchFromPhotosView: View {
             .foregroundStyle(Tokens.Content.secondary)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// "Already in your cards: 2 — «in the heat of the moment», «come to terms with»" (the first five).
+    private var alreadySavedNote: String {
+        let phrases = model.progress.alreadySaved
+        let shown = phrases.prefix(5).map { "«\($0)»" }.joined(separator: ", ")
+        let more = phrases.count > 5 ? Loc.t(" и ещё \(phrases.count - 5)", " and \(phrases.count - 5) more") : ""
+        return Loc.t("Уже есть в карточках: \(phrases.count) — \(shown)\(more)",
+                     "Already in your cards: \(phrases.count) — \(shown)\(more)",
+                     "Déjà dans vos cartes : \(phrases.count) — \(shown)\(more)",
+                     "Ya están en tus tarjetas: \(phrases.count) — \(shown)\(more)",
+                     "Schon in deinen Karten: \(phrases.count) — \(shown)\(more)",
+                     "Già nelle tue schede: \(phrases.count) — \(shown)\(more)")
     }
 
     /// Why the last failed photo failed, in words: a refusal, or the error as other screens put it.
