@@ -16,6 +16,8 @@ public final class CatchFromPhotosViewModel: Identifiable {
 
     public let id = UUID()
     public private(set) var phase: Phase = .preparing
+    /// The user pressed Stop: the end is no news (no chime).
+    public private(set) var wasStopped = false
     public private(set) var progress: CatchProgress
     /// Photos that couldn't be loaded from the library (nothing was sent for them).
     public private(set) var unloaded = 0
@@ -70,6 +72,7 @@ public final class CatchFromPhotosViewModel: Identifiable {
 
     /// Stop after the current photo; the cards caught so far stay.
     public func cancel() {
+        wasStopped = true
         task?.cancel()
     }
 }

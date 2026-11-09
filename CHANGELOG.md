@@ -34,7 +34,7 @@ won't see again for 21 days or more) in green, with how many of all your cards y
 before, with everything already in it. Add cards two new ways with **+** — an empty Caught offers both
 right on the screen: **Generate from a phrase** (type a phrase in the language you're learning, with
 an optional context; the translation, an example, synonyms and a note are filled in for you) or **From photos** (pick one or more photos or screenshots, with a progress bar while it
-works: a phrase set apart to be learned — like the caption of a language-learning post — becomes one
+works and a green check, a chime and a tap when it's done: a phrase set apart to be learned — like the caption of a language-learning post — becomes one
 card, whole, with the translation the picture shows; on a page of text, each phrase you highlighted,
 underlined or circled becomes a card, with its sentence from the page as the example — unmarked text
 and the app around it, like names, song titles and comments, are left out; every card comes with

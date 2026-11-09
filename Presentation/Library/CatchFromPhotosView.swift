@@ -2,8 +2,9 @@
 //  CatchFromPhotosView.swift
 //  EnglishHelper — Presentation
 //
-//  The progress sheet for Caught → "From photos": a progress bar over the picked photos, how many
-//  cards were caught, Stop while it runs, Done at the end. The paywall is presented from here — a
+//  The progress sheet for Caught → "From photos": a progress line over the picked photos (green done,
+//  grey the photo being read), how many cards were caught, Stop while it runs, Done at the end — a
+//  green check, the done chime and haptic (not after Stop). The paywall is presented from here — a
 //  second sheet can't open over this one from the root.
 //
 
@@ -22,7 +23,7 @@ struct CatchFromPhotosView: View {
             VStack(spacing: Tokens.Space.s20) {
                 Image(systemName: icon)
                     .font(.system(size: 40, weight: .medium))
-                    .foregroundStyle(Tokens.Content.primary)
+                    .foregroundStyle(model.phase == .done ? Tokens.Signal.success : Tokens.Content.primary)
                     .padding(.top, Tokens.Space.s24)
                     .accessibilityHidden(true)
                 Text(title)
@@ -31,9 +32,17 @@ struct CatchFromPhotosView: View {
                     .multilineTextAlignment(.center)
 
                 VStack(alignment: .leading, spacing: Tokens.Space.s8) {
-                    ProgressView(value: model.phase == .preparing ? nil : model.progress.fraction)
-                        .tint(Tokens.Content.primary)
-                        .accessibilityIdentifier("catch.progress")
+                    Group {
+                        if model.phase == .preparing {
+                            ActivityLine()
+                        } else {
+                            ProgressLine(done: model.progress.fraction, pending: reading)
+                        }
+                    }
+                    .accessibilityRepresentation {
+                        ProgressView(value: model.phase == .preparing ? nil : model.progress.fraction)
+                    }
+                    .accessibilityIdentifier("catch.progress")
                     HStack {
                         Text(Loc.t("Фото: \(model.progress.processed) из \(model.progress.total)",
                                    "Photos: \(model.progress.processed) of \(model.progress.total)",
@@ -124,9 +133,17 @@ struct CatchFromPhotosView: View {
         }
         .interactiveDismissDisabled(isRunning)
         .presentationDetents([.medium])
+        .doneChime(when: model.phase == .done && !model.wasStopped)
     }
 
     private var isRunning: Bool { model.phase == .preparing || model.phase == .processing }
+
+    /// The photos done plus the one being read (grey) while it runs.
+    private var reading: Double {
+        let progress = model.progress
+        guard model.phase == .processing, progress.total > 0, progress.processed < progress.total else { return 0 }
+        return Double(progress.processed + 1) / Double(progress.total)
+    }
 
     private func note(_ text: String) -> some View {
         Text(text)

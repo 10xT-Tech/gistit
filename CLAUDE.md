@@ -139,7 +139,8 @@ stack icon → `FlashcardsUseCase.enroll`, "Move all" → enroll every one, olde
 photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
 photo — the backend allows one image — via `PhotoCardsTemplate`, skipping already-saved expressions;
 a bad photo is skipped, offline / plan limit / no key stop the batch; `CatchFromPhotosView` shows the
-progress; DEBUG `-uiTestCatchPhotos` fakes two images for XCUI). `PhotoCardsTemplate`'s opening is NOT
+progress — `ProgressLine`, then a green check + `DoneChime` (DesignSystem: our `Resources/done.caf` as a
+system sound — follows the silent switch, touches no audio session — plus the success haptic; not after Stop); DEBUG `-uiTestCatchPhotos` fakes two images for XCUI). `PhotoCardsTemplate`'s opening is NOT
 a backend free opening → metered like explanations on the free plan. Copy/Share on a card = 4-line
 `Expression.cardText`; "Copy all cards" = `cardsText` joined by `---`. Scope `.studying` = "In
 flashcards" (delete; per-card status tags = `ReviewCard.stage` + reps; card-file export/import).
