@@ -10,7 +10,8 @@
 //    merge inside it is proposed separately:
 //  - Exact duplicates (on the device, no model): the same expression (`PhraseKey` without lemmas) with
 //    the same translation — a merge is proposed at once; a group made only of them needs no check.
-//  - Check (the model, `DuplicatesTemplate`, batches of `batchSize` groups): the merges each group
+//  - Check (the model, `DuplicatesTemplate`, batches of `batchSize` groups, up to `inFlight` requests at
+//    once — an answer takes a while, and small batches keep the progress moving): the merges each group
 //    needs — a duplicate (one expression, one meaning) or senses (the very same expression, several
 //    meanings: one card, numbered "1) … 2) …") — with the card each makes; a card in none stays apart.
 //  - Merge: the oldest phrase in flashcards stays with the merged texts (in lower case except "I", as
@@ -141,7 +142,11 @@ public protocol DuplicatesUseCase: Sendable {
 }
 
 public struct DuplicatesInteractor: DuplicatesUseCase {
-    public static let batchSize = 10
+    public static let batchSize = 5
+    /// Requests out at the same time.
+    public static let inFlight = 3
+    /// Reading progress is reported every this many phrases.
+    static let progressStep = 50
 
     private let llm: LLMClient
     private let expressions: ExpressionRepository
@@ -174,7 +179,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                     var byKey: [String: [Expression]] = [:]
                     for (index, expression) in studied.enumerated() {
                         byKey[key(expression, studiedLanguage), default: []].append(expression)
-                        if index % 200 == 199 {
+                        if (index + 1) % Self.progressStep == 0, index + 1 < studied.count {
                             try Task.checkCancellation()
                             continuation.yield(DuplicateScanStep(checked: index + 1, total: studied.count))
                             await Task.yield()
@@ -273,26 +278,40 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var sent = 0, answered = 0, failed = 0
+                    let batches = stride(from: 0, to: groups.count, by: Self.batchSize).map {
+                        Array(groups[$0..<min($0 + Self.batchSize, groups.count)])
+                    }
+                    var sent = 0, answered = 0, failed = 0, next = 0
                     continuation.yield(DuplicateCheckStep(sent: 0, answered: 0, total: groups.count))
-                    for start in stride(from: 0, to: groups.count, by: Self.batchSize) {
-                        try Task.checkCancellation()
-                        let batch = Array(groups[start..<min(start + Self.batchSize, groups.count)])
-                        sent += batch.count
-                        continuation.yield(DuplicateCheckStep(sent: sent, answered: answered, total: groups.count,
-                                                              failed: failed))
-                        let verdicts = try await Self.ask(llm, template,
-                                                          about: batch.map { Self.item($0.key, $0.expressions) })
-                        answered += batch.count
-                        var proposals: [String: [DuplicateMerge]] = [:]
-                        for group in batch {
-                            if let verdict = verdicts?[group.key] {
-                                proposals[group.key] = Self.merges(verdict, among: group.expressions)
+                    try await withThrowingTaskGroup(of: (Int, [String: DuplicateVerdict]?).self) { requests in
+                        /// Send the next batch.
+                        func send() {
+                            let index = next
+                            next += 1
+                            sent += batches[index].count
+                            continuation.yield(DuplicateCheckStep(sent: sent, answered: answered, total: groups.count,
+                                                                  failed: failed))
+                            let items = batches[index].map { Self.item($0.key, $0.expressions) }
+                            requests.addTask { (index, try await Self.ask(llm, template, about: items)) }
+                        }
+                        while next < min(Self.inFlight, batches.count) { send() }
+                        while let (index, verdicts) = try await requests.next() {
+                            let batch = batches[index]
+                            answered += batch.count
+                            var proposals: [String: [DuplicateMerge]] = [:]
+                            for group in batch {
+                                if let verdict = verdicts?[group.key] {
+                                    proposals[group.key] = Self.merges(verdict, among: group.expressions)
+                                }
+                            }
+                            failed += batch.count - proposals.count
+                            continuation.yield(DuplicateCheckStep(sent: sent, answered: answered, total: groups.count,
+                                                                  failed: failed, proposals: proposals))
+                            if next < batches.count {
+                                try Task.checkCancellation()
+                                send()
                             }
                         }
-                        failed += batch.count - proposals.count
-                        continuation.yield(DuplicateCheckStep(sent: sent, answered: answered, total: groups.count,
-                                                              failed: failed, proposals: proposals))
                     }
                     continuation.finish()
                 } catch {

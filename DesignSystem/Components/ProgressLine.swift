@@ -3,9 +3,11 @@
 //  EnglishHelper — DesignSystem
 //
 //  A thin progress line: what's done in green, and — optionally — what's under way ahead of it in
-//  grey (sent to the model, waiting for its answer), so the green catches up with the grey. The
-//  numbers are always spelled out next to it; the line itself is hidden from VoiceOver unless the
-//  caller gives it a label and value.
+//  grey (sent to the model, waiting for its answer), so the green catches up with the grey; the grey
+//  part breathes while it waits, so a long answer doesn't look like a stall. `ActivityLine` is the
+//  same line before the total is known (reading from the store): a short segment gliding along it.
+//  Reduce Motion: no breathing, no gliding. The numbers are always spelled out next to the line; the
+//  line itself is hidden from VoiceOver.
 //
 
 import SwiftUI
@@ -32,6 +34,7 @@ public struct ProgressLine: View {
                     Capsule()
                         .fill(Tokens.Chart.progressPending)
                         .frame(width: width(pending, in: geometry.size.width))
+                        .modifier(Breathing())
                 }
                 if done > 0 {
                     Capsule()
@@ -53,6 +56,57 @@ public struct ProgressLine: View {
 
     private static func clamp(_ value: Double) -> Double {
         value.isFinite ? min(max(value, 0), 1) : 0
+    }
+}
+
+/// The grey part waiting for an answer: its opacity rises and falls.
+private struct Breathing: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content.phaseAnimator([1.0, 0.4]) { view, opacity in
+                view.opacity(opacity)
+            } animation: { _ in
+                .easeInOut(duration: 0.9)
+            }
+        }
+    }
+}
+
+/// Working, how far unknown yet: a short grey segment gliding along the track (static under Reduce Motion).
+public struct ActivityLine: View {
+    private let height: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(height: CGFloat = 6) {
+        self.height = height
+    }
+
+    public var body: some View {
+        GeometryReader { geometry in
+            let segment = geometry.size.width * 0.3
+            ZStack(alignment: .leading) {
+                Capsule().fill(Tokens.Chart.progressTrack)
+                if reduceMotion {
+                    Capsule().fill(Tokens.Chart.progressPending).frame(width: segment)
+                } else {
+                    TimelineView(.animation) { context in
+                        let period = 1.4
+                        let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+                        Capsule()
+                            .fill(Tokens.Chart.progressPending)
+                            .frame(width: segment)
+                            .offset(x: -segment + (geometry.size.width + segment) * phase)
+                    }
+                }
+            }
+            .clipShape(Capsule())
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
     }
 }
 

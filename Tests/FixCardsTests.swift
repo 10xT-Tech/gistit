@@ -201,7 +201,7 @@ import Presentation
                                      cards: MockReviewCardRepository(seed: cards))
         var steps: [FixSurvey] = []
         for try await step in sut.survey() { steps.append(step) }
-        #expect(steps.map(\.checked) == [0, 200, 400, 450])
+        #expect(steps.map(\.checked) == [0] + Array(stride(from: 50, through: 450, by: 50)))
         #expect(steps.last?.all == FixCounts(left: 450, total: 450))
         #expect(steps.last?.incomplete == FixCounts(left: 450, total: 450))       // the deck has no examples
         #expect(steps.dropLast().allSatisfy { $0.all == nil })

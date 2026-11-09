@@ -157,7 +157,8 @@ boundaries, English text only, since Italian "i" is an article — and German le
 one retry per batch, then letter case only; offline / plan limit / no key stop the run.
 The "Fix cards" sheet (`FixCardsView`/`FixCardsViewModel`) does it all: `survey()` reads the
 phrases with progress and counts each mode, the modes are buttons there, and the run shows a two-part
-`ProgressLine` (DesignSystem: `sent` grey, `processed` green; `FixProgress.sent`).
+`ProgressLine` (DesignSystem: `sent` grey — breathing while it waits — `processed` green;
+`FixProgress.sent`); `ActivityLine` (a gliding segment) while the cards are read and the total is unknown.
 The position after each batch is kept per scope (`CardFixProgressStoring`, UserDefaults; the all-cards
 key predates scopes) — Stop and resume without sending a card twice; "start over" resets it; "Only
 incomplete" restarts by itself once its run went through them all. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
@@ -195,7 +196,8 @@ changes the expression, "fuck about" ≠ "fuck somebody about"; then lemmas thro
 identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
 meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
 device (`exactMerges`: PhraseKey without lemmas + the same translation; a group of only those
-(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 10 groups)
+(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 5 groups, 3
+requests in flight — Sonnet answers take tens of seconds, small parallel batches keep the line moving)
 returns per group a list of merges (ids + duplicate / senses + `CardText`; a card in none stays apart;
 `merges(_:among:)` sanitises ids). Senses = one card numbered "1) … 2) …" (plain text in the existing
 fields, no schema change); `merge`

@@ -82,7 +82,11 @@ struct DuplicatesView: View {
                 .foregroundStyle(Tokens.Content.primary)
             switch model.phase {
             case .scanning:
-                ProgressLine(done: model.scan.fraction)
+                if model.scan.total == 0 {
+                    ActivityLine()                                       // reading the cards: total unknown yet
+                } else {
+                    ProgressLine(done: model.scan.fraction)
+                }
                 caption(model.scan.total == 0
                         ? Loc.t("Читаю карточки…", "Reading the cards…")
                         : Loc.t("Проверено фраз: \(model.scan.checked) из \(model.scan.total)",

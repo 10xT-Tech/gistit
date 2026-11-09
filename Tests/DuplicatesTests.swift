@@ -108,7 +108,7 @@ import Presentation
                                        cards: MockReviewCardRepository(seed: studied.flatMap { cards($0) }))
         var steps: [DuplicateScanStep] = []
         for try await step in sut.scan(studiedLanguage: "English") { steps.append(step) }
-        #expect(steps.map(\.checked) == [0, 200, 400, 450])
+        #expect(steps.map(\.checked) == [0] + Array(stride(from: 50, through: 450, by: 50)))
         #expect(steps.last?.groups == [])
     }
 
@@ -166,6 +166,8 @@ import Presentation
         return (studied, studied.flatMap { cards($0) })
     }
 
+    /// Batches of five, three requests out at once: the first three go before any answer, the answers
+    /// catch up (in whatever order they come).
     @Test func checkSendsBatchesAndCollectsVerdicts() async throws {
         let (studied, reviewCards) = twelveGroups()
         let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: studied),
@@ -175,7 +177,10 @@ import Presentation
         #expect(groups.filter(\.isExactOnly).count == 6)                             // the same translation
         var steps: [DuplicateCheckStep] = []
         for try await step in sut.check(groups, studiedLanguage: "English", nativeLanguage: "Russian") { steps.append(step) }
-        #expect(steps.map { [$0.sent, $0.answered] } == [[0, 0], [10, 0], [10, 10], [12, 10], [12, 12]])
+        #expect(steps.map(\.sent) == [0, 5, 10, 12, 12, 12, 12])
+        #expect(steps.prefix(4).allSatisfy { $0.answered == 0 })
+        #expect(steps.allSatisfy { $0.answered <= $0.sent })
+        #expect(zip(steps, steps.dropFirst()).allSatisfy { $0.answered <= $1.answered } && steps.last?.answered == 12)
         let proposals = steps.reduce(into: [String: [DuplicateMerge]]()) { $0.merge($1.proposals) { _, new in new } }
         #expect(proposals.count == 12)
         let first = try #require(proposals[groups[0].key]), second = try #require(proposals[groups[1].key])
@@ -187,15 +192,17 @@ import Presentation
     /// it.
     @Test func unusableAnswersAndAStop() async throws {
         let (studied, reviewCards) = twelveGroups()
-        let llm = ScriptedLLM(script: [.failure(LLMError.invalidOutput("x")), .failure(LLMError.invalidOutput("x"))])
-        let sut = DuplicatesInteractor(llm: llm, expressions: MockExpressionRepository(seed: studied),
+        let finder = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: studied),
+                                          cards: MockReviewCardRepository(seed: reviewCards))
+        let groups = try #require(try await scan(finder))
+        let sut = DuplicatesInteractor(llm: RejectingLLM(rejected: [groups[0].key]),     // its batch: groups 0–4
+                                       expressions: MockExpressionRepository(seed: studied),
                                        cards: MockReviewCardRepository(seed: reviewCards))
-        let groups = try #require(try await scan(sut))
         var steps: [DuplicateCheckStep] = []
         for try await step in sut.check(groups, studiedLanguage: "English", nativeLanguage: "Russian") { steps.append(step) }
-        #expect(steps.last?.failed == 10)                                            // the first batch
+        #expect(steps.last?.failed == 5)
         #expect(steps.last?.answered == 12)
-        #expect(steps.flatMap { $0.proposals.keys }.count == 2)                      // the second batch
+        #expect(Set(steps.flatMap { $0.proposals.keys }) == Set(groups.dropFirst(5).map(\.key)))
 
         let offline = DuplicatesInteractor(llm: ScriptedLLM(script: [.failure(LLMError.offline)]),
                                            expressions: MockExpressionRepository(seed: studied),
@@ -465,6 +472,18 @@ private final class CountingLLM: LLMClient, @unchecked Sendable {
 
     func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
         lock.withLock { count += 1 }
+        return try await MockLLMClient().run(template, input: input)
+    }
+}
+
+/// Answers like the mock — but never usefully for a batch holding one of the `rejected` groups.
+private struct RejectingLLM: LLMClient {
+    let rejected: Set<String>
+
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        if let groups = input as? [DuplicateGroupItem], groups.contains(where: { rejected.contains($0.id) }) {
+            throw LLMError.invalidOutput("unusable")
+        }
         return try await MockLLMClient().run(template, input: input)
     }
 }

@@ -155,7 +155,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
                             incomplete += 1
                             if Self.isAfter(expression, incompleteMark) { incompleteLeft += 1 }
                         }
-                        if index % 200 == 199 {
+                        if (index + 1) % 50 == 0, index + 1 < studied.count {
                             try Task.checkCancellation()
                             continuation.yield(FixSurvey(checked: index + 1, total: studied.count))
                             await Task.yield()

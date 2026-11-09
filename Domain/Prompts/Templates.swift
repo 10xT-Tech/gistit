@@ -919,7 +919,7 @@ public struct DuplicatesTemplate: PromptTemplate {
 
     /// The explanation model: telling meanings apart and merging them is judgement, not a lookup.
     public var modelTier: ModelTier { .standard }
-    /// Ten groups, each with merged cards that may number several meanings.
+    /// A batch of groups (`DuplicatesInteractor.batchSize`), each with merged cards that may number several meanings.
     public var maxOutputTokens: Int { 8_000 }
 
     public var systemPrompt: String {

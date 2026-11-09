@@ -102,7 +102,11 @@ struct FixCardsView: View {
 
     private var surveyPanel: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s8) {
-            ProgressLine(done: model.survey.fraction)
+            if model.survey.total == 0 {
+                ActivityLine()                                           // reading the cards: total unknown yet
+            } else {
+                ProgressLine(done: model.survey.fraction)
+            }
             Text(model.survey.total == 0
                  ? Loc.t("Читаю карточки…", "Reading the cards…", "Lecture des cartes…", "Leyendo las tarjetas…",
                          "Karten werden gelesen…", "Lettura delle carte…")
