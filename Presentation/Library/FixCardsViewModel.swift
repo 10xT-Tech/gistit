@@ -2,8 +2,9 @@
 //  FixCardsViewModel.swift
 //  EnglishHelper — Presentation
 //
-//  In flashcards → "Fix cards": one run over the phrases in flashcards (from where the last run
-//  stopped, or from the start), with progress; Stop keeps what's done and where it stopped.
+//  In flashcards → "Fix cards": one run over the phrases in flashcards — all, or only the incomplete
+//  ones — from where the scope's last run stopped, or from the start, with progress; Stop keeps
+//  what's done and where it stopped.
 //
 
 import Foundation
@@ -34,15 +35,16 @@ public final class FixCardsViewModel: Identifiable {
         self.nativeLanguage = nativeLanguage
     }
 
-    /// Go through the phrases — `restart`: all of them again, not from where the last run stopped.
-    public func run(restart: Bool) {
+    /// Go through the scope's phrases — `restart`: all of them again, not from where its last run stopped.
+    public func run(_ scope: FixScope, restart: Bool) {
         guard task == nil else { return }
         phase = .running
         let studied = studiedLanguage(), native = nativeLanguage()
         task = Task { [weak self] in
             guard let self else { return }
             do {
-                for try await step in self.fixCards(studiedLanguage: studied, nativeLanguage: native, restart: restart) {
+                let steps = self.fixCards(scope, studiedLanguage: studied, nativeLanguage: native, restart: restart)
+                for try await step in steps {
                     self.progress = step
                 }
                 self.phase = .done

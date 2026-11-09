@@ -176,7 +176,7 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 3))
         menu.tap()
         app.buttons["Fix cards"].tap()
-        let start = app.buttons["Start (2)"]
+        let start = app.buttons["All cards (2)"]
         XCTAssertTrue(start.waitForExistence(timeout: 3), "no confirmation before overwriting the cards")
         start.tap()
         let done = app.buttons["fix.done"]

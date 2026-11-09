@@ -7,11 +7,12 @@
 //    German nouns when German is studied (here, deterministically: `lettercase`);
 //  - via the model (`FixCardsTemplate`, batches of `batchSize`): fixes grammar and spelling, gives a
 //    single verb its infinitive marker and a single noun its article, fills in a missing example,
-//    synonyms and usage note.
-//  Cards go in a stable order (oldest first) and the position after each batch is kept
-//  (`CardFixProgressStoring`), so a run of thousands of cards can be stopped at any time and resumed
-//  later without sending a card twice; "start over" goes through all of them again. Learning progress
-//  (the review cards) is untouched — only the texts change.
+//    synonyms and usage note. A field the model returns empty keeps what the card had.
+//  A run goes through every phrase in flashcards, or only the incomplete ones (`FixScope`): those
+//  with an empty example, synonyms or note. Cards go in a stable order (oldest first) and the position
+//  after each batch is kept per scope (`CardFixProgressStoring`), so a run of thousands of cards can
+//  be stopped at any time and resumed later without sending a card twice; "start over" goes through
+//  all of them again. Learning progress (the review cards) is untouched — only the texts change.
 //
 
 import Foundation
@@ -27,19 +28,28 @@ public struct CardFixCheckpoint: Codable, Sendable, Equatable {
     }
 }
 
+/// Which phrases a run goes through.
+public enum FixScope: String, Sendable, CaseIterable {
+    /// Every phrase in flashcards.
+    case all
+    /// Only those with an empty example, synonyms or note.
+    case incomplete
+}
+
+/// Where the last run of each scope stopped.
 public protocol CardFixProgressStoring: Sendable {
-    func load() async -> CardFixCheckpoint?
-    func save(_ checkpoint: CardFixCheckpoint) async
-    func reset() async
+    func load(_ scope: FixScope) async -> CardFixCheckpoint?
+    func save(_ checkpoint: CardFixCheckpoint, for scope: FixScope) async
+    func reset(_ scope: FixScope) async
 }
 
 /// In-memory default (tests, previews, the stub boot).
 public actor InMemoryCardFixProgressStore: CardFixProgressStoring {
-    private var checkpoint: CardFixCheckpoint?
-    public init(_ checkpoint: CardFixCheckpoint? = nil) { self.checkpoint = checkpoint }
-    public func load() async -> CardFixCheckpoint? { checkpoint }
-    public func save(_ checkpoint: CardFixCheckpoint) async { self.checkpoint = checkpoint }
-    public func reset() async { checkpoint = nil }
+    private var checkpoints: [FixScope: CardFixCheckpoint]
+    public init(_ checkpoints: [FixScope: CardFixCheckpoint] = [:]) { self.checkpoints = checkpoints }
+    public func load(_ scope: FixScope) async -> CardFixCheckpoint? { checkpoints[scope] }
+    public func save(_ checkpoint: CardFixCheckpoint, for scope: FixScope) async { checkpoints[scope] = checkpoint }
+    public func reset(_ scope: FixScope) async { checkpoints[scope] = nil }
 }
 
 /// Where a run stands.
@@ -64,11 +74,11 @@ public struct FixProgress: Sendable, Equatable {
 }
 
 public protocol FixCardsUseCase: Sendable {
-    /// Phrases in flashcards the next run would go through (after where the last one stopped), and all.
-    func remaining() async throws -> (left: Int, total: Int)
+    /// Phrases of the scope the next run would go through (after where its last run stopped), and all.
+    func remaining(_ scope: FixScope) async throws -> (left: Int, total: Int)
     /// Yields progress at the start and after every batch. Ends by throwing when going on can't help —
     /// offline, the plan's limit, no API key, cancellation — keeping what's done (and where it stopped).
-    func callAsFunction(studiedLanguage: String, nativeLanguage: String, restart: Bool)
+    func callAsFunction(_ scope: FixScope, studiedLanguage: String, nativeLanguage: String, restart: Bool)
         -> AsyncThrowingStream<FixProgress, Error>
 }
 
@@ -88,20 +98,20 @@ public struct FixCardsInteractor: FixCardsUseCase {
         self.progress = progress
     }
 
-    public func remaining() async throws -> (left: Int, total: Int) {
-        let all = try await inFlashcards()
-        return (Self.after(await progress.load(), in: all).count, all.count)
+    public func remaining(_ scope: FixScope) async throws -> (left: Int, total: Int) {
+        let all = try await inFlashcards(scope)
+        return (Self.after(await progress.load(scope), in: all).count, all.count)
     }
 
-    public func callAsFunction(studiedLanguage: String, nativeLanguage: String, restart: Bool)
+    public func callAsFunction(_ scope: FixScope, studiedLanguage: String, nativeLanguage: String, restart: Bool)
         -> AsyncThrowingStream<FixProgress, Error> {
         let llm = self.llm, expressions = self.expressions, progress = self.progress
         let template = FixCardsTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    if restart { await progress.reset() }
-                    let todo = Self.after(await progress.load(), in: try await self.inFlashcards())
+                    if restart { await progress.reset(scope) }
+                    let todo = Self.after(await progress.load(scope), in: try await self.inFlashcards(scope))
                     var processed = 0, changed = 0, failed = 0
                     continuation.yield(FixProgress(processed: 0, total: todo.count, changed: 0, failed: 0))
                     for start in stride(from: 0, to: todo.count, by: Self.batchSize) {
@@ -118,7 +128,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
                             }
                         }
                         if let last = batch.last {
-                            await progress.save(CardFixCheckpoint(createdAt: last.createdAt, id: last.id))
+                            await progress.save(CardFixCheckpoint(createdAt: last.createdAt, id: last.id), for: scope)
                         }
                         processed += batch.count
                         continuation.yield(FixProgress(processed: processed, total: todo.count,
@@ -135,12 +145,18 @@ public struct FixCardsInteractor: FixCardsUseCase {
 
     // MARK: Steps
 
-    /// The phrases in flashcards, in the run's stable order: oldest first.
-    private func inFlashcards() async throws -> [Expression] {
+    /// The scope's phrases in flashcards, in the run's stable order: oldest first.
+    private func inFlashcards(_ scope: FixScope) async throws -> [Expression] {
         let enrolled = Set(try await cards.all().map(\.expressionID))
         return try await expressions.all()
-            .filter { enrolled.contains($0.id) }
+            .filter { enrolled.contains($0.id) && (scope == .all || Self.isIncomplete($0)) }
             .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+    }
+
+    /// An example, synonyms or a note is missing.
+    public static func isIncomplete(_ expression: Expression) -> Bool {
+        let blank = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return blank(expression.example) || expression.synonyms.allSatisfy(blank) || blank(expression.context)
     }
 
     /// The part of `all` after the checkpoint.
@@ -169,16 +185,17 @@ public struct FixCardsInteractor: FixCardsUseCase {
         return nil
     }
 
-    /// The card with the model's fix (if any), every field in lower case (see `lettercase`).
+    /// The card with the model's fix (if any) — a field it left empty keeps what the card had — every
+    /// field in lower case (see `lettercase`).
     static func apply(_ fix: FixCardItem?, to expression: Expression, studiedLanguage: String,
                       nativeLanguage: String) -> Expression {
         var out = expression
         if let fix {
-            out.en = fix.expression
+            out.en = fix.expression                                  // never empty: `decode` drops those
             out.ru = fix.translation
-            out.example = fix.example
-            out.synonyms = fix.synonyms
-            out.context = fix.context
+            if !fix.example.isEmpty { out.example = fix.example }
+            if !fix.synonyms.isEmpty { out.synonyms = fix.synonyms }
+            if !fix.context.isEmpty { out.context = fix.context }
         }
         let studied = { (text: String) in lettercase(text, language: studiedLanguage) }
         let native = { (text: String) in lettercase(text, language: nativeLanguage) }

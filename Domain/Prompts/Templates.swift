@@ -768,8 +768,8 @@ public struct FixCardsTemplate: PromptTemplate {
         self.nativeLanguage = nativeLanguage
     }
 
-    /// The translation model: a batch of small, well-defined edits.
-    public var modelTier: ModelTier { .fast }
+    /// The explanation model: the translation model left a third of the notes and synonyms empty.
+    public var modelTier: ModelTier { .standard }
     /// Twenty cards with filled-in examples, synonyms and notes.
     public var maxOutputTokens: Int { 12_000 }
 
@@ -787,11 +787,12 @@ public struct FixCardsTemplate: PromptTemplate {
         - "translation" (\(nativeLanguage)): fix mistakes; keep it if it is right; one or two variants separated by
           " / ".
         - "example" (\(studiedLanguage)): fix mistakes; if empty, write ONE natural sentence that uses the
-          expression.
-        - "synonyms" (\(studiedLanguage)): keep the correct ones; if empty, give 2 to 3 near-equivalents — fewer if
-          none fit, never invented.
-        - "context" (\(nativeLanguage)): keep it; if empty, write one short note on when and how the expression is
-          used (register, typical situation).
+          expression. Never leave it empty.
+        - "synonyms" (\(studiedLanguage)): keep the correct ones; if empty, give 2 to 3 near-equivalents — fewer
+          only if none fit, never invented.
+        - "context" (\(nativeLanguage)): keep a usage note; if empty — or if it holds something else, such as a list of
+          synonyms (move them to "synonyms") or an example — write one short note on when and how the expression
+          is used (register, typical situation). Never leave it empty.
         Write every field in lowercase letters — except the English pronoun "I" (I'm, I've, I'll, I'd) and
         German nouns.
         \(plainTextRule)

@@ -146,14 +146,18 @@ STRAIGHT into flashcards (new → stored + two cards, restored from `review` if 
 enrolled; already in flashcards → untouched; repeats/empty skipped), written with the batch
 `ExpressionRepository.addAll` / `ReviewCardRepository.saveAll` (10k cards ≈ 2 s on the simulator).
 `tools/algoapp_to_cards.py` converts an AlgoApp deck (.zip/.xml) into a card file.
-"Fix cards" (In flashcards menu, Pro): `FixCardsInteractor` goes through the phrases in flashcards
-oldest-first in batches of 20 (`FixCardsTemplate`, `.fast`, metered on the free plan): grammar,
-verb marker / noun article, missing example / synonyms / note; letter case is applied locally
+"Fix cards" (In flashcards menu, Pro): `FixCardsInteractor` goes through the phrases in flashcards —
+all, or `FixScope.incomplete` (empty example, synonyms or note: `isIncomplete`) — oldest-first in
+batches of 20 (`FixCardsTemplate`, `.standard` = the explanation model — the fast one left a third of
+the notes / synonyms empty on a 9.9k deck; metered on the free plan): grammar, verb marker / noun
+article, missing example / synonyms / note; a field the model returns empty keeps the card's text
+(`apply` never empties a field); letter case is applied locally
 (`lettercase`: everything lower case except the English "I"/I'm/I've/I'll/I'd — simple word
 boundaries, English text only, since Italian "i" is an article — and German left as is for its nouns);
 one retry per batch, then letter case only; offline / plan limit / no key stop the run.
-The position after each batch is kept (`CardFixProgressStoring`, UserDefaults) — Stop and resume
-without sending a card twice; "start over" resets it. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
+The position after each batch is kept per scope (`CardFixProgressStoring`, UserDefaults; the all-cards
+key predates scopes) — Stop and resume without sending a card twice; "start over" resets it; "Only
+incomplete" restarts by itself once its run went through them all. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
 studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
 lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
 (Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90% retention, no

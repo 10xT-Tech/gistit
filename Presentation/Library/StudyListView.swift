@@ -111,30 +111,40 @@ public struct StudyListView: View {
         .confirmationDialog(Loc.t("Исправить карточки?", "Fix the cards?"),
                             isPresented: $model.showFixConfirmation, titleVisibility: .visible) {
             if let remaining = model.fixRemaining {
+                if let incomplete = model.fixIncomplete, incomplete.total > 0 {
+                    // From where the last such run stopped; once it went through them all, from the start.
+                    let count = incomplete.left > 0 ? incomplete.left : incomplete.total
+                    Button(Loc.t("Только неполные (\(count))", "Only incomplete (\(count))",
+                                 "Seulement les incomplètes (\(count))", "Solo las incompletas (\(count))",
+                                 "Nur unvollständige (\(count))", "Solo le incomplete (\(count))")) {
+                        model.startFix(.incomplete, restart: incomplete.left == 0)
+                    }
+                }
                 if remaining.left == remaining.total {
-                    Button(Loc.t("Начать (\(remaining.total))", "Start (\(remaining.total))", "Commencer (\(remaining.total))",
-                                 "Empezar (\(remaining.total))", "Starten (\(remaining.total))", "Inizia (\(remaining.total))")) {
-                        model.startFix(restart: false)
+                    Button(Loc.t("Все карточки (\(remaining.total))", "All cards (\(remaining.total))",
+                                 "Toutes les cartes (\(remaining.total))", "Todas las tarjetas (\(remaining.total))",
+                                 "Alle Karten (\(remaining.total))", "Tutte le carte (\(remaining.total))")) {
+                        model.startFix(.all, restart: false)
                     }
                 } else {
                     if remaining.left > 0 {
-                        Button(Loc.t("Продолжить (осталось \(remaining.left))", "Continue (\(remaining.left) left)",
-                                     "Continuer (\(remaining.left) restantes)", "Continuar (quedan \(remaining.left))",
-                                     "Fortsetzen (noch \(remaining.left))", "Continua (\(remaining.left) rimanenti)")) {
-                            model.startFix(restart: false)
+                        Button(Loc.t("Продолжить все (осталось \(remaining.left))", "Continue all (\(remaining.left) left)",
+                                     "Continuer toutes (\(remaining.left) restantes)", "Continuar todas (quedan \(remaining.left))",
+                                     "Alle fortsetzen (noch \(remaining.left))", "Continua tutte (\(remaining.left) rimanenti)")) {
+                            model.startFix(.all, restart: false)
                         }
                     }
                     Button(Loc.t("Начать заново (все \(remaining.total))", "Start over (all \(remaining.total))",
                                  "Recommencer (toutes les \(remaining.total))", "Empezar de nuevo (las \(remaining.total))",
                                  "Neu beginnen (alle \(remaining.total))", "Ricomincia (tutte le \(remaining.total))")) {
-                        model.startFix(restart: true)
+                        model.startFix(.all, restart: true)
                     }
                 }
             }
             Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
         } message: {
-            Text(Loc.t("Всё строчными буквами (кроме I), грамматика, «to» у глаголов и артикли у существительных, недостающие примеры, синонимы и пояснения. Тексты карточек перезаписываются — можно сначала экспортировать карточки как резервную копию. Прогресс изучения не меняется.",
-                       "All lower case (except I), grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. The card texts are overwritten — you may want to export the cards as a backup first. Learning progress stays as it is."))
+            Text(Loc.t("Всё строчными буквами (кроме I), грамматика, «to» у глаголов и артикли у существительных, недостающие примеры, синонимы и пояснения. «Только неполные» — карточки без примера, синонимов или пояснения. Тексты карточек перезаписываются, но заполненное поле не стирается — можно сначала экспортировать карточки как резервную копию. Прогресс изучения не меняется.",
+                       "All lower case (except I), grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. \"Only incomplete\" takes the cards missing an example, synonyms or a note. The card texts are overwritten, but a filled-in field is never emptied — you may want to export the cards as a backup first. Learning progress stays as it is."))
         }
         .sheet(item: $model.fixSession, onDismiss: { model.endFix() }) { session in
             FixCardsView(model: session) { model.fixSession = nil }

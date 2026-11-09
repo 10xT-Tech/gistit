@@ -3,8 +3,9 @@
 //  EnglishHelperTests
 //
 //  In flashcards → Fix cards: the prompt template, letter case, the run in batches with progress,
-//  resuming where it stopped (no card sent twice), unusable answers, the plan's limit, and what is
-//  never touched (Caught phrases, learning progress).
+//  resuming where it stopped (no card sent twice), only the incomplete cards (a checkpoint of their
+//  own), a field the model leaves empty, unusable answers, the plan's limit, and what is never touched
+//  (Caught phrases, learning progress).
 //
 
 import Testing
@@ -30,9 +31,10 @@ import Presentation
         return (expressions, cards)
     }
 
-    private func run(_ sut: FixCardsInteractor, restart: Bool = false, stopAfter: Int? = nil) async throws -> [FixProgress] {
+    private func run(_ sut: FixCardsInteractor, _ scope: FixScope = .all, restart: Bool = false,
+                     stopAfter: Int? = nil) async throws -> [FixProgress] {
         var steps: [FixProgress] = []
-        for try await step in sut(studiedLanguage: "English", nativeLanguage: "Russian", restart: restart) {
+        for try await step in sut(scope, studiedLanguage: "English", nativeLanguage: "Russian", restart: restart) {
             steps.append(step)
             if let stopAfter, step.processed >= stopAfter { break }
         }
@@ -45,7 +47,7 @@ import Presentation
         let template = FixCardsTemplate(studiedLanguage: "German", nativeLanguage: "Russian")
         #expect(template.systemPrompt.contains("German"))
         #expect(template.systemPrompt.contains("\"der\"/\"die\"/\"das\""))
-        #expect(template.modelTier == .fast)
+        #expect(template.modelTier == .standard)                    // the explanation model
         let message = template.userMessage(for: [FixCardItem(id: "42", expression: "tisch", translation: "стол",
                                                              example: "", synonyms: [], context: "")])
         #expect(message.contains("\"id\":\"42\""))
@@ -96,7 +98,7 @@ import Presentation
         #expect(fixed.allSatisfy { !$0.example.isEmpty && !$0.synonyms.isEmpty && !$0.context.isEmpty })
         #expect(try await expressions.all().first { $0.id == caught.id }?.en == "caught one")
         #expect(Set(try await reviewCards.all()) == Set(cards))     // learning progress untouched
-        let left0 = try await sut.remaining()
+        let left0 = try await sut.remaining(.all)
         #expect(left0.left == 0 && left0.total == 45)
     }
 
@@ -108,7 +110,7 @@ import Presentation
         let sut = FixCardsInteractor(llm: spy, expressions: MockExpressionRepository(seed: studied),
                                      cards: MockReviewCardRepository(seed: cards))
         await #expect(throws: LLMError.self) { _ = try await run(sut) }
-        let afterStop = try await sut.remaining()
+        let afterStop = try await sut.remaining(.all)
         #expect(afterStop.left == 25 && afterStop.total == 45)
 
         let rest = try await run(sut)
@@ -130,7 +132,7 @@ import Presentation
         var steps: [FixProgress] = []
         var stoppedBy: Error?
         do {
-            for try await step in sut(studiedLanguage: "English", nativeLanguage: "Russian", restart: false) {
+            for try await step in sut(.all, studiedLanguage: "English", nativeLanguage: "Russian", restart: false) {
                 steps.append(step)
             }
         } catch { stoppedBy = error }
@@ -143,8 +145,81 @@ import Presentation
         }
         let firstBatch = try await expressions.all().filter { $0.createdAt < now.addingTimeInterval(20) }
         #expect(firstBatch.allSatisfy { $0.en.hasPrefix("phrase") && $0.example.isEmpty })  // letter case only
-        let left5 = try await sut.remaining()
+        let left5 = try await sut.remaining(.all)
         #expect(left5.left == 5 && left5.total == 45)
+    }
+
+    /// "Only incomplete": just the cards missing an example, synonyms or a note go to the model; the
+    /// run keeps its own position — stopping it leaves the all-cards run where it was.
+    @Test func onlyTheIncompleteCards() async throws {
+        let (studied, cards) = deck(50)
+        let complete = studied.enumerated().map { index, expression in
+            var e = expression
+            e.example = "an example."
+            e.synonyms = ["a synonym"]
+            e.context = "заметка."
+            switch index % 5 {                                   // 30 of 50 miss one of the three
+            case 0: e.example = ""
+            case 1: e.synonyms = []
+            case 2: e.context = ""
+            default: break
+            }
+            return e
+        }
+        let expressions = MockExpressionRepository(seed: complete)
+        let spy = SpyFixLLM(failing: [2: .offline])                       // the 2nd batch: no network
+        let sut = FixCardsInteractor(llm: spy, expressions: expressions, cards: MockReviewCardRepository(seed: cards))
+        let incomplete = try await sut.remaining(.incomplete)
+        #expect(incomplete.left == 30 && incomplete.total == 30)
+
+        await #expect(throws: LLMError.self) { _ = try await run(sut, .incomplete) }
+        let afterStop = try await sut.remaining(.incomplete)
+        #expect(afterStop.left == 10 && afterStop.total == 10)          // the first 20 are complete now
+        let all = try await sut.remaining(.all)
+        #expect(all.left == 50 && all.total == 50)                      // its own position, untouched
+
+        let rest = try await run(sut, .incomplete)
+        #expect(rest.last == FixProgress(processed: 10, total: 10, changed: 10, failed: 0))
+        let sent = Set(spy.answeredIDs)
+        #expect(spy.answeredIDs.count == 30 && sent.count == 30)        // none twice
+        #expect(sent == Set(complete.filter(FixCardsInteractor.isIncomplete).map(\.id.uuidString)))
+        #expect(try await expressions.all().allSatisfy { !FixCardsInteractor.isIncomplete($0) })
+        let done = try await sut.remaining(.incomplete)
+        #expect(done.left == 0 && done.total == 0)
+    }
+
+    /// A field the model returns empty keeps what the card had; filled ones replace it.
+    @Test func anEmptyAnswerNeverEmptiesAField() async throws {
+        let (studied, cards) = deck(2)
+        var filled = studied[0]
+        filled.example = "keep this example."
+        filled.synonyms = ["keep", "these"]
+        filled.context = "оставить."
+        let expressions = MockExpressionRepository(seed: [filled, studied[1]])
+        let sut = FixCardsInteractor(llm: EmptyingFixLLM(), expressions: expressions,
+                                     cards: MockReviewCardRepository(seed: cards))
+        _ = try await run(sut)
+        let after = try await expressions.all()
+        let kept = try #require(after.first { $0.id == filled.id })
+        #expect(kept.example == "keep this example." && kept.synonyms == ["keep", "these"] && kept.context == "оставить.")
+        #expect(kept.en == "phrase 0 fixed")                            // the rest of the answer applies
+        let empty = try #require(after.first { $0.id == studied[1].id })
+        #expect(empty.example.isEmpty && empty.synonyms.isEmpty && empty.context.isEmpty)
+    }
+
+    /// Each scope's position is a value of its own; the all-cards one keeps the key it always had.
+    @Test func checkpointsPerScope() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "fix-\(UUID().uuidString)"))
+        let store = UserDefaultsCardFixProgressStore(defaults: defaults)
+        let a = CardFixCheckpoint(createdAt: now, id: UUID()), b = CardFixCheckpoint(createdAt: now, id: UUID())
+        await store.save(a, for: .all)
+        await store.save(b, for: .incomplete)
+        let all = await store.load(.all), incomplete = await store.load(.incomplete)
+        #expect(all == a && incomplete == b)
+        #expect(defaults.data(forKey: "flashcardsFixCheckpoint") != nil)
+        await store.reset(.incomplete)
+        let allAfter = await store.load(.all), incompleteAfter = await store.load(.incomplete)
+        #expect(allAfter == a && incompleteAfter == nil)
     }
 }
 
@@ -168,8 +243,9 @@ import Presentation
         var tries = 0
         while !list.showFixConfirmation, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
         #expect(list.fixRemaining?.left == 2 && list.fixRemaining?.total == 2)
+        #expect(list.fixIncomplete?.total == 0)                         // the seed cards are complete
 
-        list.startFix(restart: false)
+        list.startFix(.all, restart: false)
         let session = try #require(list.fixSession)
         tries = 0
         while session.isRunning, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
@@ -192,6 +268,17 @@ private final class SpyFixLLM: LLMClient, @unchecked Sendable {
         if let error = failing[call] { throw error }
         if let cards = input as? [FixCardItem] { lock.withLock { ids += cards.map(\.id) } }
         return try await MockLLMClient().run(template, input: input)
+    }
+}
+
+/// Fixes the expression but returns every other field empty.
+private struct EmptyingFixLLM: LLMClient {
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        let cards = (input as? [FixCardItem] ?? []).map {
+            FixCardItem(id: $0.id, expression: $0.expression + " fixed", translation: $0.translation,
+                        example: "", synonyms: [], context: "")
+        }
+        return try template.decode(String(decoding: try JSONEncoder().encode(FixCardsResult(cards: cards)), as: UTF8.self))
     }
 }
 

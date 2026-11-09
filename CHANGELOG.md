@@ -43,9 +43,10 @@ The four answer buttons look the same, so no answer is suggested — you rate ev
 **Fix cards.** In flashcards' menu has **Fix cards**: it goes through every phrase you're learning
 and writes everything in lower case (except "I"), fixes grammar and spelling, gives a single verb its
 "to" (or the infinitive marker of the language you're learning) and a single noun its article, and
-fills in a missing example, synonyms and usage note. It works in batches with a progress
-bar; stop whenever you like — next time it continues where it stopped. Your learning progress isn't
-touched. Part of **Gist It Pro**.
+fills in a missing example, synonyms and usage note — a field that's already filled in is never
+emptied. Go through all your cards, or **only the incomplete ones** (missing an example, synonyms or
+a note). It works in batches with a progress bar; stop whenever you like — next time it continues
+where it stopped. Your learning progress isn't touched. Part of **Gist It Pro**.
 
 **Import and export cards.** In flashcards has an import / export menu. **Export cards** saves all
 your flashcards — with how well you know each one — to a file you can keep as a backup or move to

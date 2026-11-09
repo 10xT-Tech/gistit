@@ -65,8 +65,9 @@ public final class StudyListViewModel {
     public var showMoveAllConfirmation = false
     /// Caught → From photos, on screen while non-nil.
     public var catchSession: CatchFromPhotosViewModel?
-    /// "Fix cards": what a run would go through, asked before starting.
+    /// "Fix cards": what a run of each scope would go through, asked before starting.
     public private(set) var fixRemaining: (left: Int, total: Int)?
+    public private(set) var fixIncomplete: (left: Int, total: Int)?
     public var showFixConfirmation = false
     /// The "Fix cards" run on screen while non-nil.
     public var fixSession: FixCardsViewModel?
@@ -242,24 +243,27 @@ public final class StudyListViewModel {
     /// In flashcards offers "Fix cards".
     public var canFixCards: Bool { fixCards != nil && scope == .studying }
 
-    /// Count what a run would cover, then ask (start / continue / start over).
+    /// Count what a run of each scope would cover, then ask (all: start / continue / start over;
+    /// only the incomplete ones).
     public func prepareFix() {
         guard let fixCards else { return }
         Task { [weak self] in
             guard let self else { return }
-            if let remaining = try? await fixCards.remaining() {
+            if let remaining = try? await fixCards.remaining(.all),
+               let incomplete = try? await fixCards.remaining(.incomplete) {
                 self.fixRemaining = remaining
+                self.fixIncomplete = incomplete
                 self.showFixConfirmation = remaining.total > 0
             }
         }
     }
 
-    /// Run over the phrases — `restart`: all again, not from where the last run stopped.
-    public func startFix(restart: Bool) {
+    /// Run over the scope's phrases — `restart`: all of them again, not from where its last run stopped.
+    public func startFix(_ scope: FixScope, restart: Bool) {
         guard let fixCards, fixSession == nil else { return }
         let session = FixCardsViewModel(fixCards: fixCards)
         fixSession = session
-        session.run(restart: restart)
+        session.run(scope, restart: restart)
     }
 
     /// The sheet closed: the fixed texts appear.
