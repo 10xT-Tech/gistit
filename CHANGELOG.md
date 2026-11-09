@@ -19,7 +19,7 @@ more often, so none waits forever), and never the same phrase both ways in one s
 reverse direction — say it from its meaning — opens once you recognise the phrase (it has moved on to
 review), and those come before brand-new phrases. The whole day is one practice: stop whenever you like, and **Continue** picks up
 today's set exactly where you left it. A card you keep getting wrong is asked at most three times a
-day, then waits until tomorrow. Reached your goal? Keep going with more. Raised the goal during the
+day, then waits until tomorrow. Reached your goal? Keep going, 25 cards at a time. Raised the goal during the
 day? Today's set grows to match. Studied less, or skipped a day? Nothing is lost — what's due simply
 waits. Study shows today's progress towards the goal.
 

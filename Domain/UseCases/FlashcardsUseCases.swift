@@ -17,7 +17,8 @@
 //
 //  The DAILY GOAL (a minimum: 25 / 50 / 75 / 100 / 150 cards, Settings) sizes the set:
 //  - today's set holds the goal (distinct cards answered today count); if the goal is raised during
-//    the day the set is topped up; once the goal is met, "more" adds a goal-sized draw to the day —
+//    the day the set is topped up; once the goal is met, "more" adds an extra set of
+//    `DailyGoalOptions.extraSet` (25) to the day, whatever the goal —
 //    studying more, less, or skipping a day all just move today's numbers, nothing is lost: an
 //    unanswered due card stays due;
 //  - LEARNING cards (mid-steps, including forgotten ones) go in first, up to the set's size — mistakes
@@ -99,6 +100,8 @@ public struct DailyPlan: Sendable, Equatable {
 
     public var remaining: Int { max(0, goal - studied) }
     public var goalReached: Bool { studied >= goal }
+    /// What "more" asks for: the rest of the goal, or — once it's met — an extra set.
+    public var moreSize: Int { goalReached ? DailyGoalOptions.extraSet : remaining }
     /// Learning and review cards still due today — the backlog included.
     public var due: Int {
         pending.learning + pending.young + pending.mature + available.learning + available.young + available.mature
@@ -158,7 +161,7 @@ public struct StudyStats: Sendable, Equatable {
 public protocol FlashcardsUseCase: Sendable {
     func stats(now: Date) async throws -> StudyStats
     /// Today's practice from where it stopped: the rest of today's set, topped up to the goal — or,
-    /// `extra`, with another goal-sized draw added beyond it.
+    /// `extra`, with an extra set (`DailyGoalOptions.extraSet`) drawn beyond it.
     func queue(now: Date, extra: Bool) async throws -> [Flashcard]
     /// How many times each card was answered today (the day's per-card limit).
     func answersToday(now: Date) async throws -> [UUID: Int]
@@ -184,6 +187,8 @@ public extension FlashcardsUseCase {
 public enum DailyGoalOptions {
     public static let all = [25, 50, 75, 100, 150]
     public static let `default` = 50
+    /// The size of each set beyond a met goal ("25 more"), whatever the goal.
+    public static let extraSet = 25
 }
 
 public struct FlashcardsInteractor: FlashcardsUseCase {
@@ -363,10 +368,10 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
                      drawable: Array(drawable))
     }
 
-    /// How many cards to draw now: up to the goal (cards still to do in the set count), or a full
-    /// goal-sized draw beyond it.
+    /// How many cards to draw now: up to the goal (cards still to do in the set count), or an extra
+    /// set beyond it.
     private func drawSize(goal: Int, today: Today, extra: Bool) -> Int {
-        if extra { return goal }
+        if extra { return DailyGoalOptions.extraSet }
         let unanswered = today.pending.filter { today.answers[$0.id] == nil }.count
         return max(0, goal - today.studied - unanswered)
     }

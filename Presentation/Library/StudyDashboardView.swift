@@ -117,8 +117,8 @@ public struct StudyDashboardView: View {
             } else {
                 // The day is one practice: Start, then Continue after a pause; past the goal, more.
                 let more = plan.goalReached && plan.pending.total == 0 && !locked
-                EHButton(more ? Loc.t("Ещё \(plan.goal)", "\(plan.goal) more", "\(plan.goal) de plus", "\(plan.goal) más",
-                                      "\(plan.goal) weitere", "Altre \(plan.goal)")
+                EHButton(more ? Loc.t("Ещё \(plan.moreSize)", "\(plan.moreSize) more", "\(plan.moreSize) de plus",
+                                      "\(plan.moreSize) más", "\(plan.moreSize) weitere", "Altre \(plan.moreSize)")
                               : plan.studied > 0 && !locked ? Loc.t("Продолжить", "Continue") : Loc.t("Начать", "Start"),
                          icon: locked ? "lock.fill" : nil, kind: .primary,
                          fillWidth: true, accessibilityID: "flashcards.start") {

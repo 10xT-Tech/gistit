@@ -167,7 +167,7 @@ struct SplitMix64: RandomNumberGenerator {
     // MARK: The day is one practice
 
     /// Start draws today's set; stopping and starting again continues the SAME set where it stopped;
-    /// with the goal met, "more" adds a new goal-sized draw.
+    /// with the goal met, "more" adds an extra set of 25 — whatever the goal.
     @Test func theDayIsOnePracticeThatContinues() async throws {
         let phrases = (0..<40).map { expression("p\($0)") }
         let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
@@ -187,13 +187,14 @@ struct SplitMix64: RandomNumberGenerator {
         var plan = try await sut.stats(now: now).today
         #expect(plan.studied == 4 && plan.pending.total == 6 && !plan.goalReached)
 
-        // The rest answered: the goal is met, nothing owed — "more" draws ten new cards.
+        // The rest answered: the goal (10) is met, nothing owed — "more" draws an extra 25.
         for card in resumed { _ = try await sut.rate(card.card, .easy, now: now) }
         #expect(try await sut.queue(now: now).isEmpty)
         plan = try await sut.stats(now: now).today
         #expect(plan.goalReached && plan.pending.total == 0 && plan.hasMore)
+        #expect(plan.moreSize == DailyGoalOptions.extraSet && plan.nextSet.total == DailyGoalOptions.extraSet)
         let more = try await sut.queue(now: now, extra: true)
-        #expect(more.count == 10)
+        #expect(more.count == DailyGoalOptions.extraSet)
         #expect(Set(more.map(\.id)).isDisjoint(with: first.map(\.id)))
 
         // A new day: a new set.

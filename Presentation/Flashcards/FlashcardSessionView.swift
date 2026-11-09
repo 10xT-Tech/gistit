@@ -114,8 +114,8 @@ public struct FlashcardSessionView: View {
             }
             Spacer()
             if model.canStudyMore, let plan {
-                EHButton(Loc.t("Ещё \(plan.goal)", "\(plan.goal) more", "\(plan.goal) de plus", "\(plan.goal) más",
-                               "\(plan.goal) weitere", "Altre \(plan.goal)"),
+                EHButton(Loc.t("Ещё \(plan.moreSize)", "\(plan.moreSize) more", "\(plan.moreSize) de plus",
+                               "\(plan.moreSize) más", "\(plan.moreSize) weitere", "Altre \(plan.moreSize)"),
                          icon: "plus", kind: .primary, fillWidth: true, accessibilityID: "flashcards.more") {
                     Task { await model.more() }
                 }

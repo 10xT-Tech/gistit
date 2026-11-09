@@ -117,7 +117,7 @@ import Presentation
         #expect(second.plan?.studied == 1)
     }
 
-    /// Goal met: the end screen offers another goal-sized set while cards are waiting.
+    /// Goal met: the end screen offers an extra set (25) while cards are waiting.
     @Test func moreAfterTheGoal() async throws {
         let clock = Clock(start)
         let phrases = (0..<3).map { Domain.Expression(en: "p\($0)", ru: "п\($0)", createdAt: start.addingTimeInterval(-86_400)) }
@@ -136,9 +136,10 @@ import Presentation
         try await waitUntil { vm.phase == .finished }
         #expect(vm.plan?.goalReached == true)
         #expect(vm.canStudyMore)
+        #expect(vm.plan?.moreSize == DailyGoalOptions.extraSet)       // not the goal of one
         await vm.more()
         #expect(vm.phase == .studying)
-        #expect(vm.remaining == 1)
+        #expect(vm.remaining == 2)                                // all that's left: two new cards
     }
 
     @Test func emptyQueueFinishesAtOnce() async {

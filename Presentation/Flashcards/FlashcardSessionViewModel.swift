@@ -7,7 +7,7 @@
 //  today's set where it stopped. A card that comes back within the learn-ahead window (a learning
 //  step, or a lapse) is queued again — while it has answers left today
 //  (`PracticeDay.maxAnswersPerCard`), so a hard card can't loop the day. When today's set is done,
-//  "more" adds another goal-sized draw.
+//  "more" adds an extra set of 25.
 //
 
 import Foundation
@@ -57,7 +57,7 @@ public final class FlashcardSessionViewModel: Identifiable {
         await load(extra: startsExtra)
     }
 
-    /// More practice: up to the goal if it isn't met yet, else another goal-sized draw.
+    /// More practice: up to the goal if it isn't met yet, else an extra set (`DailyPlan.moreSize`).
     public func more() async {
         await load(extra: plan?.goalReached ?? true)
     }
