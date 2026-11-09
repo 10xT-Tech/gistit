@@ -110,6 +110,7 @@ final class FlashcardsUITests: XCTestCase {
         moveAll.tap()
         let confirm = app.buttons["Move (2)"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        attach(app, "move-all-sheet")
         confirm.tap()
         XCTAssertTrue(app.staticTexts["Nothing yet"].waitForExistence(timeout: 3), "Caught didn't empty")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()

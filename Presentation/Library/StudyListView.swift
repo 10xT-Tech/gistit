@@ -128,33 +128,31 @@ public struct StudyListView: View {
             DuplicatesView(model: session) { model.duplicatesSession = nil }
                 .environment(subscription)
         }
-        .confirmationDialog(Loc.t("Похоже, уже есть во флеш-картах", "Looks like it's already in flashcards"),
-                            isPresented: lookAlikeBinding, titleVisibility: .visible,
-                            presenting: model.lookAlike) { lookAlike in
-            Button(Loc.t("Объединить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci")) {
-                model.mergeIntoFlashcards(lookAlike)
+        .sheet(item: $model.lookAlike) { lookAlike in
+            ConfirmSheet(icon: "square.on.square",
+                         title: Loc.t("Похоже, уже есть во флеш-картах", "Looks like it's already in flashcards"),
+                         message: Loc.t("«\(lookAlike.caught.en)» похоже на эти карточки. «Объединить» — модель соберёт одну карточку (несколько значений пронумерует), прогресс изучения сохранится.",
+                                        "\"\(lookAlike.caught.en)\" looks like these cards. Merge — the model makes one card (numbering several meanings), and the learning progress stays."),
+                         actions: [
+                             ConfirmAction(Loc.t("Объединить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci"),
+                                           icon: "arrow.triangle.merge") { model.mergeIntoFlashcards(lookAlike) },
+                             ConfirmAction(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément",
+                                                 "Mover por separado", "Separat verschieben", "Sposta separatamente"),
+                                           role: .secondary) { model.moveSeparately(lookAlike) },
+                         ]) {
+                PhraseList(phrases: lookAlike.existing.map { ($0.en, $0.ru) })
             }
-            Button(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément", "Mover por separado",
-                         "Separat verschieben", "Sposta separatamente")) {
-                model.moveSeparately(lookAlike)
-            }
-            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
-        } message: { lookAlike in
-            let existing = lookAlike.existing.map { "«\($0.en)» — \($0.ru)" }.joined(separator: "\n")
-            Text(Loc.t("«\(lookAlike.caught.en)» похоже на:\n\(existing)\n\nОбъединить — модель соберёт одну карточку (несколько значений пронумерует), прогресс изучения сохранится.",
-                       "\"\(lookAlike.caught.en)\" looks like:\n\(existing)\n\nMerge — the model makes one card (numbering several meanings), and the learning progress stays."))
         }
-        .confirmationDialog(Loc.t("Похоже, это другая фраза", "Looks like another phrase"),
-                            isPresented: notADuplicateBinding, titleVisibility: .visible,
-                            presenting: model.notADuplicate) { lookAlike in
-            Button(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément", "Mover por separado",
-                         "Separat verschieben", "Sposta separatamente")) {
-                model.moveSeparately(lookAlike)
-            }
-            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
-        } message: { lookAlike in
-            Text(Loc.t("Модель не нашла среди похожих карточек ту же фразу, что «\(lookAlike.caught.en)» — объединять не с чем.",
-                       "The model found none of the look-alikes to be the same phrase as \"\(lookAlike.caught.en)\" — nothing to merge with."))
+        .sheet(item: $model.notADuplicate) { lookAlike in
+            ConfirmSheet(icon: "questionmark.square.dashed",
+                         title: Loc.t("Похоже, это другая фраза", "Looks like another phrase"),
+                         message: Loc.t("Модель не нашла среди похожих карточек ту же фразу, что «\(lookAlike.caught.en)» — объединять не с чем.",
+                                        "The model found none of the look-alikes to be the same phrase as \"\(lookAlike.caught.en)\" — nothing to merge with."),
+                         actions: [
+                             ConfirmAction(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément",
+                                                 "Mover por separado", "Separat verschieben", "Sposta separatamente"),
+                                           icon: "rectangle.stack.badge.plus") { model.moveSeparately(lookAlike) },
+                         ])
         }
         .sheet(item: $previewed) { expression in
             CardPreviewView(expression: expression, cards: model.cards(for: expression),
@@ -212,31 +210,28 @@ public struct StudyListView: View {
             CatchFromPhotosView(model: session) { model.catchSession = nil }
                 .environment(subscription)
         }
-        .confirmationDialog(
-            Loc.t("Перенести все во флеш-карты?", "Move all to flashcards?"),
-            isPresented: $model.showMoveAllConfirmation,
-            titleVisibility: .visible
-        ) {
+        .sheet(isPresented: $model.showMoveAllConfirmation) {
             let all = model.expressions.count, alike = model.moveAllLookAlikes.count
-            if alike > 0 && alike < all {
-                Button(Loc.t("Перенести без похожих (\(all - alike))", "Move all but look-alikes (\(all - alike))",
-                             "Déplacer sauf les similaires (\(all - alike))", "Mover salvo las parecidas (\(all - alike))",
-                             "Ohne ähnliche verschieben (\(all - alike))", "Sposta tranne le simili (\(all - alike))")) {
-                    model.moveAllToFlashcards(skippingLookAlikes: true)
-                }
-            }
-            Button(Loc.t("Перенести (\(all))", "Move (\(all))", "Déplacer (\(all))", "Mover (\(all))",
-                         "Verschieben (\(all))", "Sposta (\(all))")) {
-                model.moveAllToFlashcards()
-            }
-            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
-        } message: {
-            let alike = model.moveAllLookAlikes.count
-            Text(alike == 0
-                 ? Loc.t("Все фразы из «Пойманных» станут флеш-картами, список очистится.",
-                         "Every phrase in Caught becomes flashcards, and the list empties.")
-                 : Loc.t("Похожи на фразы во флеш-картах: \(alike). Без них они останутся в «Пойманных» — их можно перенести по одной и объединить.",
-                         "Look like phrases in flashcards: \(alike). Leave them out, and they stay in Caught — move them one by one to merge."))
+            ConfirmSheet(icon: "rectangle.stack.badge.plus",
+                         title: Loc.t("Перенести все во флеш-карты?", "Move all to flashcards?"),
+                         message: alike == 0
+                            ? Loc.t("Все фразы из «Пойманных» станут флеш-картами, список очистится.",
+                                    "Every phrase in Caught becomes flashcards, and the list empties.")
+                            : Loc.t("Похожи на фразы во флеш-картах: \(alike). Без них они останутся в «Пойманных» — их можно перенести по одной и объединить.",
+                                    "Look like phrases in flashcards: \(alike). Leave them out, and they stay in Caught — move them one by one to merge."),
+                         actions: (alike > 0 && alike < all ? [
+                             ConfirmAction(Loc.t("Перенести без похожих (\(all - alike))", "Move all but look-alikes (\(all - alike))",
+                                                 "Déplacer sauf les similaires (\(all - alike))", "Mover salvo las parecidas (\(all - alike))",
+                                                 "Ohne ähnliche verschieben (\(all - alike))", "Sposta tranne le simili (\(all - alike))")) {
+                                 model.moveAllToFlashcards(skippingLookAlikes: true)
+                             },
+                         ] : []) + [
+                             ConfirmAction(Loc.t("Перенести (\(all))", "Move (\(all))", "Déplacer (\(all))", "Mover (\(all))",
+                                                 "Verschieben (\(all))", "Sposta (\(all))"),
+                                           role: alike > 0 && alike < all ? .secondary : .primary) {
+                                 model.moveAllToFlashcards()
+                             },
+                         ])
         }
         .onChange(of: model.exportedDeck) { _, deck in
             guard let deck else { return }
@@ -390,14 +385,6 @@ public struct StudyListView: View {
 
     private var importMessageBinding: Binding<Bool> {
         Binding(get: { model.importMessage != nil }, set: { if !$0 { model.clearImportMessage() } })
-    }
-
-    private var lookAlikeBinding: Binding<Bool> {
-        Binding(get: { model.lookAlike != nil }, set: { if !$0 { model.lookAlike = nil } })
-    }
-
-    private var notADuplicateBinding: Binding<Bool> {
-        Binding(get: { model.notADuplicate != nil }, set: { if !$0 { model.notADuplicate = nil } })
     }
 
     private var actionErrorBinding: Binding<Bool> {
@@ -592,5 +579,29 @@ private struct StudyAction: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// "«phrase» — translation" lines on a quiet panel (the look-alike sheet's cards).
+private struct PhraseList: View {
+    let phrases: [(String, String)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s8) {
+            ForEach(Array(phrases.enumerated()), id: \.offset) { _, phrase in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(phrase.0)
+                        .textStyle(Tokens.Text.headline)
+                        .foregroundStyle(Tokens.Content.primary)
+                    Text(phrase.1)
+                        .textStyle(Tokens.Text.subhead)
+                        .foregroundStyle(Tokens.Content.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Tokens.Space.s12)
+        .background(Tokens.Fill.subtle, in: RoundedRectangle(cornerRadius: Tokens.Radius.card / 2))
     }
 }

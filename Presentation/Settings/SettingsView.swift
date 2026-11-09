@@ -401,12 +401,14 @@ public struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
-        .confirmationDialog(
-            Loc.t("Очистить кэш переводов?", "Clear the translation cache?"),
-            isPresented: $showClearCacheConfirm, titleVisibility: .visible
-        ) {
-            Button(Loc.t("Очистить", "Clear"), role: .destructive) { Task { await model.clearCache() } }
-            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
+        .sheet(isPresented: $showClearCacheConfirm) {
+            ConfirmSheet(icon: "trash",
+                         title: Loc.t("Очистить кэш переводов?", "Clear the translation cache?"),
+                         message: Loc.t("Повторные переводы снова пойдут через модель.",
+                                        "Repeat translations will go through the model again."),
+                         actions: [ConfirmAction(Loc.t("Очистить", "Clear"), role: .destructive) {
+                             Task { await model.clearCache() }
+                         }])
         }
     }
 

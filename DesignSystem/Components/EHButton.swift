@@ -2,13 +2,14 @@
 //  EHButton.swift
 //  EnglishHelper — DesignSystem
 //
-//  Pill button, four kinds (mirrors the design kit: primary / glass / tonal / ghost).
+//  Pill button, five kinds (the design kit's primary / glass / tonal / ghost, plus destructive — a red
+//  fill for an action that deletes, a functional signal).
 //
 
 import SwiftUI
 
 public struct EHButton: View {
-    public enum Kind: Sendable { case primary, glass, tonal, ghost }
+    public enum Kind: Sendable { case primary, glass, tonal, ghost, destructive }
 
     private let title: String
     private let icon: String?
@@ -70,6 +71,7 @@ public struct EHButton: View {
         switch kind {
         case .primary: Tokens.Content.onInvert
         case .glass, .tonal, .ghost: Tokens.Content.primary
+        case .destructive: Tokens.Content.onSignal
         }
     }
 
@@ -79,6 +81,7 @@ public struct EHButton: View {
         case .glass:   Color.clear.glassPanelCapsule()
         case .tonal:   Tokens.Fill.default
         case .ghost:   Color.clear
+        case .destructive: Tokens.Signal.error
         }
     }
 }

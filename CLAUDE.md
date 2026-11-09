@@ -310,6 +310,9 @@ real WebSocket; the Simulator run only proves UI/wiring).
 - **Speech recognition:** iOS 26 `SpeechAnalyzer`/`SpeechTranscriber` has NO on-device Russian model
   (`AssetInventory.status` = `.unsupported`), so `NativeSpeechRecognizer` uses `SFSpeechRecognizer`
   (server-backed, needs network). Engine swap = one line in `AppContainer.bootLive`.
+- **No pop-up dialogs:** the app asks with `ConfirmSheet` (DesignSystem — a content-sized sheet: icon,
+  title, message, optional details, full-width actions, Cancel; `EHButton.Kind.destructive` for deletes),
+  never `confirmationDialog` (iOS 26 shows it as a popover bubble — the user doesn't want those).
 - **Liquid Glass vs readability:** all glass goes through `glassPanel`, which swaps to a SOLID
   surface under Reduce Transparency; `MicButton` rings/`symbolEffect` disable under Reduce Motion.
 - **Iconography:** using SF Symbols (the design's icon names were SF-Symbol-style) for native
