@@ -57,6 +57,7 @@ import Presentation
         let template = PhotoCardsTemplate()
         #expect(template.systemPrompt.contains("make ONE card for that phrase, whole"))
         #expect(template.systemPrompt.contains("never split it into words or parts"))
+        #expect(template.systemPrompt.contains("make one such card for each of them"))   // a list of phrases
         #expect(template.systemPrompt.contains("highlighted with a marker, underlined, circled"))
         #expect(template.systemPrompt.contains("unmarked running text gives no cards"))
         #expect(template.systemPrompt.contains("the sentence it stands in on the page"))
@@ -65,6 +66,17 @@ import Presentation
         #expect(template.outputJSONSchema.contains("\"required\":[\"expression\",\"translation\",\"example\",\"synonyms\",\"context\"]"))
         #expect(!template.systemPrompt.contains("do not skip anything"))
         #expect(template.userMessage(for: RecognizableImage(data: Data())).contains("the phrases marked on it"))
+    }
+
+    /// Caught cards get the letter case Fix cards writes, whatever the model returned.
+    @Test func caughtCardsGetTheLetterCase() async throws {
+        let repo = MockExpressionRepository(seed: [])
+        let sut = CatchCardsFromPhotosInteractor(llm: ShoutingLLM(), repository: repo)
+        for try await _ in sut([RecognizableImage(data: Data([1]))], studiedLanguage: "English", nativeLanguage: "Russian") {}
+        let card = try #require(try await repo.all().first)
+        #expect(card.en == "I'm on the fence" && card.ru == "я сомневаюсь")
+        #expect(card.example == "I'm on the fence about it." && card.synonyms == ["I can't decide"])
+        #expect(card.context == "нейтрально")
     }
 
     /// A photo with nothing featured or marked gives no cards — and is counted, so the sheet can say
@@ -271,5 +283,12 @@ private final class ScriptedPhotoLLM: LLMClient, @unchecked Sendable {
 private struct NothingMarkedLLM: LLMClient {
     func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
         try template.decode(#"{"cards":[]}"#)
+    }
+}
+
+/// Answers with the letter case all wrong.
+private struct ShoutingLLM: LLMClient {
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        try template.decode(#"{"cards":[{"expression":"i'm On The Fence","translation":"Я Сомневаюсь","example":"i'm on the fence about it.","synonyms":["i can't Decide"],"context":"Нейтрально"}]}"#)
     }
 }

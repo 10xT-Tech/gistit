@@ -673,7 +673,8 @@ public struct PhotoCardsResult: Codable, Sendable, Equatable {
 
 /// A photo or screenshot → vocabulary cards (Caught → "From photos") for what's meant to be learned
 /// only: ONE card for a featured phrase — a phrase set apart to be learned, as on language-learning
-/// posts, kept whole, with the translation the image shows — or, on a page of text, a card for each
+/// posts, kept whole, with the translation the image shows (one per phrase when a post lists several)
+/// — or, on a page of text, a card for each
 /// phrase the reader MARKED (highlighted, underlined, circled…), in dictionary form with its sentence
 /// as the example. Unmarked running text and the screen around the content (app interface, names, song
 /// titles, captions, comments, other posts) give no cards. Metered like explanations on the free plan:
@@ -702,8 +703,9 @@ public struct PhotoCardsTemplate: PromptTemplate {
           a panel, large or highlighted text in the middle, often with its \(nativeLanguage) translation next to
           it (posts of language-learning accounts look like this). Then make ONE card for that phrase, whole
           and as written — never split it into words or parts — with the translation the image shows, if it
-          shows one. Make no other cards. A short text standing on its own — a sign, a label, a slogan —
-          counts as a featured phrase too.
+          shows one. Make no other cards. When the image sets several phrases apart — a list of phrases, each
+          with its translation — make one such card for each of them. A short text standing on its own — a
+          sign, a label, a slogan — counts as a featured phrase too.
         - MARKED PHRASES on a page of text (a book, an article, notes, a chat): only the words and phrases the
           reader marked — highlighted with a marker, underlined, circled, boxed, bracketed or otherwise marked
           by hand. One card per marked phrase, whole: never split it, never add the words around it.

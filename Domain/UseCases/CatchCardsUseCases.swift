@@ -65,9 +65,13 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                         if result.cards.isEmpty { empty += 1 }
                         for draft in result.cards {
                             guard try await repository.find(en: draft.expression) == nil else { continue }
-                            try await repository.add(Expression(en: draft.expression, ru: draft.translation,
-                                                                example: draft.example, synonyms: draft.synonyms,
-                                                                context: draft.context))
+                            // The letter case Fix cards writes, whatever the model did ("i'm" → "I'm").
+                            let studied = { FixCardsInteractor.lettercase($0, language: studiedLanguage) }
+                            let native = { FixCardsInteractor.lettercase($0, language: nativeLanguage) }
+                            try await repository.add(Expression(en: studied(draft.expression), ru: native(draft.translation),
+                                                                example: studied(draft.example),
+                                                                synonyms: draft.synonyms.map(studied),
+                                                                context: native(draft.context)))
                             added += 1
                         }
                         analytics?.track(.photoCardsCompleted)
