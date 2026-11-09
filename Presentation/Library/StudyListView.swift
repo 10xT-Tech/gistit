@@ -281,6 +281,20 @@ public struct StudyListView: View {
     // MARK: Content
 
     @ViewBuilder private var contentSection: some View {
+        if model.phase == .loaded {
+            list
+        } else {
+            // Loading / empty / failed sit in a scroll view too, filling it: with no scroll view under it,
+            // the navigation bar's large title and search field stayed on screen over Study for a moment
+            // when going back from an empty list.
+            ScrollView {
+                stateSection.containerRelativeFrame([.horizontal, .vertical])
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    @ViewBuilder private var stateSection: some View {
         switch model.phase {
         case .loading:
             LoadingView(Loc.t("Загружаю…", "Loading…"))
@@ -302,7 +316,7 @@ public struct StudyListView: View {
                            action: model.canTransferCards ? { showImporter = true } : nil)
             }
         case .loaded:
-            list
+            EmptyView()
         }
     }
 
