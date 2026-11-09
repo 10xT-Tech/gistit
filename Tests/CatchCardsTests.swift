@@ -32,14 +32,17 @@ import Presentation
         let raw = #"""
         {"cards":[
           {"expression":" **threshold** ","translation":"порог / граница","example":"the value exceeds the threshold.",
-           "synonyms":["limit","boundary","cutoff","edge",""]},
-          {"expression":"  ","translation":"x","example":"y","synonyms":[]}
+           "synonyms":["limit","boundary","cutoff","edge",""],"context":" **нейтрально** "},
+          {"expression":"  ","translation":"x","example":"y","synonyms":[],"context":""},
+          {"expression":"discard","translation":"отбросить","example":"z","synonyms":[]}
         ]}
         """#
         let result = try PhotoCardsTemplate().decode(raw)
-        #expect(result.cards.count == 1)                          // the blank expression is dropped
+        #expect(result.cards.count == 2)                          // the blank expression is dropped
         #expect(result.cards[0].expression == "threshold")
         #expect(result.cards[0].synonyms == ["limit", "boundary", "cutoff"])
+        #expect(result.cards[0].context == "нейтрально")
+        #expect(result.cards[1].context.isEmpty)                  // no note: still a card
     }
 
     @Test func photoCardsPromptNamesTheLanguages() {
@@ -58,6 +61,8 @@ import Presentation
         #expect(template.systemPrompt.contains("unmarked running text gives no cards"))
         #expect(template.systemPrompt.contains("the sentence it stands in on the page"))
         #expect(template.systemPrompt.contains("song and music titles"))
+        #expect(template.systemPrompt.contains("\"context\""))                         // a usage note on every card
+        #expect(template.outputJSONSchema.contains("\"required\":[\"expression\",\"translation\",\"example\",\"synonyms\",\"context\"]"))
         #expect(!template.systemPrompt.contains("do not skip anything"))
         #expect(template.userMessage(for: RecognizableImage(data: Data())).contains("the phrases marked on it"))
     }
@@ -89,6 +94,7 @@ import Presentation
         let card = try #require(try await repo.all().first { $0.en == "threshold" })
         #expect(card.ru == "порог / граница")
         #expect(card.synonyms == ["limit", "boundary", "cutoff"])
+        #expect(card.context == "нейтрально; о пределе значения.")      // the usage note is stored
     }
 
     /// A photo the model answers badly is skipped; the free plan's limit stops the batch (cards so far stay).

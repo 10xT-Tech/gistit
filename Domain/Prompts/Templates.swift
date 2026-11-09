@@ -644,16 +644,29 @@ public struct CardDraft: Codable, Sendable, Equatable {
     public let translation: String
     public let example: String
     public let synonyms: [String]
+    /// A short usage note in the native language (register, tone, typical situation).
+    public let context: String
 
-    public init(expression: String, translation: String, example: String, synonyms: [String]) {
+    public init(expression: String, translation: String, example: String, synonyms: [String], context: String = "") {
         self.expression = expression
         self.translation = translation
         self.example = example
         self.synonyms = synonyms
+        self.context = context
+    }
+
+    /// An answer without a note (older shape) still decodes.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        expression = try container.decode(String.self, forKey: .expression)
+        translation = try container.decode(String.self, forKey: .translation)
+        example = try container.decode(String.self, forKey: .example)
+        synonyms = try container.decode([String].self, forKey: .synonyms)
+        context = try container.decodeIfPresent(String.self, forKey: .context) ?? ""
     }
 }
 
-/// `{ "cards": [ { expression, translation, example, synonyms } ] }`.
+/// `{ "cards": [ { expression, translation, example, synonyms, context } ] }`.
 public struct PhotoCardsResult: Codable, Sendable, Equatable {
     public let cards: [CardDraft]
 }
@@ -708,6 +721,8 @@ public struct PhotoCardsTemplate: PromptTemplate {
           otherwise one or two variants separated by " / ".
         - "example": for a marked phrase, the sentence it stands in on the page; otherwise one example
           sentence in \(studiedLanguage) that uses it.
+        - "context" (\(nativeLanguage)): one short note on when and how it is said — register and tone (polite,
+          irritated, ironic, rude…) and the typical situation. Never leave it empty.
         - "synonyms": 2 to 3 \(studiedLanguage) synonyms.
         Use lowercase letters everywhere — except the English pronoun "I" (I'm, I've, I'll, I'd) and German
         nouns. No commentary.
@@ -719,8 +734,9 @@ public struct PhotoCardsTemplate: PromptTemplate {
         """
         {"type":"object","properties":{"cards":{"type":"array","items":{"type":"object",
         "properties":{"expression":{"type":"string"},"translation":{"type":"string"},
-        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}}},
-        "required":["expression","translation","example","synonyms"],"additionalProperties":false}}},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
+        "context":{"type":"string"}},
+        "required":["expression","translation","example","synonyms","context"],"additionalProperties":false}}},
         "required":["cards"],"additionalProperties":false}
         """
     }
@@ -737,7 +753,8 @@ public struct PhotoCardsTemplate: PromptTemplate {
             CardDraft(expression: PlainText.clean(card.expression),
                       translation: PlainText.clean(card.translation),
                       example: PlainText.clean(card.example),
-                      synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)))
+                      synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)),
+                      context: PlainText.clean(card.context))
         }
         return PhotoCardsResult(cards: cards.filter { !$0.expression.isEmpty })
     }

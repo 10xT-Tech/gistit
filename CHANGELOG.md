@@ -35,7 +35,8 @@ in for you) or **From photos** (pick one or more photos or screenshots, with a p
 works: a phrase set apart to be learned — like the caption of a language-learning post — becomes one
 card, whole, with the translation the picture shows; on a page of text, each phrase you highlighted,
 underlined or circled becomes a card, with its sentence from the page as the example — unmarked text
-and the app around it, like names, song titles and comments, are left out). Swipe a phrase right (or tap
+and the app around it, like names, song titles and comments, are left out; every card comes with
+synonyms and a note on when and how it's said). Swipe a phrase right (or tap
 its card icon) to move it into flashcards, or **Move all to flashcards** at once. If a phrase looks
 like one you already learn ("hit the roof!" and "to hit the roof"), the app asks first: **Merge** joins
 it with the card it really is — your progress stays, and several meanings are numbered on one card —

@@ -110,10 +110,10 @@ public final class MockLLMClient: LLMClient {
             {"cards":[
               {"expression":"threshold","translation":"порог / граница",
                "example":"the system triggers an alert when the value exceeds the threshold.",
-               "synonyms":["limit","boundary","cutoff"]},
+               "synonyms":["limit","boundary","cutoff"],"context":"нейтрально; о пределе значения."},
               {"expression":"discard","translation":"отбросить / отклонить",
                "example":"we decided to discard the old approach and start fresh.",
-               "synonyms":["drop","reject","abandon"]}
+               "synonyms":["drop","reject","abandon"],"context":"нейтрально; об отказе от ненужного."}
             ]}
             """
         case "enrichCard":

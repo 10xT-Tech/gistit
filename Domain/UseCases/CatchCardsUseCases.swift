@@ -66,7 +66,8 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                         for draft in result.cards {
                             guard try await repository.find(en: draft.expression) == nil else { continue }
                             try await repository.add(Expression(en: draft.expression, ru: draft.translation,
-                                                                example: draft.example, synonyms: draft.synonyms))
+                                                                example: draft.example, synonyms: draft.synonyms,
+                                                                context: draft.context))
                             added += 1
                         }
                         analytics?.track(.photoCardsCompleted)
