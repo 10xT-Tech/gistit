@@ -6,12 +6,15 @@
 //  over flashcards (Caught left out, "not duplicates" hidden, progress, exact duplicates), the
 //  model's check in batches (sent / answered, merges inside a group — look-alike isn't the same —
 //  unusable answers, a stop), the merge (texts, which card each direction keeps, a caught phrase
-//  merged into its flashcard), the template, and the screens: a look-alike moved from Caught (exact,
-//  by the model, or another phrase), Move all without look-alikes, the Find duplicates sheet.
+//  merged into its flashcard), "not duplicates" links (kept with the cards, honoured by a search,
+//  ignored by a full re-check, adopted from the first builds' UserDefaults, carried by card files), the
+//  template, and the screens: a look-alike moved from Caught (exact, by the model, or another phrase),
+//  Move all without look-alikes, the Find duplicates sheet.
 //
 
 import Testing
 import Foundation
+import SwiftData
 import Domain
 import Adapters
 import Presentation
@@ -98,8 +101,56 @@ import Presentation
         #expect(alike[caught.id]?.map(\.id) == [roof1.id, roof2.id])
         #expect(alike[unique.id] == nil)                                             // only itself
 
-        await sut.dismiss(groups[1].expressions.map(\.id))                           // "not duplicates"
+        try await sut.markNotDuplicates(groups[1].expressions.map(\.id))             // "Don't merge"
         #expect(try await scan(sut)?.map(\.key) == ["hit the roof"])
+        // A full re-check brings them back, marked.
+        let full = try #require(try await scan(sut, full: true))
+        #expect(full.map(\.key) == ["hit the roof", "solid"])
+        #expect(full[1].isAllMarked && !full[1].honorsMarks && full[1].excluded.isEmpty)
+    }
+
+    /// A new look-alike joins a marked pair: the group is offered again, but the marked pair is never
+    /// proposed for merging — not as an exact duplicate, not from the model.
+    @Test func aMarkedPairIsNeverProposed() async throws {
+        let a = phrase("hit the roof", "взбеситься", 0), b = phrase("to hit the roof", "взбеситься", 1)
+        let c = phrase("hit the roof!", "разозлиться", 2)
+        let marks = InMemoryNotDuplicateMarks([NotDuplicatePair(a.id, b.id)])
+        let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: [a, b, c]),
+                                       cards: MockReviewCardRepository(seed: [a, b, c].flatMap { cards($0) }),
+                                       marks: marks)
+        let group = try #require(try await scan(sut)?.first)
+        #expect(group.expressions.count == 3 && !group.isAllMarked)
+        #expect(group.exact.isEmpty)                                                 // a+b are exact, but marked
+        var proposals: [String: [DuplicateMerge]] = [:]
+        for try await step in sut.check([group], studiedLanguage: "English", nativeLanguage: "Russian") {
+            proposals.merge(step.proposals) { _, new in new }
+        }
+        #expect(proposals[group.key] == [])                                          // the model's a+b dropped
+
+        // Merged away, a phrase's links go with it.
+        try await sut.merge([a, c], into: CardText(expression: "hit the roof", translation: "x", example: "",
+                                                   synonyms: [], context: ""),
+                            as: .duplicate, studiedLanguage: "English", nativeLanguage: "Russian")
+        #expect(try await marks.pairs() == [NotDuplicatePair(a.id, b.id)])
+        try await sut.merge([b, a], into: CardText(expression: "hit the roof", translation: "x", example: "",
+                                                   synonyms: [], context: ""),
+                            as: .duplicate, studiedLanguage: "English", nativeLanguage: "Russian")
+        #expect(try await marks.pairs().isEmpty)
+    }
+
+    /// The first builds kept "not duplicates" in UserDefaults: a scan turns them into links, once.
+    @Test func legacyDismissalsBecomeLinks() async throws {
+        let a = phrase("solid", "надёжный", 0), b = phrase("solid", "твёрдый", 1)
+        let defaults = try #require(UserDefaults(suiteName: "dups-\(UUID().uuidString)"))
+        defaults.set([DuplicateGroup.memberID(of: [a.id, b.id])], forKey: "flashcardsNotDuplicates")
+        let legacy = UserDefaultsDuplicateDismissalStore(defaults: defaults)
+        let marks = InMemoryNotDuplicateMarks()
+        let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: [a, b]),
+                                       cards: MockReviewCardRepository(seed: [a, b].flatMap { cards($0) }),
+                                       marks: marks, legacyDismissals: legacy)
+        #expect(try await scan(sut) == [])
+        #expect(try await marks.pairs() == [NotDuplicatePair(a.id, b.id)])
+        #expect(await legacy.dismissed().isEmpty)
     }
 
     @Test func scanReportsProgress() async throws {
@@ -107,7 +158,7 @@ import Presentation
         let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: studied),
                                        cards: MockReviewCardRepository(seed: studied.flatMap { cards($0) }))
         var steps: [DuplicateScanStep] = []
-        for try await step in sut.scan(studiedLanguage: "English") { steps.append(step) }
+        for try await step in sut.scan(studiedLanguage: "English", full: false) { steps.append(step) }
         #expect(steps.map(\.checked) == [0] + Array(stride(from: 50, through: 450, by: 50)))
         #expect(steps.last?.groups == [])
     }
@@ -149,9 +200,9 @@ import Presentation
         #expect(merges.map(\.expressionIDs) == [[a.id, b.id]])                       // oldest first; c stays apart
     }
 
-    private func scan(_ sut: DuplicatesInteractor) async throws -> [DuplicateGroup]? {
+    private func scan(_ sut: DuplicatesInteractor, full: Bool = false) async throws -> [DuplicateGroup]? {
         var groups: [DuplicateGroup]?
-        for try await step in sut.scan(studiedLanguage: "English") { groups = step.groups ?? groups }
+        for try await step in sut.scan(studiedLanguage: "English", full: full) { groups = step.groups ?? groups }
         return groups
     }
 
@@ -297,13 +348,42 @@ import Presentation
         #expect(merges[0].card.expression == "solid" && merges[0].card.synonyms.count == 4)
     }
 
-    @Test func notDuplicatesAreRemembered() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "dups-\(UUID().uuidString)"))
-        let store = UserDefaultsDuplicateDismissalStore(defaults: defaults)
-        await store.dismiss("a,b")
-        await store.dismiss("a,b")
-        #expect(await store.dismissed() == ["a,b"])
-        #expect(await UserDefaultsDuplicateDismissalStore(defaults: defaults).dismissed() == ["a,b"])
+    /// The links live in the store with the cards (schema V5) and survive reopening it.
+    @Test func linksAreKeptWithTheCards() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "marks-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "s.store")
+        let a = UUID(), b = UUID(), c = UUID()
+        func open() throws -> SwiftDataNotDuplicateMarks {
+            let schema = PersistenceSchema.current
+            let container = try ModelContainer(for: schema, migrationPlan: AppMigrationPlan.self,
+                                               configurations: ModelConfiguration(schema: schema, url: url))
+            return SwiftDataNotDuplicateMarks(modelContainer: container)
+        }
+        let marks = try open()
+        try await marks.mark(NotDuplicatePair.all(among: [a, b, c]))
+        try await marks.mark([NotDuplicatePair(b, a)])                                // the same pair, either way round
+        #expect(try await marks.pairs().count == 3)
+        try await marks.unmark(involving: [c])
+        #expect(try await open().pairs() == [NotDuplicatePair(a, b)])
+    }
+
+    /// A card file carries the links by expression; importing it on another device links again.
+    @Test func cardFilesCarryTheLinks() async throws {
+        let a = phrase("solid", "надёжный", 0), b = phrase("a solid", "твёрдый", 1), c = phrase("jump the gun", "x", 2)
+        let source = CardTransferInteractor(expressions: MockExpressionRepository(seed: [a, b, c]),
+                                            cards: MockReviewCardRepository(seed: [a, b, c].flatMap { cards($0) }),
+                                            marks: InMemoryNotDuplicateMarks([NotDuplicatePair(a.id, b.id)]))
+        let file = try CardFile.decode(try await source.exportFlashcards(now: now).encoded())
+        #expect(file.cards.map(\.notDuplicateOf) == [["a solid"], ["solid"], nil])
+
+        let expressions = MockExpressionRepository(seed: [])
+        let marks = InMemoryNotDuplicateMarks()
+        _ = try await CardTransferInteractor(expressions: expressions, cards: MockReviewCardRepository(), marks: marks)
+            .importIntoFlashcards(file, now: now)
+        let imported = Dictionary(uniqueKeysWithValues: try await expressions.all().map { ($0.ru, $0.id) })
+        #expect(try await marks.pairs() == [NotDuplicatePair(try #require(imported["надёжный"]), try #require(imported["твёрдый"]))])
     }
 }
 
@@ -461,6 +541,14 @@ import Presentation
         again.start()
         try await wait { again.phase != .scanning }
         #expect(again.phase == .checked && again.groups.isEmpty)
+
+        // A full re-check ignores the "not duplicates" marks: both marked groups are back, marked.
+        again.rescanFully()
+        try await wait { again.phase != .scanning }
+        #expect(again.isFull && again.groups.map(\.key) == ["solid", "pick on someone"])
+        let allMarked = again.groups.allSatisfy { $0.isAllMarked }
+        #expect(allMarked)
+        #expect(again.duplicateMerges.isEmpty)                                       // no bulk merge of marked pairs
     }
 }
 

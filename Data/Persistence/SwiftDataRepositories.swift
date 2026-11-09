@@ -125,6 +125,37 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
     }
 }
 
+/// The "not duplicates" links between cards, in the store with them.
+@ModelActor
+public actor SwiftDataNotDuplicateMarks: NotDuplicateMarking {
+    public func pairs() async throws -> Set<NotDuplicatePair> {
+        Set(try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>()).map { $0.toDomain() })
+    }
+
+    public func mark(_ pairs: Set<NotDuplicatePair>) async throws {
+        guard !pairs.isEmpty else { return }
+        let existing = Set(try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>()).map(\.key))
+        for pair in pairs where !existing.contains(NotDuplicatePairModel.key(pair)) {
+            modelContext.insert(NotDuplicatePairModel(pair))
+        }
+        try save()
+    }
+
+    public func unmark(involving ids: Set<UUID>) async throws {
+        guard !ids.isEmpty else { return }
+        for model in try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>())
+        where ids.contains(model.first) || ids.contains(model.second) {
+            modelContext.delete(model)
+        }
+        try save()
+    }
+
+    private func save() throws {
+        do { try modelContext.save() }
+        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+    }
+}
+
 @ModelActor
 public actor SwiftDataHistoryRepository: HistoryRepository {
     /// Keep only the newest N requests so history doesn't grow without bound. MUST be ≥ the History
@@ -271,7 +302,7 @@ public actor SwiftDataTranslationCache: TranslationCache {
 public enum PersistenceSchema {
     /// The model types the app's ModelContainer must register (single source of truth — `bootLive`
     /// and migrations both read this rather than re-listing the @Model types).
-    public static let models: [any PersistentModel.Type] = AppSchemaV4.models
+    public static let models: [any PersistentModel.Type] = AppSchemaV5.models
     /// The current versioned schema, paired with `AppMigrationPlan` when opening the store.
-    public static let current = Schema(versionedSchema: AppSchemaV4.self)
+    public static let current = Schema(versionedSchema: AppSchemaV5.self)
 }

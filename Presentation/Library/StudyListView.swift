@@ -158,7 +158,8 @@ public struct StudyListView: View {
         }
         .sheet(item: $previewed) { expression in
             CardPreviewView(expression: expression, cards: model.cards(for: expression),
-                            isPlaying: model.isPlaying(expression), onPlay: { model.play(expression) })
+                            isPlaying: model.isPlaying(expression), onPlay: { model.play(expression) },
+                            notDuplicates: model.notDuplicates(of: expression))
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }

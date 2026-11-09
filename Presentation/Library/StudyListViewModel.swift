@@ -63,6 +63,8 @@ public final class StudyListViewModel {
     public private(set) var playingID: UUID?
     /// In flashcards: each expression's cards (its learning status and review counts).
     public private(set) var cardsByExpression: [UUID: [ReviewCard]] = [:]
+    /// In flashcards: the phrases each one is marked "not duplicates" with.
+    private var notDuplicateIDs: [UUID: [UUID]] = [:]
 
     /// "Move all to flashcards" asks first.
     public var showMoveAllConfirmation = false
@@ -151,6 +153,14 @@ public final class StudyListViewModel {
             let enrolled = Set(cards.map(\.expressionID))
             let items = all.filter { enrolled.contains($0.id) == (scope == .studying) }
             cardsByExpression = scope == .studying ? Dictionary(grouping: cards, by: \.expressionID) : [:]
+            var links: [UUID: [UUID]] = [:]
+            if scope == .studying, let pairs = try? await duplicates?.notDuplicates() {
+                for pair in pairs {
+                    links[pair.first, default: []].append(pair.second)
+                    links[pair.second, default: []].append(pair.first)
+                }
+            }
+            notDuplicateIDs = links
             expressions = items
             phase = items.isEmpty ? .empty : .loaded
         } catch {
@@ -276,6 +286,12 @@ public final class StudyListViewModel {
                                          "Couldn't move to flashcards. Try again.")
             }
         }
+    }
+
+    /// The phrases this one is marked "not duplicates" with (In flashcards).
+    public func notDuplicates(of expression: Domain.Expression) -> [String] {
+        let ids = Set(notDuplicateIDs[expression.id] ?? [])
+        return expressions.filter { ids.contains($0.id) }.map(\.en)
     }
 
     /// An expression's cards, recognition first (empty on Caught).

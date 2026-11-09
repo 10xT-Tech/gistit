@@ -58,10 +58,12 @@ one word, but a phrase with "someone" is never the same as one without). Alike i
 so inside each group it proposes only the merges that make sense: exact duplicates (the same phrase
 with the same translation) right away, and — after **Check** — the model's: which cards are one phrase
 in one meaning, which are one phrase's several meanings (one card, the meanings numbered), and which
-are another phrase after all. Merge a
-proposal (a duplicate keeps your best-known card; several meanings keep the less-known one, since the
-card now asks for all of them), keep a group apart (it won't be offered again), or merge every
-duplicate at once. Part of **Gist It Pro**.
+are another phrase after all. Make a group's proposals with **Merge** (a duplicate keeps your
+best-known card; several meanings keep the less-known one, since the card now asks for all of them)
+or press **Don't merge**: the cards are
+linked as not duplicates of each other — the card shows it, it travels with exported cards, and the
+next search leaves them be. **Full re-check** searches again ignoring those links, if you want to
+think again. **Merge all duplicates** takes the clear cases at once. Part of **Gist It Pro**.
 
 **Import and export cards.** In flashcards has an import / export menu. **Export cards** saves all
 your flashcards — with how well you know each one — to a file you can keep as a backup or move to

@@ -5,9 +5,12 @@
 //  Duplicates among the phrases in flashcards, and against them when a phrase moves in from Caught.
 //  - Scan (on the device): phrases whose studied-language expressions share a `PhraseKey` — the same
 //    words apart from letter case, "to" / articles, placeholders, brackets, punctuation and word forms
-//    — form a LOOK-ALIKE group; groups the user called "not duplicates" stay hidden. Look-alike is not
-//    the same ("fuck about" / "fuck somebody about"), so a group is a set of candidates, and what to
-//    merge inside it is proposed separately:
+//    — form a LOOK-ALIKE group. Look-alike is not the same ("pick on sb" in two meanings), so a group
+//    is a set of candidates, and what to merge inside it is proposed separately (below).
+//  - "Don't merge" links the group's phrases to each other as NOT DUPLICATES (`NotDuplicatePair`, kept
+//    with the cards by `NotDuplicateMarking`): a search leaves out a group whose phrases are all linked,
+//    and never proposes merging a linked pair. A FULL re-check (`full: true`) ignores the links — after
+//    the matching changed, or to think again; "Don't merge" there links them anew.
 //  - Exact duplicates (on the device, no model): the same expression (`PhraseKey` without lemmas) with
 //    the same translation — a merge is proposed at once; a group made only of them needs no check.
 //  - Check (the model, `DuplicatesTemplate`, batches of `batchSize` groups, up to `inFlight` requests at
@@ -32,22 +35,33 @@ public struct DuplicateGroup: Sendable, Identifiable, Equatable {
     public let cards: [UUID: [ReviewCard]]
     /// Exact duplicates among them, found on the device.
     public let exact: [DuplicateMerge]
+    /// Pairs among them already marked "not duplicates".
+    public let marked: Set<NotDuplicatePair>
+    /// Whether the marks hold (a normal search) or are being re-checked (a full one).
+    public let honorsMarks: Bool
 
     public var id: String { key }
-    /// What "not duplicates" remembers: the members' ids — a new look-alike makes it a new group.
-    public var memberID: String { Self.memberID(of: expressions.map(\.id)) }
     /// Every member is in one exact duplicate: nothing for the model to decide.
     public var isExactOnly: Bool { exact.count == 1 && exact[0].expressionIDs.count == expressions.count }
+    /// Every pair of members was marked "not duplicates" before.
+    public var isAllMarked: Bool {
+        expressions.count > 1 && NotDuplicatePair.all(among: expressions.map(\.id)).isSubset(of: marked)
+    }
+    /// The pairs a proposal may not merge.
+    public var excluded: Set<NotDuplicatePair> { honorsMarks ? marked : [] }
 
     public static func memberID(of expressionIDs: [UUID]) -> String {
         expressionIDs.map(\.uuidString).sorted().joined(separator: ",")
     }
 
-    public init(key: String, expressions: [Expression], cards: [UUID: [ReviewCard]], exact: [DuplicateMerge] = []) {
+    public init(key: String, expressions: [Expression], cards: [UUID: [ReviewCard]], exact: [DuplicateMerge] = [],
+                marked: Set<NotDuplicatePair> = [], honorsMarks: Bool = true) {
         self.key = key
         self.expressions = expressions
         self.cards = cards
         self.exact = exact
+        self.marked = marked
+        self.honorsMarks = honorsMarks
     }
 }
 
@@ -104,10 +118,11 @@ public struct DuplicateCheckStep: Sendable, Equatable {
     }
 }
 
-/// Sets of phrases the user marked "not duplicates" (by `DuplicateGroup.memberID`).
+/// Where the first 2.0 builds kept "not duplicates" (sets of phrase ids, `DuplicateGroup.memberID`) —
+/// read once, turned into `NotDuplicatePair`s with the cards, then cleared.
 public protocol DuplicateDismissalStoring: Sendable {
     func dismissed() async -> Set<String>
-    func dismiss(_ memberID: String) async
+    func clear() async
 }
 
 /// In-memory default (tests, previews, the stub boot).
@@ -115,13 +130,14 @@ public actor InMemoryDuplicateDismissalStore: DuplicateDismissalStoring {
     private var ids: Set<String>
     public init(_ ids: Set<String> = []) { self.ids = ids }
     public func dismissed() async -> Set<String> { ids }
-    public func dismiss(_ memberID: String) async { ids.insert(memberID) }
+    public func clear() async { ids = [] }
 }
 
 public protocol DuplicatesUseCase: Sendable {
     /// Reads the phrases in flashcards and groups the look-alikes, with their exact duplicates —
-    /// progress while reading.
-    func scan(studiedLanguage: String) -> AsyncThrowingStream<DuplicateScanStep, Error>
+    /// progress while reading. Groups whose phrases are all marked "not duplicates" are left out, and
+    /// marked pairs are never proposed for merging — unless `full`: a full re-check ignores the marks.
+    func scan(studiedLanguage: String, full: Bool) -> AsyncThrowingStream<DuplicateScanStep, Error>
     /// The merges the model proposes for each group, in batches — progress as they're sent and
     /// answered. Ends by throwing when going on can't help (offline, the plan's limit, no API key,
     /// cancellation).
@@ -137,8 +153,11 @@ public protocol DuplicatesUseCase: Sendable {
     /// Merge the phrases into one card (see the file header).
     func merge(_ expressions: [Expression], into card: CardText, as kind: DuplicateKind,
                studiedLanguage: String, nativeLanguage: String) async throws
-    /// "Not duplicates": this set of phrases isn't offered again (a new look-alike makes a new group).
-    func dismiss(_ expressionIDs: [UUID]) async
+    /// "Don't merge": these phrases are linked to each other as not duplicates — a search leaves them
+    /// be (a full re-check aside).
+    func markNotDuplicates(_ expressionIDs: [UUID]) async throws
+    /// Every "not duplicates" link.
+    func notDuplicates() async throws -> Set<NotDuplicatePair>
 }
 
 public struct DuplicatesInteractor: DuplicatesUseCase {
@@ -152,30 +171,34 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
     private let expressions: ExpressionRepository
     private let cards: ReviewCardRepository
     private let lemmatizer: any Lemmatizing
-    private let dismissals: DuplicateDismissalStoring
+    private let marks: NotDuplicateMarking
+    private let legacyDismissals: DuplicateDismissalStoring
     /// Keys already worked out — lemmatizing thousands of phrases on every move from Caught would be slow.
     private let keys = KeyCache()
 
     public init(llm: LLMClient, expressions: ExpressionRepository, cards: ReviewCardRepository,
                 lemmatizer: any Lemmatizing = NoLemmatizer(),
-                dismissals: DuplicateDismissalStoring = InMemoryDuplicateDismissalStore()) {
+                marks: NotDuplicateMarking = InMemoryNotDuplicateMarks(),
+                legacyDismissals: DuplicateDismissalStoring = InMemoryDuplicateDismissalStore()) {
         self.llm = llm
         self.expressions = expressions
         self.cards = cards
         self.lemmatizer = lemmatizer
-        self.dismissals = dismissals
+        self.marks = marks
+        self.legacyDismissals = legacyDismissals
     }
 
     // MARK: Scan
 
-    public func scan(studiedLanguage: String) -> AsyncThrowingStream<DuplicateScanStep, Error> {
+    public func scan(studiedLanguage: String, full: Bool) -> AsyncThrowingStream<DuplicateScanStep, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     continuation.yield(DuplicateScanStep(checked: 0, total: 0))
                     await lemmatizer.prepare(language: studiedLanguage)
+                    try await self.adoptLegacyDismissals()
                     let (studied, byExpression) = try await self.inFlashcards()
-                    let dismissed = await self.dismissals.dismissed()
+                    let marked = try await self.marks.pairs()
                     var byKey: [String: [Expression]] = [:]
                     for (index, expression) in studied.enumerated() {
                         byKey[key(expression, studiedLanguage), default: []].append(expression)
@@ -186,12 +209,17 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                         }
                     }
                     let groups = byKey
-                        .filter { $0.value.count > 1 && !dismissed.contains(DuplicateGroup.memberID(of: $0.value.map(\.id))) }
+                        .filter { $0.value.count > 1 }
                         .map { key, members in
-                            DuplicateGroup(key: key, expressions: members,
-                                           cards: Dictionary(uniqueKeysWithValues: members.map { ($0.id, byExpression[$0.id] ?? []) }),
-                                           exact: Self.exactMerges(among: members, language: studiedLanguage))
+                            let pairs = NotDuplicatePair.all(among: members.map(\.id)).intersection(marked)
+                            return DuplicateGroup(
+                                key: key, expressions: members,
+                                cards: Dictionary(uniqueKeysWithValues: members.map { ($0.id, byExpression[$0.id] ?? []) }),
+                                exact: Self.exactMerges(among: members, language: studiedLanguage,
+                                                        excluding: full ? [] : pairs),
+                                marked: pairs, honorsMarks: !full)
                         }
+                        .filter { full || !$0.isAllMarked }
                         .sorted { ($0.expressions[0].createdAt, $0.key) < ($1.expressions[0].createdAt, $1.key) }
                     continuation.yield(DuplicateScanStep(checked: studied.count, total: studied.count, groups: groups))
                     continuation.finish()
@@ -201,6 +229,17 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// "Not duplicates" from the first 2.0 builds (UserDefaults) become links with the cards, once.
+    private func adoptLegacyDismissals() async throws {
+        let legacy = await legacyDismissals.dismissed()
+        guard !legacy.isEmpty else { return }
+        let pairs = legacy.reduce(into: Set<NotDuplicatePair>()) { pairs, memberID in
+            pairs.formUnion(NotDuplicatePair.all(among: memberID.split(separator: ",").compactMap { UUID(uuidString: String($0)) }))
+        }
+        try await marks.mark(pairs)
+        await legacyDismissals.clear()
     }
 
     /// The phrases in flashcards, oldest first, and every card by expression.
@@ -239,7 +278,9 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
     /// The same expression (`PhraseKey` without lemmas: "to hit the roof" = "Hit the roof!", but not
     /// "hitting the roof") with the same translation (letter case, "ё", punctuation and spacing aside):
     /// one merge per such set, its card the oldest one's texts with the empty fields filled from the rest.
-    public static func exactMerges(among members: [Expression], language: String) -> [DuplicateMerge] {
+    /// A set holding an `excluded` pair isn't proposed.
+    public static func exactMerges(among members: [Expression], language: String,
+                                   excluding excluded: Set<NotDuplicatePair> = []) -> [DuplicateMerge] {
         let ordered = members.sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
         var sets: [String: [Expression]] = [:]
         var order: [String] = []
@@ -249,7 +290,8 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
             sets[key, default: []].append(expression)
         }
         return order.compactMap { key in
-            guard let same = sets[key], same.count > 1 else { return nil }
+            guard let same = sets[key], same.count > 1,
+                  NotDuplicatePair.all(among: same.map(\.id)).isDisjoint(with: excluded) else { return nil }
             let first = same[0]
             let filled = { (field: (Expression) -> String) in same.map(field).first { !$0.isEmpty } ?? "" }
             var synonyms: [String] = []
@@ -301,7 +343,8 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                             var proposals: [String: [DuplicateMerge]] = [:]
                             for group in batch {
                                 if let verdict = verdicts?[group.key] {
-                                    proposals[group.key] = Self.merges(verdict, among: group.expressions)
+                                    proposals[group.key] = Self.merges(verdict, among: group.expressions,
+                                                                       excluding: group.excluded)
                                 }
                             }
                             failed += batch.count - proposals.count
@@ -324,7 +367,8 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
 
     public func proposals(for group: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
         -> [DuplicateMerge] {
-        let exact = Self.exactMerges(among: group, language: studiedLanguage)
+        let excluded = try await marks.pairs().intersection(NotDuplicatePair.all(among: group.map(\.id)))
+        let exact = Self.exactMerges(among: group, language: studiedLanguage, excluding: excluded)
         if !exact.isEmpty { return exact }
         let template = DuplicatesTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
         let id = DuplicateGroup.memberID(of: group.map(\.id))
@@ -332,7 +376,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         guard let verdict = result.groups.first(where: { $0.id == id }) ?? result.groups.first else {
             throw LLMError.invalidOutput("no answer for the group")
         }
-        return Self.merges(verdict, among: group)
+        return Self.merges(verdict, among: group, excluding: excluded)
     }
 
     private static func item(_ id: String, _ members: [Expression]) -> DuplicateGroupItem {
@@ -343,13 +387,15 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
     }
 
     /// The model's merges as proposals: only the group's own phrases, each in one merge at most, two or
-    /// more per merge, oldest first.
-    public static func merges(_ verdict: DuplicateVerdict, among members: [Expression]) -> [DuplicateMerge] {
+    /// more per merge, oldest first; a merge holding an `excluded` pair is dropped.
+    public static func merges(_ verdict: DuplicateVerdict, among members: [Expression],
+                              excluding excluded: Set<NotDuplicatePair> = []) -> [DuplicateMerge] {
         let byID = Dictionary(uniqueKeysWithValues: members.map { ($0.id.uuidString, $0) })
         var used = Set<String>()
         return verdict.merges.compactMap { answer in
             let ids = answer.ids.filter { byID[$0] != nil && !used.contains($0) }
-            guard ids.count > 1 else { return nil }
+            guard ids.count > 1,
+                  NotDuplicatePair.all(among: ids.compactMap { byID[$0]?.id }).isDisjoint(with: excluded) else { return nil }
             used.formUnion(ids)
             let ordered = ids.compactMap { byID[$0] }
                 .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
@@ -400,7 +446,9 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         }
         for id in enrolled { try await cards.delete(expressionID: id) }
         try await cards.saveAll(kept)
-        for other in ordered where other.id != keep.id { try await expressions.delete(id: other.id) }
+        let gone = Set(ordered.map(\.id)).subtracting([keep.id])
+        for id in gone { try await expressions.delete(id: id) }
+        try? await marks.unmark(involving: gone)
     }
 
     /// The phrase a merge of `group` keeps: the oldest one in flashcards (the oldest of all if none is).
@@ -445,9 +493,12 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
 
     // MARK: Not duplicates
 
-    public func dismiss(_ expressionIDs: [UUID]) async {
-        guard expressionIDs.count > 1 else { return }
-        await dismissals.dismiss(DuplicateGroup.memberID(of: expressionIDs))
+    public func markNotDuplicates(_ expressionIDs: [UUID]) async throws {
+        try await marks.mark(NotDuplicatePair.all(among: expressionIDs))
+    }
+
+    public func notDuplicates() async throws -> Set<NotDuplicatePair> {
+        try await marks.pairs()
     }
 }
 

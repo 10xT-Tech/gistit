@@ -2,8 +2,9 @@
 //  CardTransferUseCases.swift
 //  EnglishHelper — Domain (use cases)
 //
-//  Card files (`CardFile`): export the cards in flashcards with their learning progress; import a
-//  file straight into flashcards — not via Caught.
+//  Card files (`CardFile`): export the cards in flashcards with their learning progress and their
+//  "not duplicates" links (by expression — ids don't travel); import a file straight into flashcards —
+//  not via Caught — linking again the cards it marks as not duplicates.
 //
 //  Import, card by card in file order:
 //  - a new expression is stored and gets its two cards — restored from the file's "review" entries
@@ -45,10 +46,12 @@ public protocol CardTransferUseCase: Sendable {
 public struct CardTransferInteractor: CardTransferUseCase {
     private let expressions: ExpressionRepository
     private let cards: ReviewCardRepository
+    private let marks: NotDuplicateMarking?
 
-    public init(expressions: ExpressionRepository, cards: ReviewCardRepository) {
+    public init(expressions: ExpressionRepository, cards: ReviewCardRepository, marks: NotDuplicateMarking? = nil) {
         self.expressions = expressions
         self.cards = cards
+        self.marks = marks
     }
 
     public func exportFlashcards(now: Date) async throws -> CardFile {
@@ -56,6 +59,13 @@ public struct CardTransferInteractor: CardTransferUseCase {
         let enrolled = try await expressions.all()
             .filter { byExpression[$0.id] != nil }
             .sorted { $0.createdAt < $1.createdAt }
+        let byID = Dictionary(uniqueKeysWithValues: enrolled.map { ($0.id, $0) })
+        var linked: [UUID: [String]] = [:]
+        for pair in try await marks?.pairs() ?? [] {
+            guard let first = byID[pair.first], let second = byID[pair.second] else { continue }
+            linked[first.id, default: []].append(second.en)
+            linked[second.id, default: []].append(first.en)
+        }
         let entries = enrolled.map { expression in
             CardFile.Card(
                 expression: expression.en,
@@ -65,7 +75,8 @@ public struct CardTransferInteractor: CardTransferUseCase {
                 context: expression.context.isEmpty ? nil : expression.context,
                 review: (byExpression[expression.id] ?? [])
                     .sorted { $0.direction == .recognition && $1.direction != .recognition }
-                    .map(CardFile.Review.init)
+                    .map(CardFile.Review.init),
+                notDuplicateOf: linked[expression.id]?.sorted()
             )
         }
         return CardFile(cards: entries, exportedAt: now)
@@ -83,6 +94,8 @@ public struct CardTransferInteractor: CardTransferUseCase {
         var newExpressions: [Expression] = [], newCards: [ReviewCard] = []
         var added = 0, moved = 0, already = 0, skipped = 0
         var seen = Set<String>()
+        /// The phrase each entry is now, by key — to link the "not duplicates" again.
+        var idByKey: [String: UUID] = [:]
         for (index, entry) in file.cards.enumerated() {
             let text = entry.expression.trimmingCharacters(in: .whitespacesAndNewlines)
             let translation = entry.translation.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,6 +106,7 @@ public struct CardTransferInteractor: CardTransferUseCase {
 
             let expressionID: UUID
             if let existing = byKey[key] {
+                idByKey[key] = existing.id
                 guard !enrolled.contains(existing.id) else { already += 1; continue }
                 expressionID = existing.id
                 moved += 1
@@ -102,6 +116,7 @@ public struct CardTransferInteractor: CardTransferUseCase {
                                             createdAt: movedIn)
                 newExpressions.append(expression)
                 expressionID = expression.id
+                idByKey[key] = expression.id
                 added += 1
             }
             let restored = Dictionary((entry.review ?? []).map { ($0.direction, $0) }, uniquingKeysWith: { first, _ in first })
@@ -112,6 +127,14 @@ public struct CardTransferInteractor: CardTransferUseCase {
         }
         try await expressions.addAll(newExpressions)
         try await cards.saveAll(newCards)
+        var pairs = Set<NotDuplicatePair>()
+        for entry in file.cards {
+            guard let id = idByKey[Self.key(entry.expression)] else { continue }
+            for other in entry.notDuplicateOf ?? [] {
+                if let otherID = idByKey[Self.key(other)], otherID != id { pairs.insert(NotDuplicatePair(id, otherID)) }
+            }
+        }
+        if !pairs.isEmpty { try await marks?.mark(pairs) }
         return CardImportReport(added: added, movedFromCaught: moved, alreadyInFlashcards: already, skipped: skipped)
     }
 

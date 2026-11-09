@@ -203,14 +203,20 @@ returns per group a list of merges (ids + duplicate / senses + `CardText`; a car
 fields, no schema change); `merge`
 keeps the oldest phrase in flashcards with the merged texts (lettercase), per direction ONE card —
 duplicate: best known (review > learning, stability, reps), senses: least known among answered — card
-ids kept (today's answers still count), the rest deleted. "Not duplicates" = `DuplicateDismissalStoring`
-(UserDefaults, `memberID` = sorted member ids). Caught: moving a phrase checks `lookAlikesInFlashcards`
+ids kept (today's answers still count), the rest deleted (and their links). "Don't merge" =
+`NotDuplicatePair` links between cards (`NotDuplicateMarking` → `SwiftDataNotDuplicateMarks`,
+`NotDuplicatePairModel`, schema **V5**; shown in `CardPreviewView`; card files carry them as
+`notDuplicateOf` expressions): a scan leaves out a group whose members are all linked and never
+proposes a linked pair (`DuplicateGroup.excluded`); `scan(full: true)` ("Full re-check") ignores the
+links. The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
+Caught: moving a phrase checks `lookAlikesInFlashcards`
 → dialog Merge (`proposals(for:)`: exact first, else the model; only the merge containing the caught
 phrase is made; none → `notADuplicate` dialog "move separately?") / Move separately; Move all offers
 "all but look-alikes". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
 progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
-per-proposal Merge, per-group Keep apart, "Merge all duplicates"; after a merge a checked group with
-nothing left proposed is dismissed (its rest stays apart for good). Today's goal line is green
+two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
+"Merge all duplicates" (never a linked pair), "Full re-check"; after a merge a checked group with
+nothing left proposed is done and its rest linked as not duplicates. Today's goal line is green
 (`ProgressLine`, `Tokens.Chart.progressDone`).
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
 case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`. XCUI

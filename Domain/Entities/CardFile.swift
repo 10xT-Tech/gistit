@@ -14,10 +14,12 @@
 //        "example": "Don't jump the gun.", "synonyms": ["rush", "act too soon"], "context": "…",
 //        "review": [ { "direction": "recognition", "state": "review", "due": "…", "stability": 4.5,
 //                      "difficulty": 5.2, "step": 0, "reps": 2, "lapses": 0,
-//                      "lastReview": "…", "firstReview": "…" } ] }
+//                      "lastReview": "…", "firstReview": "…" } ],
+//        "notDuplicateOf": ["jump the gun!"] }
 //    ]
 //  }
-//  Only "expression" and "translation" are required; "review" is present in exports only.
+//  Only "expression" and "translation" are required; "review" and "notDuplicateOf" (the expressions of
+//  the other cards in the file it was marked "not duplicates" with) are present in exports only.
 //
 
 import Foundation
@@ -34,15 +36,18 @@ public struct CardFile: Codable, Sendable, Equatable {
         public var context: String?
         /// The learning progress, one entry per direction (exports only).
         public var review: [Review]?
+        /// The expressions of the cards in this file it was marked "not duplicates" with (exports only).
+        public var notDuplicateOf: [String]?
 
         public init(expression: String, translation: String, example: String? = nil, synonyms: [String]? = nil,
-                    context: String? = nil, review: [Review]? = nil) {
+                    context: String? = nil, review: [Review]? = nil, notDuplicateOf: [String]? = nil) {
             self.expression = expression
             self.translation = translation
             self.example = example
             self.synonyms = synonyms
             self.context = context
             self.review = review
+            self.notDuplicateOf = notDuplicateOf
         }
     }
 

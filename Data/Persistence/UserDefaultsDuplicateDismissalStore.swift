@@ -2,8 +2,8 @@
 //  UserDefaultsDuplicateDismissalStore.swift
 //  EnglishHelper — Data
 //
-//  Look-alike groups the user called "not duplicates" — their ids (the members' sorted ids) in
-//  UserDefaults, so a scan doesn't offer them again.
+//  Where the first 2.0 builds kept "not duplicates" — sets of phrase ids in UserDefaults. Read once by
+//  `DuplicatesInteractor`, turned into links with the cards (`SwiftDataNotDuplicateMarks`), then cleared.
 //
 
 import Foundation
@@ -21,10 +21,7 @@ public final class UserDefaultsDuplicateDismissalStore: DuplicateDismissalStorin
         Set(defaults.stringArray(forKey: key) ?? [])
     }
 
-    public func dismiss(_ groupID: String) async {
-        var ids = defaults.stringArray(forKey: key) ?? []
-        guard !ids.contains(groupID) else { return }
-        ids.append(groupID)
-        defaults.set(ids, forKey: key)
+    public func clear() async {
+        defaults.removeObject(forKey: key)
     }
 }

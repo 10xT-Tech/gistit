@@ -48,15 +48,26 @@ public enum AppSchemaV4: VersionedSchema {
     }
 }
 
+/// v5 (2.0) — adds `NotDuplicatePairModel` ("not duplicates" links between cards, Find duplicates). A new
+/// entity: the V4→V5 stage is lightweight.
+public enum AppSchemaV5: VersionedSchema {
+    public static var versionIdentifier: Schema.Version { Schema.Version(5, 0, 0) }
+    public static var models: [any PersistentModel.Type] {
+        [ExpressionModel.self, HistoryModel.self, CachedTranslationModel.self, ReviewCardModel.self,
+         ReviewLogModel.self, NotDuplicatePairModel.self]
+    }
+}
+
 /// Migration plan across schema versions. Append a new `AppSchemaVn` and a `MigrationStage`
 /// (lightweight or custom) for every breaking change — never just bump the models.
 public enum AppMigrationPlan: SchemaMigrationPlan {
     public static var schemas: [any VersionedSchema.Type] {
-        [AppSchemaV1.self, AppSchemaV2.self, AppSchemaV3.self, AppSchemaV4.self]
+        [AppSchemaV1.self, AppSchemaV2.self, AppSchemaV3.self, AppSchemaV4.self, AppSchemaV5.self]
     }
     public static var stages: [MigrationStage] {
         [.lightweight(fromVersion: AppSchemaV1.self, toVersion: AppSchemaV2.self),
          .lightweight(fromVersion: AppSchemaV2.self, toVersion: AppSchemaV3.self),
-         .lightweight(fromVersion: AppSchemaV3.self, toVersion: AppSchemaV4.self)]
+         .lightweight(fromVersion: AppSchemaV3.self, toVersion: AppSchemaV4.self),
+         .lightweight(fromVersion: AppSchemaV4.self, toVersion: AppSchemaV5.self)]
     }
 }

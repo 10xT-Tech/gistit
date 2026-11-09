@@ -84,6 +84,7 @@ public final class AppContainer: Sendable {
         reviewCards: any ReviewCardRepository = MockReviewCardRepository(),
         practiceDays: any PracticeDayStoring = InMemoryPracticeDayStore(),
         cardFixProgress: any CardFixProgressStoring = InMemoryCardFixProgressStore(),
+        notDuplicates: any NotDuplicateMarking = InMemoryNotDuplicateMarks(),
         duplicateDismissals: any DuplicateDismissalStoring = InMemoryDuplicateDismissalStore(),
         lemmatizer: any Lemmatizing = NoLemmatizer(),
         history: any HistoryRepository,
@@ -128,11 +129,12 @@ public final class AppContainer: Sendable {
                                                dailyGoal: { DailyGoal.current }, days: practiceDays,
                                                analytics: analytics)
         self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
-        self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards)
+        self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards, marks: notDuplicates)
         self.fixCards = FixCardsInteractor(llm: llm, expressions: expressions, cards: reviewCards,
                                            progress: cardFixProgress)
         self.duplicates = DuplicatesInteractor(llm: llm, expressions: expressions, cards: reviewCards,
-                                               lemmatizer: lemmatizer, dismissals: duplicateDismissals)
+                                               lemmatizer: lemmatizer, marks: notDuplicates,
+                                               legacyDismissals: duplicateDismissals)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -222,6 +224,7 @@ public final class AppContainer: Sendable {
             reviewCards: SwiftDataReviewCardRepository(modelContainer: modelContainer),
             practiceDays: UserDefaultsPracticeDayStore(),
             cardFixProgress: UserDefaultsCardFixProgressStore(),
+            notDuplicates: SwiftDataNotDuplicateMarks(modelContainer: modelContainer),
             duplicateDismissals: UserDefaultsDuplicateDismissalStore(),
             lemmatizer: NaturalLanguageLemmatizer(),
             history: SwiftDataHistoryRepository(modelContainer: modelContainer, recordings: recordings),

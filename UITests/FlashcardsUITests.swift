@@ -233,6 +233,53 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.cells.element(boundBy: 1).waitForNonExistence(timeout: 3), "the duplicate is still listed")
     }
 
+    /// Don't merge: the two cards are linked as not duplicates — the card shows it, the next search
+    /// leaves them be, and a full re-check brings them back.
+    func testDontMergeLinksTheCards() {
+        let app = openCaughtWithALookAlike()
+        let separately = app.buttons["Move separately"]
+        XCTAssertTrue(separately.waitForExistence(timeout: 5))
+        separately.tap()
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
+        let studying = app.buttons["study.studying"]
+        XCTAssertTrue(studying.waitForExistence(timeout: 3))
+        studying.tap()
+
+        openFindDuplicates(app)
+        let keep = app.buttons["dups.keep"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["dups.merge"].exists, "Merge and Don't merge side by side")
+        attach(app, "dups-two-buttons")
+        keep.tap()
+        XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 3))
+        app.buttons["dups.done"].tap()
+
+        // The card shows the link.
+        let row = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.tap()
+        let links = app.staticTexts["cardPreview.notDuplicates"]                // its texts, combined
+        XCTAssertTrue(links.waitForExistence(timeout: 3), "the card doesn't show its not-duplicate link")
+        XCTAssertTrue(links.label.contains("«I appreciate it»"))
+        attach(app, "card-not-duplicate")
+        app.buttons["cardPreview.done"].tap()
+
+        // The next search leaves them be; a full re-check brings them back.
+        openFindDuplicates(app)
+        XCTAssertTrue(app.staticTexts["No duplicates found"].waitForExistence(timeout: 5))
+        app.buttons["dups.full"].tap()
+        XCTAssertTrue(app.buttons["dups.keep"].waitForExistence(timeout: 5), "the full re-check didn't bring them back")
+        XCTAssertTrue(app.staticTexts["Marked \"not duplicates\""].exists)
+        attach(app, "dups-full")
+    }
+
+    private func openFindDuplicates(_ app: XCUIApplication) {
+        let menu = app.buttons["cards.transfer"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        menu.tap()
+        app.buttons["Find duplicates"].tap()
+    }
+
     /// Caught with "I appreciate it" moved into flashcards and "I appreciate it!" generated, then moved
     /// too (swipe right → Learn) — the app is left asking about the look-alike.
     private func openCaughtWithALookAlike() -> XCUIApplication {

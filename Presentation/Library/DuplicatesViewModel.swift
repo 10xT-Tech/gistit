@@ -3,13 +3,14 @@
 //  EnglishHelper — Presentation
 //
 //  In flashcards → "Find duplicates", one sheet: it reads the phrases (with progress) and groups the
-//  look-alikes. Exact duplicates (the same phrase and translation) can be merged at once; "Check"
-//  sends the other groups to the model — a two-part progress, sent (grey) and answered (green) — and
-//  each gets the merges it needs: which of its phrases are one card (a duplicate, or one expression's
-//  several meanings) and the card they'd make; a phrase in no merge stays apart. The user merges a
-//  proposal, keeps a group apart ("not duplicates" — not offered again), or merges every duplicate at
-//  once; groups can be decided while the rest are still being checked. Once a checked group has no
-//  proposal left, what's left of it is apart for good.
+//  look-alikes. Exact duplicates (the same phrase and translation) are proposed at once; "Check" sends
+//  the other groups to the model — a two-part progress, sent (grey) and answered (green) — and each
+//  gets the merges it needs: which of its phrases are one card (a duplicate, or one expression's
+//  several meanings) and the card they'd make; a phrase in no merge stays apart. Per group: Merge
+//  (makes its proposals; the rest of a checked group is marked "not duplicates") or Don't merge (its
+//  phrases are marked "not duplicates" of each other — with the cards — and a search leaves them be).
+//  "Full re-check" searches again ignoring the marks. Groups can be decided while the rest are still
+//  being checked.
 //
 
 import Foundation
@@ -22,6 +23,8 @@ public final class DuplicatesViewModel: Identifiable {
 
     public let id = UUID()
     public private(set) var phase: Phase = .scanning
+    /// A full re-check: the "not duplicates" marks are ignored.
+    public private(set) var isFull = false
     public private(set) var scan = DuplicateScanStep(checked: 0, total: 0)
     public private(set) var check = DuplicateCheckStep(sent: 0, answered: 0, total: 0)
     /// Groups still to decide on, oldest first.
@@ -32,8 +35,8 @@ public final class DuplicatesViewModel: Identifiable {
     public private(set) var checkedKeys: Set<String> = []
     /// Merges made in this sheet.
     public private(set) var merged = 0
-    /// Merges being made right now (by merge id).
-    public private(set) var merging: Set<String> = []
+    /// Groups being merged or checked on their own right now (by key).
+    public private(set) var busy: Set<String> = []
     public private(set) var errorMessage: String?
     /// The plan's limit stopped the check: offer the subscription.
     public private(set) var needsSubscription = false
@@ -55,10 +58,13 @@ public final class DuplicatesViewModel: Identifiable {
     public var unchecked: [DuplicateGroup] {
         groups.filter { !checkedKeys.contains($0.key) && !$0.isExactOnly }
     }
-    /// Every proposed duplicate merge, with its group's key.
+    /// Every proposed duplicate merge, with its group's key — but none of a pair marked "not
+    /// duplicates" before (a full re-check shows them; only the group's own Merge undoes the mark).
     public var duplicateMerges: [(key: String, merge: DuplicateMerge)] {
         groups.flatMap { group in
-            (proposals[group.key] ?? []).filter { $0.kind == .duplicate }.map { (key: group.key, merge: $0) }
+            (proposals[group.key] ?? [])
+                .filter { $0.kind == .duplicate && NotDuplicatePair.all(among: $0.expressionIDs).isDisjoint(with: group.marked) }
+                .map { (key: group.key, merge: $0) }
         }
     }
     public var isBusy: Bool { phase == .scanning || phase == .checking }
@@ -69,14 +75,33 @@ public final class DuplicatesViewModel: Identifiable {
         checkedKeys.contains(group.key) || group.isExactOnly
     }
 
-    /// Read the phrases and group the look-alikes.
+    /// Read the phrases and group the look-alikes — leaving out what's marked "not duplicates".
     public func start() {
-        guard task == nil, phase == .scanning else { return }
+        guard task == nil, phase == .scanning, groups.isEmpty else { return }
+        runScan(full: false)
+    }
+
+    /// Search again from scratch, ignoring the "not duplicates" marks — after the matching changed, or
+    /// to think again.
+    public func rescanFully() {
+        guard task == nil else { return }
+        isFull = true
+        groups = []
+        proposals = [:]
+        checkedKeys = []
+        check = DuplicateCheckStep(sent: 0, answered: 0, total: 0)
+        errorMessage = nil
+        needsSubscription = false
+        phase = .scanning
+        runScan(full: true)
+    }
+
+    private func runScan(full: Bool) {
         let language = studiedLanguage()
         task = Task { [weak self] in
             guard let self else { return }
             do {
-                for try await step in self.duplicates.scan(studiedLanguage: language) {
+                for try await step in self.duplicates.scan(studiedLanguage: language, full: full) {
                     self.scan = step
                     if let groups = step.groups {
                         self.groups = groups
@@ -107,10 +132,7 @@ public final class DuplicatesViewModel: Identifiable {
             do {
                 for try await step in self.duplicates.check(pending, studiedLanguage: studied, nativeLanguage: native) {
                     self.check = step
-                    for (key, merges) in step.proposals where self.groups.contains(where: { $0.key == key }) {
-                        self.proposals[key] = merges
-                        self.checkedKeys.insert(key)
-                    }
+                    self.adopt(step.proposals)
                 }
                 self.phase = .checked
             } catch is CancellationError {
@@ -118,24 +140,46 @@ public final class DuplicatesViewModel: Identifiable {
             } catch LLMError.cancelled {
                 self.phase = .stopped
             } catch {
-                let presentable = presentableError(error)
-                self.errorMessage = presentable.message
-                self.needsSubscription = presentable.needsSubscription
+                self.fail(error)
                 self.phase = .failed
             }
             self.task = nil
         }
     }
 
-    /// Stop reading, or stop checking after the current batch — the proposals so far stay.
+    /// Ask the model about one group only.
+    public func checkGroup(_ group: DuplicateGroup) {
+        guard !busy.contains(group.key) else { return }
+        busy.insert(group.key)
+        let studied = studiedLanguage(), native = nativeLanguage()
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.busy.remove(group.key) }
+            do {
+                for try await step in self.duplicates.check([group], studiedLanguage: studied, nativeLanguage: native) {
+                    self.adopt(step.proposals)
+                }
+            } catch {
+                self.fail(error)
+            }
+        }
+    }
+
+    /// Stop reading, or stop checking after the current batches — the proposals so far stay.
     public func stop() {
         task?.cancel()
     }
 
-    /// Make one proposed merge.
-    public func merge(_ merge: DuplicateMerge, in group: DuplicateGroup) {
+    /// Merge: make the group's proposals; what a checked group leaves out is marked "not duplicates".
+    public func mergeGroup(_ group: DuplicateGroup) {
         let key = group.key
-        Task { await self.perform(merge, in: key) }
+        guard !busy.contains(key), !(proposals[key] ?? []).isEmpty else { return }
+        busy.insert(key)
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.busy.remove(key) }
+            for merge in self.proposals[key] ?? [] { await self.perform(merge, in: key) }
+        }
     }
 
     /// Make every proposed duplicate merge, one after another.
@@ -144,32 +188,46 @@ public final class DuplicatesViewModel: Identifiable {
         Task { for item in all { await self.perform(item.merge, in: item.key) } }
     }
 
-    /// "Not duplicates": the group leaves the list and isn't offered again.
+    /// Don't merge: the group's phrases are marked "not duplicates" of each other and it leaves the list.
     public func keepApart(_ group: DuplicateGroup) {
         remove(group.key)
         let ids = group.expressions.map(\.id)
-        Task { await duplicates.dismiss(ids) }
+        Task { [weak self] in
+            do { try await self?.duplicates.markNotDuplicates(ids) } catch { self?.fail(error) }
+        }
+    }
+
+    private func adopt(_ found: [String: [DuplicateMerge]]) {
+        for (key, merges) in found where groups.contains(where: { $0.key == key }) {
+            proposals[key] = merges
+            checkedKeys.insert(key)
+        }
+    }
+
+    private func fail(_ error: Error) {
+        let presentable = presentableError(error)
+        errorMessage = presentable.message
+        needsSubscription = presentable.needsSubscription
     }
 
     private func perform(_ merge: DuplicateMerge, in key: String) async {
-        guard let group = groups.first(where: { $0.key == key }), !merging.contains(merge.id) else { return }
+        guard let group = groups.first(where: { $0.key == key }) else { return }
         let members = group.expressions.filter { merge.expressionIDs.contains($0.id) }
         guard members.count > 1 else { return }
-        merging.insert(merge.id)
-        defer { merging.remove(merge.id) }
         do {
             try await duplicates.merge(members, into: merge.card, as: merge.kind,
                                        studiedLanguage: studiedLanguage(), nativeLanguage: nativeLanguage())
             merged += 1
-            resolve(merge, members: members, in: key)
+            await resolve(merge, members: members, in: key)
         } catch {
             errorMessage = Loc.t("Не удалось объединить. Попробуйте ещё раз.", "Couldn't merge. Try again.")
         }
     }
 
     /// After a merge: the merged-away phrases leave the group, the kept one shows the merged card. A
-    /// group of one is done; a settled group with nothing more proposed is apart for good.
-    private func resolve(_ merge: DuplicateMerge, members: [Domain.Expression], in key: String) {
+    /// group of one is done; a settled group with nothing more proposed is done too — what's left of it
+    /// is marked "not duplicates".
+    private func resolve(_ merge: DuplicateMerge, members: [Domain.Expression], in key: String) async {
         guard let index = groups.firstIndex(where: { $0.key == key }),
               let kept = DuplicatesInteractor.kept(of: members, enrolled: Set(groups[index].cards.keys)) else { return }
         let group = groups[index]
@@ -186,12 +244,13 @@ public final class DuplicatesViewModel: Identifiable {
             remove(key)
         } else if left.isEmpty && isSettled(group) {
             remove(key)
-            let ids = remaining.map(\.id)
-            Task { await duplicates.dismiss(ids) }
+            do { try await duplicates.markNotDuplicates(remaining.map(\.id)) } catch { fail(error) }
         } else {
             groups[index] = DuplicateGroup(key: key, expressions: remaining,
                                            cards: group.cards.filter { !gone.contains($0.key) },
-                                           exact: group.exact.filter { $0.id != merge.id })
+                                           exact: group.exact.filter { $0.id != merge.id },
+                                           marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) },
+                                           honorsMarks: group.honorsMarks)
             proposals[key] = left
         }
     }

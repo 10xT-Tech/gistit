@@ -4,7 +4,8 @@
 //
 //  In flashcards → tap a phrase: the whole card at a glance — the phrase (with playback), its meaning,
 //  example, synonyms and notes — and where each of its two cards stands: stage, how many times it was
-//  answered, when it comes next. Read-only: no rating, nothing is written; it isn't practice.
+//  answered, when it comes next; and the cards it's marked "not duplicates" with (Find duplicates →
+//  Don't merge). Read-only: no rating, nothing is written; it isn't practice.
 //
 
 import SwiftUI
@@ -16,6 +17,8 @@ struct CardPreviewView: View {
     let cards: [ReviewCard]
     let isPlaying: Bool
     let onPlay: () -> Void
+    /// The phrases of the cards this one is marked "not duplicates" with.
+    var notDuplicates: [String] = []
     @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -26,6 +29,7 @@ struct CardPreviewView: View {
                 VStack(alignment: .leading, spacing: Tokens.Space.s16) {
                     face
                     progress
+                    if !notDuplicates.isEmpty { links }
                 }
                 .padding(Tokens.Space.s20)
             }
@@ -94,6 +98,26 @@ struct CardPreviewView: View {
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
         .accessibilityIdentifier("cardPreview.progress")
+    }
+
+    /// "Not a duplicate of" the cards marked so.
+    private var links: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s4) {
+            Text(Loc.t("Не дубль карточек:", "Not a duplicate of:", "Pas un doublon de :", "No es duplicado de:",
+                       "Kein Duplikat von:", "Non è un duplicato di:"))
+                .textStyle(Tokens.Text.footnote)
+                .foregroundStyle(Tokens.Content.tertiary)
+            ForEach(notDuplicates, id: \.self) { phrase in
+                Text("«\(phrase)»")
+                    .textStyle(Tokens.Text.subhead)
+                    .foregroundStyle(Tokens.Content.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Tokens.Space.s16)
+        .glassPanel(cornerRadius: Tokens.Radius.card)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("cardPreview.notDuplicates")
     }
 
     private func details(_ card: ReviewCard) -> String {
