@@ -33,19 +33,26 @@ won't see again for 21 days or more) in green, with how many of all your cards y
 **Caught.** What you save from Say it, Get it and See it now goes to **Caught** — your study list from
 before, with everything already in it. Add cards two new ways with **+** — an empty Caught offers both
 right on the screen: **Generate from a phrase** (type a phrase in the language you're learning, with
-an optional context; the translation, an example, synonyms and a note are filled in for you) or **From photos** (pick one or more photos or screenshots, with a progress bar while it
-works and a green check, a chime and a tap when it's done: a phrase set apart to be learned — like the caption of a language-learning post — becomes one
-card, whole, with the translation the picture shows; on a page of text, each phrase you highlighted,
-underlined or circled becomes a card, with its sentence from the page as the example — unmarked text
-and the app around it, like names, song titles and comments, are left out; every card comes with
-synonyms and a note on when and how it's said). Swipe a phrase right (or tap
-its card icon) to move it into flashcards, or **Move all to flashcards** at once. If a phrase looks
-like one you already learn ("hit the roof!" and "to hit the roof"), the app asks first: **Merge** joins
-it with the card it really is — your progress stays, and several meanings are numbered on one card —
-or tells you it's another phrase after all; **Move separately** keeps them apart. **Move all** can
-leave such look-alikes in Caught, to be moved one by one. Swipe left to delete. **Copy** copies the
-whole card as four lines (phrase, translation, example, synonyms), and **Copy all cards** in the share
-menu copies the list, ready to paste into another app.
+an optional context, on a roomy card; the translation, an example, synonyms and a note are filled in
+for you) or **From photos** (below). Swipe a phrase right (or tap its card icon) to move it into
+flashcards, or **Move all to flashcards** at once. If a phrase looks like one you already learn ("hit
+the roof!" and "to hit the roof"), the app asks first: **Merge** joins it with the card it really is —
+your progress stays, and several meanings are numbered on one card — or tells you it's another phrase
+after all; **Move separately** keeps them apart. **Move all** can leave such look-alikes in Caught, to
+be moved one by one. Swipe left to delete. **Copy** copies the whole card as four lines (phrase,
+translation, example, synonyms), and **Copy all cards** in the share menu copies the list, ready to
+paste into another app.
+
+**Cards from photos.** Pick up to ten photos or screenshots, and the phrases worth learning become
+cards. A phrase set apart to be learned — like the caption of a language-learning post — becomes one
+card, whole, with the translation the picture shows; a post that lists several phrases gives a card
+for each. On a page of text, each phrase you highlighted, underlined or circled becomes a card, with
+its sentence from the page as the example; unmarked text and the app around it — names, song titles,
+comments — are left out. Every card comes with synonyms and a note on when and how it's said. A
+progress line shows the photos done in green and the one being read in grey; when it's all done, a
+green check, a short chime and a tap. Then the sheet tells you what happened: which phrases were
+already in your cards (they aren't added twice), which photos had nothing marked on them, and why a
+photo couldn't be read, if one couldn't.
 
 **In flashcards.** A list of the phrases you're learning, reached from the dashboard. Each phrase shows
 both of its cards — Recognize and Recall — with how well you know it (new, learning, young or mature,
@@ -86,6 +93,14 @@ cards are then marked as not duplicates of each other, the card shows it, and th
 them be. **Merge all duplicates** takes the clear cases at once, and **Full re-check** has the model
 look again at the groups you marked as not duplicates — after the search got smarter — and shows only
 those it now finds duplicates in. Part of **Gist It Pro**.
+
+**A clear daily allowance.** Gist It Pro now allows up to 3,000 requests a day — enough to fix or
+check thousands of cards in one go. If you ever reach the day's allowance, the app says so plainly and
+tells you when it resets, instead of a vague "try again later".
+
+**Questions in a proper sheet.** Before moving everything to flashcards, merging a look-alike or
+clearing the translation cache, the app now asks in a clear sheet with full-width buttons — not a
+small pop-up bubble.
 
 **The system tab bar.** The bar at the bottom of the screen is now the real iOS Liquid Glass tab bar:
 press and drag across it to slide the selection to another screen, as in Apple's own apps.
