@@ -188,6 +188,23 @@ import Presentation
         #expect(merges.map(\.expressionIDs) == [[d.id, f.id]] && merges[0].kind == .duplicate)      // e stays apart
     }
 
+    /// A merge never drops the infinitive marker or article one of its cards had — exact or the model's.
+    @Test func aMergeKeepsTheDictionaryForm() {
+        let bare = phrase("hit the roof", "взбеситься", 0), marked = phrase("to hit the roof", "взбеситься", 1)
+        #expect(DuplicatesInteractor.exactMerges(among: [bare, marked], language: "English")[0].card.expression
+                == "to hit the roof")
+        let card = CardText(expression: "Hit the roof!", translation: "x", example: "", synonyms: [], context: "")
+        let verdict = DuplicateVerdict(id: "g", merges: [
+            DuplicateMergeAnswer(ids: [bare.id.uuidString, marked.id.uuidString], verdict: .duplicate, card: card)])
+        #expect(DuplicatesInteractor.merges(verdict, among: [bare, marked], language: "English")[0].card.expression
+                == "to Hit the roof!")
+        let keep = { DuplicatesInteractor.keepingMarker($0, of: $1, language: "English") }
+        #expect(keep("a corkscrew", [phrase("corkscrew", "x", 0)]) == "a corkscrew")             // already has one
+        #expect(keep("corkscrew", [phrase("A corkscrew", "x", 0)]) == "a corkscrew")
+        #expect(keep("solid", [phrase("solid", "x", 0)]) == "solid")                              // nobody had one
+        #expect(DuplicatesTemplate().systemPrompt.contains("\"to hit the roof\""))
+    }
+
     /// The model's merges are kept to the group's own phrases, each in one merge, two or more each.
     @Test func modelMergesAreSanitised() {
         let a = phrase("solid", "твёрдый", 0), b = phrase("solid", "надёжный", 1), c = phrase("solid", "крепкий", 2)

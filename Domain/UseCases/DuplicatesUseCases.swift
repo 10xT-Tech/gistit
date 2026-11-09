@@ -299,10 +299,27 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                 synonyms.append(synonym)
             }
             return DuplicateMerge(expressionIDs: same.map(\.id), kind: .duplicate,
-                                  card: CardText(expression: first.en, translation: first.ru, example: filled(\.example),
+                                  card: CardText(expression: Self.keepingMarker(first.en, of: same, language: language),
+                                                 translation: first.ru, example: filled(\.example),
                                                  synonyms: Array(synonyms.prefix(4)), context: filled(\.context)),
                                   isExact: true)
         }
+    }
+
+    /// The merged expression with the infinitive marker or article one of its cards had ("hit the roof"
+    /// merged from "to hit the roof" → "to hit the roof"): a merge never drops the dictionary form.
+    public static func keepingMarker(_ expression: String, of members: [Expression], language: String) -> String {
+        let markers = PhraseKey.leading[language] ?? []
+        let trimmed = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bare = trimmed.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        guard let firstWord = bare.split(separator: " ").first, !markers.contains(String(firstWord)) else { return expression }
+        for member in members {
+            let words = member.en.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ", maxSplits: 1)
+            guard words.count == 2, markers.contains(words[0].lowercased()),
+                  words[1].lowercased().trimmingCharacters(in: .punctuationCharacters) == bare else { continue }
+            return words[0].lowercased() + " " + trimmed
+        }
+        return expression
     }
 
     private static func translationKey(_ text: String) -> String {
@@ -344,6 +361,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                             for group in batch {
                                 if let verdict = verdicts?[group.key] {
                                     proposals[group.key] = Self.merges(verdict, among: group.expressions,
+                                                                       language: studiedLanguage,
                                                                        excluding: group.excluded)
                                 }
                             }
@@ -376,7 +394,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         guard let verdict = result.groups.first(where: { $0.id == id }) ?? result.groups.first else {
             throw LLMError.invalidOutput("no answer for the group")
         }
-        return Self.merges(verdict, among: group, excluding: excluded)
+        return Self.merges(verdict, among: group, language: studiedLanguage, excluding: excluded)
     }
 
     private static func item(_ id: String, _ members: [Expression]) -> DuplicateGroupItem {
@@ -388,7 +406,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
 
     /// The model's merges as proposals: only the group's own phrases, each in one merge at most, two or
     /// more per merge, oldest first; a merge holding an `excluded` pair is dropped.
-    public static func merges(_ verdict: DuplicateVerdict, among members: [Expression],
+    public static func merges(_ verdict: DuplicateVerdict, among members: [Expression], language: String = "English",
                               excluding excluded: Set<NotDuplicatePair> = []) -> [DuplicateMerge] {
         let byID = Dictionary(uniqueKeysWithValues: members.map { ($0.id.uuidString, $0) })
         var used = Set<String>()
@@ -399,7 +417,9 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
             used.formUnion(ids)
             let ordered = ids.compactMap { byID[$0] }
                 .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
-            return DuplicateMerge(expressionIDs: ordered.map(\.id), kind: answer.verdict, card: answer.card, isExact: false)
+            var card = answer.card
+            card.expression = Self.keepingMarker(card.expression, of: ordered, language: language)
+            return DuplicateMerge(expressionIDs: ordered.map(\.id), kind: answer.verdict, card: card, isExact: false)
         }
     }
 

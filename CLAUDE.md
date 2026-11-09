@@ -199,7 +199,9 @@ device (`exactMerges`: PhraseKey without lemmas + the same translation; a group 
 (`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 5 groups, 3
 requests in flight — Sonnet answers take tens of seconds, small parallel batches keep the line moving)
 returns per group a list of merges (ids + duplicate / senses + `CardText`; a card in none stays apart;
-`merges(_:among:)` sanitises ids). Senses = one card numbered "1) … 2) …" (plain text in the existing
+`merges(_:among:)` sanitises ids). The merged expression is in dictionary form: verbs and verb phrases with
+"to", nouns and noun phrases with the article (prompt), and `keepingMarker` restores a "to"/article one of
+the merged cards had if the card drops it (exact merges too). Senses = one card numbered "1) … 2) …" (plain text in the existing
 fields, no schema change); `merge`
 keeps the oldest phrase in flashcards with the merged texts (lettercase), per direction ONE card —
 duplicate: best known (review > learning, stability, reps), senses: least known among answered — card

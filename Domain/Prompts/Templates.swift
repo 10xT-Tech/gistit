@@ -937,8 +937,12 @@ public struct DuplicatesTemplate: PromptTemplate {
           pronounced differently (English "lead" /liːd/ and "lead" /led/). Never put a card into two merges. A group
           may need one merge, several, or none ("merges": []).
         - "card": the one card the merge makes, keeping everything worth learning from its cards:
-          - "expression" (\(studiedLanguage)): the best-written form among them, fixed if wrong; a single verb with the
-            infinitive marker and a single noun with the article, as \(studiedLanguage) vocabulary lists write them.
+          - "expression" (\(studiedLanguage)): the best-written form among them, fixed if wrong, in the dictionary form
+            \(studiedLanguage) vocabulary lists use: a verb, or a phrase that starts with a verb in its base form, gets
+            the infinitive marker (English "to": "to abandon", "to hit the roof", "to pick on someone"); a noun, or a
+            phrase built on a noun, gets the article ("a corkscrew", "a lame excuse"; German "der Tisch"); a whole
+            sentence or any other phrase ("I'm in a pickle", "the more…, the more…") stays as it is. If one of the
+            cards already has the marker or the article, keep it.
           - "translation" (\(nativeLanguage)): for "duplicate", one or two variants separated by " / "; for "senses",
             every meaning numbered: "1) … 2) …".
           - "example" (\(studiedLanguage)): one natural sentence; for "senses", one per meaning, numbered the same way.
