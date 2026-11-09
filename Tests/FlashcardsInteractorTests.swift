@@ -215,6 +215,26 @@ struct SplitMix64: RandomNumberGenerator {
         #expect(Array(topped.prefix(10)).map(\.id) == first.map(\.id))     // the day's set first
     }
 
+    /// Today's progress counts a card done only once it won't come back today: one answered "Again"
+    /// is answered (the goal's draws count it) but still learning — coming back, not finished.
+    @Test func aCardComingBackIsNotFinished() async throws {
+        let easy = expression("easy"), hard = expression("hard")
+        let cards = newCards(easy, movedAt: now.addingTimeInterval(-day)) + newCards(hard, movedAt: now.addingTimeInterval(-day))
+        let (sut, _) = make([easy, hard], cards: cards, goal: 2)
+        let set = try await sut.queue(now: now)
+        _ = try await sut.rate(try #require(set.first { $0.expression.id == easy.id }).card, .easy, now: now)
+        var card = try #require(set.first { $0.expression.id == hard.id }).card
+        card = try await sut.rate(card, .again, now: now)
+        var plan = try await sut.stats(now: now).today
+        #expect(plan.studied == 2 && plan.goalReached)                       // the day's draws: both answered
+        #expect(plan.comingBack == 1 && plan.finished == 1)                  // …but one comes back today
+        for minute in 1..<PracticeDay.maxAnswersPerCard {
+            card = try await sut.rate(card, .again, now: now.addingTimeInterval(Double(minute) * 60))
+        }
+        plan = try await sut.stats(now: now.addingTimeInterval(600)).today
+        #expect(plan.comingBack == 0 && plan.finished == 2)                  // done for today (the day's limit)
+    }
+
     /// A card answered three times today is done for the day — restarting the practice can't bring
     /// it back, and it isn't drawn again.
     @Test func threeAnswersADayPerCard() async throws {

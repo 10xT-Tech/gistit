@@ -243,22 +243,33 @@ public struct FlashcardSessionView: View {
     }
 }
 
-/// "Today: 12 of 50" with a green line — the session's end and the dashboard.
+/// "Today: 29 of 50 · 21 coming back" — the session's end and the dashboard. Green: cards done for
+/// today; grey ahead of it: answered but still learning, back later today (a card isn't done until then).
 struct GoalProgress: View {
     let plan: DailyPlan
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s4) {
-            ProgressLine(done: Double(min(plan.studied, plan.goal)) / Double(max(plan.goal, 1)))
-            Text(Loc.t("Сегодня: \(plan.studied) из \(plan.goal)", "Today: \(plan.studied) of \(plan.goal)",
-                       "Aujourd'hui : \(plan.studied) sur \(plan.goal)", "Hoy: \(plan.studied) de \(plan.goal)",
-                       "Heute: \(plan.studied) von \(plan.goal)", "Oggi: \(plan.studied) di \(plan.goal)"))
+            let goal = Double(max(plan.goal, 1))
+            ProgressLine(done: Double(min(plan.finished, plan.goal)) / goal,
+                         pending: Double(min(plan.studied, plan.goal)) / goal, breathes: false)
+            Text(caption)
                 .textStyle(Tokens.Text.footnote)
                 .foregroundStyle(Tokens.Content.secondary)
                 .monospacedDigit()
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("flashcards.goalProgress")
+    }
+
+    private var caption: String {
+        let done = plan.finished, goal = plan.goal, back = plan.comingBack
+        let today = Loc.t("Сегодня: \(done) из \(goal)", "Today: \(done) of \(goal)", "Aujourd'hui : \(done) sur \(goal)",
+                          "Hoy: \(done) de \(goal)", "Heute: \(done) von \(goal)", "Oggi: \(done) di \(goal)")
+        guard back > 0 else { return today }
+        return today + " · " + Loc.t("ещё \(back) вернутся сегодня", "\(back) coming back today",
+                                     "\(back) reviennent aujourd'hui", "\(back) vuelven hoy",
+                                     "\(back) kommen heute wieder", "\(back) tornano oggi")
     }
 }
 

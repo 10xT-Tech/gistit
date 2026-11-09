@@ -89,8 +89,10 @@ public struct StageCounts: Sendable, Equatable {
 public struct DailyPlan: Sendable, Equatable {
     /// The daily goal (a minimum).
     public let goal: Int
-    /// Distinct cards answered today.
+    /// Distinct cards answered today (what the day's draws count against the goal).
     public let studied: Int
+    /// Of them, the ones still learning that come back today — answered, not finished.
+    public let comingBack: Int
     /// Today's set, still to do — unanswered cards and learning cards coming back — by stage.
     public let pending: StageCounts
     /// Cards that could still be drawn into today's set, by stage.
@@ -99,6 +101,8 @@ public struct DailyPlan: Sendable, Equatable {
     public let nextSet: StageCounts
 
     public var remaining: Int { max(0, goal - studied) }
+    /// Cards done for today: answered and not coming back today — what today's progress shows.
+    public var finished: Int { max(0, studied - comingBack) }
     public var goalReached: Bool { studied >= goal }
     /// What "more" asks for: the rest of the goal, or — once it's met — an extra set.
     public var moreSize: Int { goalReached ? DailyGoalOptions.extraSet : remaining }
@@ -109,10 +113,11 @@ public struct DailyPlan: Sendable, Equatable {
     /// Anything left to practise today (today's set, or more to draw).
     public var hasMore: Bool { pending.total > 0 || available.total > 0 }
 
-    public init(goal: Int, studied: Int, pending: StageCounts = StageCounts(), available: StageCounts,
-                nextSet: StageCounts) {
+    public init(goal: Int, studied: Int, comingBack: Int = 0, pending: StageCounts = StageCounts(),
+                available: StageCounts, nextSet: StageCounts) {
         self.goal = goal
         self.studied = studied
+        self.comingBack = comingBack
         self.pending = pending
         self.available = available
         self.nextSet = nextSet
@@ -230,7 +235,8 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         let available = StageCounts(today.drawable)
         let topUp = drawSize(goal: goal, today: today, extra: today.studied >= goal && today.pending.isEmpty)
         let next = SetComposer.quotas(size: topUp, available: available)
-        let plan = DailyPlan(goal: goal, studied: today.studied, pending: pending, available: available,
+        let comingBack = today.pending.filter { today.answers[$0.id] != nil }.count
+        let plan = DailyPlan(goal: goal, studied: today.studied, comingBack: comingBack, pending: pending, available: available,
                              nextSet: StageCounts(new: pending.new + next.new, learning: pending.learning + next.learning,
                                                   young: pending.young + next.young, mature: pending.mature + next.mature))
 

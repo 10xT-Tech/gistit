@@ -21,7 +21,9 @@ get their reverse direction before brand-new phrases start. The whole day is one
 whenever you like, and **Continue** picks up today's set exactly where you left it. A card you keep
 getting wrong is asked at most three times a day, then waits until tomorrow. Reached your goal? Keep
 going, 25 cards at a time. Raised the goal during the day? Today's set grows to match. Studied less,
-or skipped a day? Nothing is lost — what's due simply waits.
+or skipped a day? Nothing is lost — what's due simply waits. A card you answered "Again" counts as
+done only once it won't come back that day: the green line shows what's finished, a grey part ahead of
+it the cards coming back later today.
 
 **A study dashboard.** Study now opens with your progress: today's cards against your goal (a green
 line), what's due, new cards in the set, how many phrases you're learning, your reviews today and over

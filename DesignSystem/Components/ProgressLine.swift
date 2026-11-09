@@ -16,14 +16,17 @@ public struct ProgressLine: View {
     private let done: Double
     private let pending: Double
     private let height: CGFloat
+    private let breathes: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `done` and `pending` are fractions of the whole (0…1); `pending` counts from the start, so it's
-    /// never drawn shorter than `done`.
-    public init(done: Double, pending: Double = 0, height: CGFloat = 6) {
+    /// never drawn shorter than `done`. `breathes`: the grey part pulses — for work under way (an
+    /// answer awaited), not for a state that just is (cards coming back later).
+    public init(done: Double, pending: Double = 0, height: CGFloat = 6, breathes: Bool = true) {
         self.done = Self.clamp(done)
         self.pending = max(Self.clamp(pending), Self.clamp(done))
         self.height = height
+        self.breathes = breathes
     }
 
     public var body: some View {
@@ -34,7 +37,7 @@ public struct ProgressLine: View {
                     Capsule()
                         .fill(Tokens.Chart.progressPending)
                         .frame(width: width(pending, in: geometry.size.width))
-                        .modifier(Breathing())
+                        .modifier(Breathing(isOn: breathes))
                 }
                 if done > 0 {
                     Capsule()
@@ -61,10 +64,11 @@ public struct ProgressLine: View {
 
 /// The grey part waiting for an answer: its opacity rises and falls.
 private struct Breathing: ViewModifier {
+    let isOn: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        if reduceMotion {
+        if reduceMotion || !isOn {
             content
         } else {
             content.phaseAnimator([1.0, 0.4]) { view, opacity in
