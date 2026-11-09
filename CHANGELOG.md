@@ -53,11 +53,12 @@ shows both what's been sent off (grey) and what's done (green, catching up); sto
 next time it continues where it stopped. Your learning progress isn't touched. Part of **Gist It Pro**.
 
 **Find duplicates.** In flashcards' menu has **Find duplicates**: it finds the phrases that are written
-alike once articles, "to", "someone", punctuation and word forms are set aside. Alike isn't the same,
+alike once articles, "to", punctuation and word forms are set aside ("sb", "smb" and "someone" count as
+one word, but a phrase with "someone" is never the same as one without). Alike isn't the same,
 so inside each group it proposes only the merges that make sense: exact duplicates (the same phrase
 with the same translation) right away, and — after **Check** — the model's: which cards are one phrase
 in one meaning, which are one phrase's several meanings (one card, the meanings numbered), and which
-are another phrase after all ("fuck about" and "fuck somebody about" stay two cards). Merge a
+are another phrase after all. Merge a
 proposal (a duplicate keeps your best-known card; several meanings keep the less-known one, since the
 card now asks for all of them), keep a group apart (it won't be offered again), or merge every
 duplicate at once. Part of **Gist It Pro**.

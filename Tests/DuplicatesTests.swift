@@ -39,17 +39,26 @@ import Presentation
         let en = { PhraseKey.make($0, language: "English") }
         #expect(en("to hit the roof") == "hit the roof")
         #expect(en("Hit the roof!") == "hit the roof")
-        #expect(en("pick on") == en("to pick on someone"))
+        // A slot is never dropped — it changes the expression; only its spellings are one.
+        #expect(en("pick on sb") == en("to pick on someone"))
+        #expect(en("pick on smb.") == "pick on someone")
+        #expect(en("fuck about") != en("fuck somebody about"))
         #expect(en("wind (someone) up") == en("wind sb up"))
+        #expect(en("wind up") != en("wind sb up"))
+        #expect(en("lose one's temper") == en("lose sb's temper"))
+        #expect(en("get sth done") == en("get something done"))
+        #expect(en("very bright (future)") == "very bright")              // a gloss in brackets goes
+        #expect(en("finish + -ing") == en("to finish doing"))
+        #expect(en("stop + -ing") != en("stop + to"))
         #expect(en("the more…, the more…") == en("the more ... the more"))
         #expect(en("A Corkscrew") == en("corkscrew"))
-        #expect(en("finish + -ing") == en("to finish"))
         #expect(en("I’m off") == en("i'm off"))
         #expect(en("hit the road") != en("hit the roof"))
-        #expect(en("something") == "something")                      // a placeholder alone stays
+        #expect(en("something") == "something")
         #expect(PhraseKey.make("der Tisch", language: "German") == PhraseKey.make("Tisch", language: "German"))
         #expect(PhraseKey.make("l'Arbre", language: "French") == PhraseKey.make("arbre", language: "French"))
-        #expect(PhraseKey.make("faire quelque chose", language: "French") == "faire")
+        #expect(PhraseKey.make("faire quelque chose", language: "French") == PhraseKey.make("faire qqch", language: "French"))
+        #expect(PhraseKey.make("jdm helfen", language: "German") == "jemandem helfen")
         #expect(PhraseKey.make("café", language: "French") == "cafe")
     }
 
@@ -103,24 +112,29 @@ import Presentation
         #expect(steps.last?.groups == [])
     }
 
-    /// Look-alike isn't the same: "fuck about" twice is a duplicate, "fuck somebody about" another
-    /// phrase — the exact pair is found on the device, and the model merges only those two.
+    /// "fuck about" twice is an exact duplicate; "fuck somebody about" is another expression — not even
+    /// a look-alike. Look-alike isn't the same either: "pick on sb" in another meaning is grouped, and
+    /// the model merges only the cards that are one.
     @Test func lookAlikeIsNotTheSame() async throws {
         let a = phrase("fuck about", "выпендриваться", 0), b = phrase("fuck somebody about", "водить за нос", 1)
         let c = phrase("Fuck about!", "Выпендриваться", 2, example: "stop fucking about.")
-        let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: [a, b, c]),
-                                       cards: MockReviewCardRepository(seed: [a, b, c].flatMap { cards($0) }))
-        let group = try #require(try await scan(sut)?.first)
-        #expect(group.expressions.map(\.id) == [a.id, b.id, c.id])                  // one look-alike group
-        #expect(group.exact.map(\.expressionIDs) == [[a.id, c.id]] && !group.isExactOnly)
-        #expect(group.exact[0].card.example == "stop fucking about.")                // filled from the other
+        let d = phrase("pick on someone", "придираться", 3), e = phrase("to pick on sb", "дразнить", 4)
+        let f = phrase("pick on smb", "придираться", 5)
+        let all = [a, b, c, d, e, f]
+        let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: all),
+                                       cards: MockReviewCardRepository(seed: all.flatMap { cards($0) }))
+        let groups = try #require(try await scan(sut))
+        #expect(groups.map { $0.expressions.map(\.id) } == [[a.id, c.id], [d.id, e.id, f.id]])
+        #expect(groups[0].isExactOnly && groups[0].exact[0].card.example == "stop fucking about.")   // filled in
+        let pick = groups[1]
+        #expect(pick.exact.map(\.expressionIDs) == [[d.id, f.id]] && !pick.isExactOnly)
 
         var proposals: [String: [DuplicateMerge]] = [:]
-        for try await step in sut.check([group], studiedLanguage: "English", nativeLanguage: "Russian") {
+        for try await step in sut.check([pick], studiedLanguage: "English", nativeLanguage: "Russian") {
             proposals.merge(step.proposals) { _, new in new }
         }
-        let merges = try #require(proposals[group.key])
-        #expect(merges.map(\.expressionIDs) == [[a.id, c.id]] && merges[0].kind == .duplicate)
+        let merges = try #require(proposals[pick.key])
+        #expect(merges.map(\.expressionIDs) == [[d.id, f.id]] && merges[0].kind == .duplicate)      // e stays apart
     }
 
     /// The model's merges are kept to the group's own phrases, each in one merge, two or more each.
@@ -345,7 +359,7 @@ import Presentation
 
     /// An exact duplicate merges on the device; a look-alike that's another phrase asks to move apart.
     @Test func exactDuplicateAndAnotherPhrase() async throws {
-        let existing = phrase("fuck about", "выпендриваться", 0), other = phrase("fuck somebody about", "водить за нос", 1)
+        let existing = phrase("fuck about", "выпендриваться", 0), other = phrase("fuck about", "бездельничать", 1)
         let exact = phrase("Fuck about!", "Выпендриваться", 2), different = phrase("to fuck about", "валять дурака", 3)
         let expressions = MockExpressionRepository(seed: [existing, other, exact, different])
         let cards = MockReviewCardRepository(seed: newCards(existing) + newCards(other))
@@ -364,6 +378,7 @@ import Presentation
 
         vm.moveToFlashcards(different)
         try await wait { vm.lookAlike != nil }
+        #expect(vm.lookAlike?.existing.map(\.id) == [existing.id, other.id])
         vm.mergeIntoFlashcards(try #require(vm.lookAlike))
         try await wait { vm.notADuplicate != nil }                                   // the model merged nothing
         #expect(llm.calls == 1)
@@ -397,15 +412,18 @@ import Presentation
         #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id, alike.id])
     }
 
-    /// The Find duplicates sheet: an exact pair merges without the model; Check proposes the rest —
-    /// "fuck about" twice merges and "fuck somebody about" is left apart for good; "solid" in two
-    /// meanings is kept apart by the user. Nothing comes back on the next scan.
+    /// The Find duplicates sheet: exact pairs merge without the model ("fuck about" twice — "fuck
+    /// somebody about" isn't in the group at all); Check proposes the rest — "pick on sb" twice merges and
+    /// the third "pick on" is left apart for good; "solid" in two meanings is kept apart by the user.
+    /// Nothing comes back on the next scan.
     @Test func findDuplicatesSheet() async throws {
         let roof1 = phrase("hit the roof", "взбеситься", 0), roof2 = phrase("to hit the roof", "взбеситься", 1)
         let solid1 = phrase("solid", "надёжный", 2), solid2 = phrase("solid", "твёрдый", 3)
         let about1 = phrase("fuck about", "выпендриваться", 4), aboutSomebody = phrase("fuck somebody about", "водить за нос", 5)
         let about2 = phrase("to fuck about", "Выпендриваться", 6)
-        let all = [roof1, roof2, solid1, solid2, about1, aboutSomebody, about2]
+        let pick1 = phrase("pick on sb", "придираться", 7), pick2 = phrase("pick on someone", "дразнить", 8)
+        let pick3 = phrase("to pick on smb", "придираться", 9)
+        let all = [roof1, roof2, solid1, solid2, about1, aboutSomebody, about2, pick1, pick2, pick3]
         let expressions = MockExpressionRepository(seed: all)
         let cards = MockReviewCardRepository(seed: all.flatMap(newCards))
         let duplicates = DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions, cards: cards)
@@ -413,22 +431,23 @@ import Presentation
 
         vm.start()
         try await wait { vm.phase != .scanning }
-        #expect(vm.phase == .found && vm.groups.count == 3)
-        #expect(vm.unchecked.map(\.key) == ["solid", "fuck about"])                  // the roof pair is exact
-        #expect(vm.duplicateMerges.count == 2)                                       // roof + the exact "fuck about"s
+        #expect(vm.phase == .found && vm.groups.map(\.key) == ["hit the roof", "solid", "fuck about", "pick on someone"])
+        #expect(vm.unchecked.map(\.key) == ["solid", "pick on someone"])            // the roof and "fuck about" are exact
+        #expect(vm.duplicateMerges.count == 3)                                       // the exact pairs, "pick on" too
 
         vm.startCheck()
         try await wait { vm.phase != .checking }
-        #expect(vm.phase == .checked && vm.checkedKeys == ["solid", "fuck about"])
+        #expect(vm.phase == .checked && vm.checkedKeys == ["solid", "pick on someone"])
         #expect(vm.proposals["solid"]?.first?.kind == .senses)
-        #expect(vm.proposals["fuck about"]?.map(\.expressionIDs) == [[about1.id, about2.id]])
+        #expect(vm.proposals["pick on someone"]?.map(\.expressionIDs) == [[pick1.id, pick3.id]])
 
         vm.mergeAllDuplicates()
-        try await wait { vm.merged == 2 }
-        #expect(vm.groups.map(\.key) == ["solid"])                                   // the rest of "fuck about" is apart
+        try await wait { vm.merged == 3 }
+        #expect(vm.groups.map(\.key) == ["solid"])                                   // the other "pick on" is apart
         vm.keepApart(try #require(vm.groups.first))
         #expect(vm.groups.isEmpty)
-        #expect(Set(try await expressions.all().map(\.id)) == [roof1.id, solid1.id, solid2.id, about1.id, aboutSomebody.id])
+        #expect(Set(try await expressions.all().map(\.id))
+                == [roof1.id, solid1.id, solid2.id, about1.id, aboutSomebody.id, pick1.id, pick2.id])
 
         try await Task.sleep(for: .milliseconds(50))
         let again = DuplicatesViewModel(duplicates: duplicates, studiedLanguage: { "English" }, nativeLanguage: { "Russian" })

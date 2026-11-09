@@ -187,11 +187,13 @@ Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews pe
 cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,
 green for learned (mature only), validated with the dataviz validator for both modes; "N of M
 learned". Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower case, accents,
-apostrophes, leading "to"/articles per language, placeholders someone/sth/jemanden/qqn…, brackets,
-"+ -ing", punctuation; then lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
+apostrophes, leading "to"/articles per language, glosses in brackets, punctuation; SLOTS ARE KEPT, only
+their spellings unified (sb/smb/somebody → someone, sth → something, one's → someone's, jdn → jemanden,
+qqn → quelqu'un; "(someone)" in brackets too; English "+ -ing" → "doing") — the user's rule: a slot
+changes the expression, "fuck about" ≠ "fuck somebody about"; then lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
 (NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
-identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("fuck about" /
-"fuck somebody about"). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
+identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
+meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
 device (`exactMerges`: PhraseKey without lemmas + the same translation; a group of only those
 (`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 10 groups)
 returns per group a list of merges (ids + duplicate / senses + `CardText`; a card in none stays apart;

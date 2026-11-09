@@ -926,8 +926,8 @@ public struct DuplicatesTemplate: PromptTemplate {
         """
         You check vocabulary flashcards of a \(nativeLanguage) speaker who is learning \(studiedLanguage). You get groups
         of cards whose \(studiedLanguage) expressions look alike — the same words apart from articles, infinitive
-        markers, placeholders such as "someone", punctuation or word forms. Look-alike is not the same: for EVERY
-        group return its "id" and the "merges" to make. A merge joins two or more of the group's cards, by their
+        markers, the spelling of a slot ("sb", "smb" or "someone"), punctuation or word forms. Look-alike is not the
+        same: for EVERY group return its "id" and the "merges" to make. A merge joins two or more of the group's cards, by their
         "id", into one card:
         - "verdict": "duplicate" when those cards teach the same expression in the same meaning (translations
           worded differently still count); "senses" when they are the very same expression with different meanings.

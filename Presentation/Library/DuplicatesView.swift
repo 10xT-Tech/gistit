@@ -89,8 +89,8 @@ struct DuplicatesView: View {
                                 "Phrases checked: \(model.scan.checked) of \(model.scan.total)"))
             case .found:
                 if !model.groups.isEmpty {
-                    caption(Loc.t("Фразы, которые пишутся похоже (без учёта «to», артиклей, «someone», знаков и форм слова). Похожие — ещё не одинаковые: точные дубли (та же фраза и тот же перевод) можно объединить сразу, остальное проверит модель — какие карточки одно и то же, какие — разные значения одной фразы, а какие — разные фразы. Решаете вы.",
-                                  "Phrases written alike (ignoring \"to\", articles, \"someone\", punctuation and word forms). Alike isn't the same: exact duplicates (the same phrase and translation) can be merged right away; the model checks the rest — which cards are one, which are one phrase's meanings, which are different phrases. You decide."))
+                    caption(Loc.t("Фразы, которые пишутся похоже (без учёта «to», артиклей, знаков и форм слова; «sb», «smb» и «someone» — одно и то же, но фраза с «someone» и без — разные). Похожие — ещё не одинаковые: точные дубли (та же фраза и тот же перевод) можно объединить сразу, остальное проверит модель — какие карточки одно и то же, какие — разные значения одной фразы, а какие — разные фразы. Решаете вы.",
+                                  "Phrases written alike (ignoring \"to\", articles, punctuation and word forms; \"sb\", \"smb\" and \"someone\" are one, but a phrase with \"someone\" and one without are two). Alike isn't the same: exact duplicates (the same phrase and translation) can be merged right away; the model checks the rest — which cards are one, which are one phrase's meanings, which are different phrases. You decide."))
                 }
                 if !model.unchecked.isEmpty {
                     EHButton(Loc.t("Проверить (\(model.unchecked.count))", "Check (\(model.unchecked.count))",

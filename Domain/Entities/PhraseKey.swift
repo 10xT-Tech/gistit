@@ -4,10 +4,15 @@
 //
 //  What two phrases in the studied language are compared by when looking for duplicates: the same
 //  words apart from letter case, accents, typographic apostrophes, a leading infinitive marker or
-//  article ("to", "a", "der", "la"…), placeholders ("someone", "sth", "jemanden"…), parts in brackets,
-//  "+ -ing" markers, punctuation and spacing — and, with a lemmatizer, word forms ("jumping the
-//  gun" = "jump the gun"). "to hit the roof" and "Hit the roof!" share a key; "solid" (надёжный) and
-//  "solid" (твёрдый) too — whether they're one card is for the model (and the user) to say.
+//  article ("to", "a", "der", "la"…), glosses in brackets, punctuation and spacing — and, with a
+//  lemmatizer, word forms ("jumping the gun" = "jump the gun"). "to hit the roof" and "Hit the
+//  roof!" share a key; "solid" (надёжный) and "solid" (твёрдый) too — whether they're one card is for
+//  the model (and the user) to say.
+//  A SLOT changes the expression, so it is never dropped — only its spellings are made one:
+//  "someone" / "somebody" / "sb" / "smb" (also in brackets: "wind (someone) up"), "sth" / "smth" →
+//  "something", "one's" / "sb's" → "someone's", "jdn" → "jemanden", "qqn" → "quelqu'un"…; and the
+//  English "+ -ing" marker is "doing". "pick on sb" = "pick on someone", but "fuck about" ≠ "fuck
+//  somebody about", "wind up" ≠ "wind sb up", "stop + -ing" ≠ "stop + to".
 //
 
 import Foundation
@@ -32,19 +37,23 @@ public struct NoLemmatizer: Lemmatizing {
 public enum PhraseKey {
     /// The comparison key of `text` in `language` (a prompt name: "English", "German"…).
     public static func make(_ text: String, language: String, lemmatizer: any Lemmatizing = NoLemmatizer()) -> String {
+        let slots = Self.slots[language] ?? [:]
         var s = text.lowercased()
             .replacingOccurrences(of: "’", with: "'")
             .replacingOccurrences(of: "‘", with: "'")
             .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: nil)
-        s = s.replacing(/\([^)]*\)|\[[^\]]*\]/, with: " ")                  // "(someone)", "[sth]"
-        s = s.replacing(/\+\s*-?ing\b/, with: " ")                          // "finish + -ing"
-        for slot in Self.multiwordPlaceholders[language] ?? [] { s = s.replacingOccurrences(of: slot, with: " ") }
-        s = s.replacing(/[^\p{L}\p{N}']+/, with: " ")                        // punctuation, "…", "/"
+        // Brackets: a slot in them ("(someone)") stays a slot; anything else is a gloss ("(future)").
+        s = s.replacing(/\(([^)]*)\)|\[([^\]]*)\]/) { match in
+            let inside = String(match.output.1 ?? match.output.2 ?? "")
+                .trimmingCharacters(in: .whitespaces.union(.punctuationCharacters))
+            return slots[inside].map { " \($0) " } ?? " "
+        }
+        if language == "English" { s = s.replacing(/\+\s*-?ing\b/, with: " doing ") }   // "finish + -ing"
+        s = s.replacing(/[^\p{L}\p{N}']+/, with: " ")                                      // punctuation, "…", "/"
         var words = s.split(separator: " ").map(String.init)
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "'")) }
             .filter { !$0.isEmpty }
-        let placeholders = Self.placeholders[language] ?? []
-        words.removeAll { placeholders.contains($0) }
+            .map { slots[$0] ?? $0 }
         if let first = words.first {
             if words.count > 1, (Self.leading[language] ?? []).contains(first) {
                 words.removeFirst()
@@ -73,17 +82,25 @@ public enum PhraseKey {
         "Italian": ["l'", "un'"],
     ]
 
-    /// Slots written in more than one word, removed before the words are split.
-    static let multiwordPlaceholders: [String: [String]] = [
-        "French": ["quelque chose"],
-    ]
-
-    /// "Someone / something" slots of a phrase.
-    static let placeholders: [String: Set<String>] = [
-        "English": ["someone", "somebody", "something", "someone's", "somebody's", "one's", "smb", "smth", "sth", "sb", "smb's", "sb's"],
-        "German": ["jemand", "jemanden", "jemandem", "jemandes", "etwas", "jdn", "jdm", "jds", "etw"],
-        "French": ["quelqu'un", "qqn", "qqch", "qn", "qch"],
-        "Spanish": ["alguien", "algo", "alg"],
-        "Italian": ["qualcuno", "qualcosa", "qc", "qn", "qcs"],
+    /// The spellings of a "someone / something" slot → the one the key uses.
+    static let slots: [String: [String: String]] = [
+        "English": [
+            "someone": "someone", "somebody": "someone", "smb": "someone", "sb": "someone", "smbd": "someone",
+            "someone's": "someone's", "somebody's": "someone's", "smb's": "someone's", "sb's": "someone's",
+            "one's": "someone's",
+            "something": "something", "sth": "something", "smth": "something", "smt": "something",
+        ],
+        "German": [
+            "jemand": "jemand", "jemanden": "jemanden", "jdn": "jemanden", "jemandem": "jemandem", "jdm": "jemandem",
+            "jemandes": "jemandes", "jds": "jemandes", "etwas": "etwas", "etw": "etwas",
+        ],
+        "French": [
+            "quelqu'un": "quelqu'un", "qqn": "quelqu'un", "qn": "quelqu'un",
+            "qqch": "quelque chose", "qch": "quelque chose", "quelque chose": "quelque chose",
+        ],
+        "Spanish": ["alguien": "alguien", "algo": "algo", "alg": "algo"],
+        "Italian": [
+            "qualcuno": "qualcuno", "qn": "qualcuno", "qualcosa": "qualcosa", "qc": "qualcosa", "qcs": "qualcosa",
+        ],
     ]
 }
