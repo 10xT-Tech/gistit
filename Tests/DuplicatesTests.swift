@@ -75,6 +75,8 @@ import Presentation
         }
         #expect(PhraseKey.make("Jumping the gun", language: "English", lemmatizer: Lemmas())
                 == PhraseKey.make("to jump the gun", language: "English", lemmatizer: Lemmas()))
+        // A single word keeps its form: "jumping" isn't "to jump".
+        #expect(PhraseKey.make("jumping", language: "English", lemmatizer: Lemmas()) == "jumping")
         // `prepare` never waits for the asset download (it can hang for minutes): it returns at once,
         // and until the assets are there, words keep their written form.
         let natural = NaturalLanguageLemmatizer()

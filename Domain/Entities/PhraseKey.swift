@@ -5,7 +5,9 @@
 //  What two phrases in the studied language are compared by when looking for duplicates: the same
 //  words apart from letter case, accents, typographic apostrophes, a leading infinitive marker or
 //  article ("to", "a", "der", "la"…), glosses in brackets, punctuation and spacing — and, with a
-//  lemmatizer, word forms ("jumping the gun" = "jump the gun"). "to hit the roof" and "Hit the
+//  lemmatizer, the word forms of a PHRASE ("jumping the gun" = "jump the gun"). A single word keeps its
+//  form: "dashing" isn't "a dash", nor "fried" "to fry" — other words, which lemmas would have grouped
+//  (and did, with cards already marked "not duplicates"). "to hit the roof" and "Hit the
 //  roof!" share a key; "solid" (надёжный) and "solid" (твёрдый) too — whether they're one card is for
 //  the model (and the user) to say.
 //  A SLOT changes the expression, so it is never dropped — only its spellings are made one:
@@ -63,6 +65,9 @@ public enum PhraseKey {
         }
         let joined = words.joined(separator: " ")
         guard !joined.isEmpty else { return text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        // Lemmas for a phrase of several words only ("hang-ups" is one word, "hang up" two).
+        let isPhrase = text.trimmingCharacters(in: .whitespacesAndNewlines).contains(where: \.isWhitespace)
+        guard isPhrase else { return joined }
         return lemmatizer.lemmatize(joined, language: language)
             .split(separator: " ").joined(separator: " ")
     }

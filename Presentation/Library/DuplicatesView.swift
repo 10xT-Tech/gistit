@@ -204,7 +204,7 @@ private struct GroupCard: View {
                 }
             }
 
-            ForEach(group.expressions) { expression in
+            ForEach(shownMembers) { expression in
                 VStack(alignment: .leading, spacing: Tokens.Space.s4) {
                     Text(expression.en)
                         .textStyle(Tokens.Text.headline)
@@ -225,6 +225,22 @@ private struct GroupCard: View {
                     }
                 }
                 .accessibilityElement(children: .combine)
+            }
+
+            if !settledMembers.isEmpty {
+                // Cards already marked "not duplicates" of each other: context, not the question.
+                VStack(alignment: .leading, spacing: Tokens.Space.s4) {
+                    Text(Loc.t("Уже отмечены как не дубли друг другу:", "Already marked not duplicates of each other:",
+                               "Déjà marquées comme non doublons :", "Ya marcadas como no duplicadas:",
+                               "Schon als keine Duplikate markiert:", "Già segnate come non duplicati:"))
+                        .textStyle(Tokens.Text.caption)
+                        .foregroundStyle(Tokens.Content.tertiary)
+                    Text(settledMembers.map { "«\($0.en)»" }.joined(separator: ", "))
+                        .textStyle(Tokens.Text.footnote)
+                        .foregroundStyle(Tokens.Content.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("dups.settled")
             }
 
             ForEach(proposals) { merge in
@@ -254,6 +270,23 @@ private struct GroupCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
+    }
+
+    /// The cards the question is about. In a normal search, a group that joins cards already marked
+    /// "not duplicates" of each other with new look-alikes asks about the new ones; the marked ones
+    /// are shown as a line of context (`settledMembers`).
+    private var shownMembers: [Domain.Expression] {
+        settledMembers.isEmpty ? group.expressions : group.expressions.filter { !markedIDs.contains($0.id) }
+    }
+
+    private var settledMembers: [Domain.Expression] {
+        guard group.honorsMarks, !group.marked.isEmpty,
+              group.expressions.contains(where: { !markedIDs.contains($0.id) }) else { return [] }
+        return group.expressions.filter { markedIDs.contains($0.id) }
+    }
+
+    private var markedIDs: Set<UUID> {
+        Set(group.marked.flatMap { [$0.first, $0.second] })
     }
 
     /// A proposed merge: what it joins and the card it makes.

@@ -194,7 +194,10 @@ learned". Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower cas
 apostrophes, leading "to"/articles per language, glosses in brackets, punctuation; SLOTS ARE KEPT, only
 their spellings unified (sb/smb/somebody → someone, sth → something, one's → someone's, jdn → jemanden,
 qqn → quelqu'un; "(someone)" in brackets too; English "+ -ing" → "doing") — the user's rule: a slot
-changes the expression, "fuck about" ≠ "fuck somebody about"; then lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
+changes the expression, "fuck about" ≠ "fuck somebody about"; then lemmas — for PHRASES of several words
+only: a single word keeps its form ("dashing" ≠ "a dash"; lemmas grouped such forms with pairs already
+marked "not duplicates", and they came back); a group that joins marked cards with a new look-alike shows
+the marked ones as one line of context (`DuplicatesView` `settledMembers`); lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
 (NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
 identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
 meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
