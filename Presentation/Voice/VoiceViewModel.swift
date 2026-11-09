@@ -489,6 +489,8 @@ public final class VoiceViewModel {
         case .subscriptionRequired(let retryAfter):
             needsSubscription = true
             errorMessage = subscriptionLimitMessage(retryAfter: retryAfter)
+        case .dailyLimitReached(let retryAfter):
+            errorMessage = dailyLimitMessage(retryAfter: retryAfter)
         case .requestFailed:
             errorMessage = Loc.t("Сервис недоступен. Попробуйте позже.", "Service unavailable. Try later.")
         }

@@ -31,6 +31,22 @@ func subscriptionLimitMessage(retryAfter: Int?) -> String {
         "Piano gratuito: una spiegazione o richiesta «Dire» ogni 5 minuti. La prossima tra \(minutes) min. Abbonati per un uso illimitato.")
 }
 
+/// "Today's request limit is used up — it resets at 03:00": the device's daily allowance on our backend.
+func dailyLimitMessage(retryAfter: Int?, now: Date = Date()) -> String {
+    let reset: Date = retryAfter.map { now.addingTimeInterval(TimeInterval($0)) } ?? {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        return utc.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0), matchingPolicy: .nextTime) ?? now
+    }()
+    let time = reset.formatted(date: .omitted, time: .shortened)
+    return Loc.t("Дневной лимит запросов исчерпан — он обновится в \(time).",
+                 "Today's request limit is used up — it resets at \(time).",
+                 "La limite de requêtes du jour est atteinte — elle se réinitialise à \(time).",
+                 "Se agotó el límite de solicitudes de hoy — se renueva a las \(time).",
+                 "Das heutige Anfragelimit ist aufgebraucht — es wird um \(time) zurückgesetzt.",
+                 "Il limite di richieste di oggi è esaurito — si azzera alle \(time).")
+}
+
 func presentableError(_ error: Error) -> PresentableError {
     guard let llm = error as? LLMError else {
         return PresentableError(message: Loc.t("Что-то пошло не так. Попробуйте ещё раз.",
@@ -63,5 +79,7 @@ func presentableError(_ error: Error) -> PresentableError {
     case .subscriptionRequired(let retryAfter):
         return PresentableError(message: subscriptionLimitMessage(retryAfter: retryAfter), isOffline: false,
                                 needsSubscription: true)
+    case .dailyLimitReached(let retryAfter):
+        return PresentableError(message: dailyLimitMessage(retryAfter: retryAfter), isOffline: false)
     }
 }

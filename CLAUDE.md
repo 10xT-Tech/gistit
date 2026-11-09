@@ -105,7 +105,10 @@ with `#include?`). Two credential modes:
 (`AppConfig.subscriptionProductID`). Free plan, by SCENARIO not model: translations (Get it/See it →
 Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode,
 no flashcards (on-device, so the APP is the only gate: `AccessTier.canUseFlashcards`).
-Subscribers and Xcode builds (`AppDistribution.local`): unlimited, no paywall. TestFlight shows the
+Subscribers and Xcode builds (`AppDistribution.local`): no paywall; the backend still caps every device
+at 20 model requests/min and per UTC day 500 (free) / 3000 (pro, beta) — a spent day is
+`LLMError.dailyLimitReached(retryAfter:)` (backend 429 `daily_limit`, never retried; the message says when
+it resets). TestFlight shows the
 REAL plan + paywall because App Review runs in the same sandbox and can't be told apart — 1.5.3 was
 rejected (2.1(b)) when the reviewer saw an unlocked "test build"; testers subscribe for free. The
 backend still treats sandbox as `beta`, so TestFlight explanations aren't metered (only the app's

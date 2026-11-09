@@ -15,7 +15,7 @@ public enum ConnectionHealth: Sendable, Equatable {
 
     /// Localizable failure reasons (the UI maps these to text).
     public enum Reason: Sendable, Equatable {
-        case noKey, unauthorized, offline, timeout, overloaded, badResponse, unavailable, unknown
+        case noKey, unauthorized, offline, timeout, overloaded, badResponse, unavailable, unknown, dailyLimit
     }
 }
 
@@ -48,6 +48,7 @@ public struct ConnectionHealthInteractor: ConnectionHealthUseCase {
             case .invalidOutput: return .failed(.badResponse)
             case .cancelled: return .cancelled   // sheet dismissed mid-check — not a connectivity fault
             case .subscriptionRequired: return .ok   // reachable and authorised; only the plan limits it
+            case .dailyLimitReached: return .failed(.dailyLimit)
             }
         } catch {
             return .failed(.unknown)

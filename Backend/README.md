@@ -23,7 +23,10 @@ iPhone ──App Attest──▶ Lambda (Function URL, streaming) ──▶ api.
 | `src/store.mjs` | DynamoDB: one-time challenges, attested keys + counters, rate limits |
 | `template.yaml` | SAM stack: Lambda + Function URL, DynamoDB (TTL), Secrets Manager, logs |
 
-Limits per App Attest key (stack parameters): 20 Claude requests/min, 500/day, 200 live sessions/day.
+Limits per App Attest key (stack parameters): 20 Claude requests/min; per UTC day 500 on the free plan
+(`LlmPerDay`) and 3000 for `pro` and `beta` (`LlmPerDayPaid` — bulk tools like Fix cards send hundreds);
+200 live sessions/day. A spent day is HTTP 429 `{ error: { type: "daily_limit" } }` with `retry-after`
+(seconds to 00:00 UTC) — the app shows when it resets and doesn't retry.
 Only `claude-sonnet-5-5` and `claude-haiku-5-5` are forwarded (`AllowedModels`).
 
 ## Access tiers (subscription)
@@ -33,9 +36,11 @@ tier the server decides — never the app:
 
 | Tier | Who | Translations | Explanations + Say it | Live translation |
 |---|---|---|---|---|
-| `beta` | Xcode builds (App Attest *development*), TestFlight (`AppTransaction.receiptType` `Sandbox`) | unlimited | unlimited | yes |
-| `pro` | App Store build + active subscription transaction | unlimited | unlimited | yes |
-| `free` | App Store build without one | unlimited | 1 per 5 min, shared | no |
+| `beta` | Xcode builds (App Attest *development*), TestFlight (`AppTransaction.receiptType` `Sandbox`) | up to 3000/day | up to 3000/day | yes |
+| `pro` | App Store build + active subscription transaction | up to 3000/day | up to 3000/day | yes |
+| `free` | App Store build without one | up to 500/day | 1 per 5 min, shared | no |
+
+(The per-day figures are one allowance for all model requests of a device, with 20/min on top.)
 
 The app is stricter in TestFlight: it shows the real StoreKit plan and paywall there (App Review
 runs in the same sandbox and must find the subscription), while the server keeps such sessions

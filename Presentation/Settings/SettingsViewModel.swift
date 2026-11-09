@@ -94,6 +94,7 @@ public final class SettingsViewModel {
         case .offline: Loc.t("Нет соединения", "No connection")
         case .timeout: Loc.t("Сервис не ответил вовремя", "The service didn't respond in time")
         case .overloaded: Loc.t("Сервис перегружен, попробуйте позже", "Service is overloaded — try later")
+        case .dailyLimit: Loc.t("Дневной лимит запросов исчерпан", "Today's request limit is used up")
         case .badResponse: Loc.t("Неожиданный ответ сервиса", "Unexpected response from the service")
         case .unavailable: Loc.t("Сервис недоступен", "Service unavailable")
         case .unknown: Loc.t("Ошибка подключения", "Connection error")

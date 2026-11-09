@@ -243,6 +243,11 @@ public final class ClaudeLLMClient: LLMClient {
                     let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
                     throw LLMError.subscriptionRequired(retryAfter: retryAfter)
                 }
+                // Our backend: the device's requests for the day are spent — retrying can't help.
+                if http.statusCode == 429, Self.isDailyLimit(body) {
+                    let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
+                    throw LLMError.dailyLimitReached(retryAfter: retryAfter)
+                }
                 let isOverload = http.statusCode == 429 || http.statusCode == 529
                 let isRetryable = isOverload || http.statusCode >= 500
                 if isRetryable && attempt < maxRetries {
@@ -386,6 +391,14 @@ public final class ClaudeLLMClient: LLMClient {
         }
         data.replaceSubrange(range, with: Data(schemaJSON.utf8))
         return data
+    }
+
+    /// A 429 from our backend that means the day's allowance is spent — `{"error":{"type":"daily_limit"}}`
+    /// (or, from a backend before that type, "daily request limit reached").
+    public static func isDailyLimit(_ body: Data) -> Bool {
+        struct Envelope: Decodable { struct Detail: Decodable { let type: String?; let message: String? }; let error: Detail? }
+        guard let error = (try? JSONDecoder().decode(Envelope.self, from: body))?.error else { return false }
+        return error.type == "daily_limit" || (error.message?.contains("daily request limit") ?? false)
     }
 
     // MARK: Wire types

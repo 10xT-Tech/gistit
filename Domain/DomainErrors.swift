@@ -23,6 +23,9 @@ public enum LLMError: Error, Sendable, Equatable {
     /// The free plan's allowance for this model is used up (App Store build without a subscription).
     /// `retryAfter`: seconds until the next free request, when the limit is time-based.
     case subscriptionRequired(retryAfter: Int?)
+    /// This device's model requests for the day are used up (our backend's daily allowance). Never
+    /// retried. `retryAfter`: seconds until it turns (00:00 UTC).
+    case dailyLimitReached(retryAfter: Int?)
 }
 
 public enum SpeechRecognitionError: Error, Sendable, Equatable {

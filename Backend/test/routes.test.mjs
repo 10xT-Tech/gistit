@@ -142,6 +142,30 @@ test('rate-limits per key', async () => {
   assert.equal(otherKey.status, 200);
 });
 
+test('the day\'s allowance: 500 on the free plan, 3000 with a subscription or a beta build', async () => {
+  const day = Math.floor(Date.now() / 1000 / 86400);
+  const spent = (kid, hits) => {
+    const pk = `rate#llm-day#${kid}#86400#${day}`;
+    items.set(pk, { pk: { S: pk }, hits: { N: String(hits) } });
+  };
+  spent('free-day', 500);
+  spent('pro-day', 500);
+  spent('beta-day', 500);
+  spent('pro-spent', 3000);
+
+  const free = await route(event('/v1/messages', { body: messagesBody(), headers: bearer('free-day', 'free') }));
+  assert.equal(free.status, 429);
+  assert.equal(errorType(free), 'daily_limit');
+  const retryAfter = Number(free.headers['retry-after']);
+  assert.ok(retryAfter > 0 && retryAfter <= 86400);
+  assert.equal((await route(event('/v1/messages', { body: messagesBody(), headers: bearer('pro-day', 'pro') }))).status, 200);
+  assert.equal((await route(event('/v1/messages', { body: messagesBody(), headers: bearer('beta-day', 'beta') }))).status, 200);
+  const spentPro = await route(event('/v1/messages', { body: messagesBody(), headers: bearer('pro-spent', 'pro') }));
+  assert.equal(spentPro.status, 429);
+  assert.equal(errorType(spentPro), 'daily_limit');
+  assert.equal(upstreamCalls.length, 2);
+});
+
 test('a rejected SERVER key surfaces as 502, never as the app session failing', async () => {
   globalThis.__anthropicStatus = 401;
   const result = await route(event('/v1/messages', { body: messagesBody(), headers: bearer() }));

@@ -114,7 +114,7 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
         if error is CancellationError { return false }
         guard let llm = error as? LLMError else { return true }
         switch llm {
-        case .offline, .cancelled, .notConfigured, .subscriptionRequired: return false
+        case .offline, .cancelled, .notConfigured, .subscriptionRequired, .dailyLimitReached: return false
         default: return true
         }
     }
