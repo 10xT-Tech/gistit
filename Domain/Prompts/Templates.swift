@@ -658,8 +658,11 @@ public struct PhotoCardsResult: Codable, Sendable, Equatable {
     public let cards: [CardDraft]
 }
 
-/// A photo or screenshot → a vocabulary card for every meaningful studied-language word and fixed
-/// expression in it (Caught → "From photos"). Metered like explanations on the free plan: its opening
+/// A photo or screenshot → vocabulary cards (Caught → "From photos"): ONE card for a featured phrase —
+/// a phrase set apart to be learned, as on language-learning posts, kept whole, with the translation
+/// the image shows — or, for a page of text, a card for every meaningful studied-language word and
+/// fixed expression in it. The screen around the content (app interface, names, song titles, captions,
+/// comments, other posts) is never carded. Metered like explanations on the free plan: its opening
 /// isn't one of the backend's free translation openings.
 public struct PhotoCardsTemplate: PromptTemplate {
     public typealias Input = RecognizableImage
@@ -680,14 +683,26 @@ public struct PhotoCardsTemplate: PromptTemplate {
     public var systemPrompt: String {
         """
         You are a \(studiedLanguage) vocabulary card generator for a \(nativeLanguage) speaker. The image is
-        a photo or a screenshot with \(studiedLanguage) text. Extract ALL meaningful \(studiedLanguage) words
-        and expressions from it — skip articles, prepositions and common function words unless they form
-        a fixed expression. Process every meaningful word and expression; do not skip anything. Ignore
-        text in other languages. If there is no \(studiedLanguage) text, return an empty "cards" array.
+        a photo or a screenshot with \(studiedLanguage) text. First decide what in it is meant to be learned:
+        - A FEATURED PHRASE: the image sets a phrase or sentence apart to be learned — a caption on a card or
+          a panel, large or highlighted text in the middle, often with its \(nativeLanguage) translation next to
+          it (posts of language-learning accounts look like this). Then make ONE card for that phrase, whole
+          and as written — never split it into words or parts — with the translation the image shows, if it
+          shows one. Make no other cards.
+        - Otherwise — a page, an article, a menu, a sign, a chat — extract the meaningful \(studiedLanguage)
+          words and expressions: skip articles, prepositions and common function words unless they form a
+          fixed expression, and keep a fixed expression or idiom whole rather than carding its words.
+        Never card the screen around the content: app interface (buttons, tabs, counters, menus, "more"),
+        user names and handles, song and music titles, the caption and comments under a post, ads, other
+        posts, watermarks, the status bar. Ignore text in other languages. If there is no \(studiedLanguage)
+        text to learn, return an empty "cards" array.
 
-        For each word or expression return one card:
-        - "expression": the word or expression in \(studiedLanguage) (single words in their dictionary form).
-        - "translation": its \(nativeLanguage) translation — one or two variants separated by " / ".
+        For each card:
+        - "expression": a featured phrase as written; otherwise the word or expression in \(studiedLanguage),
+          single words in their dictionary form (a single verb with its infinitive marker, a single noun with
+          its article, as \(studiedLanguage) vocabulary lists write them).
+        - "translation": its \(nativeLanguage) translation — the one in the image for a featured phrase,
+          otherwise one or two variants separated by " / ".
         - "example": one example sentence in \(studiedLanguage) that uses it.
         - "synonyms": 2 to 3 \(studiedLanguage) synonyms.
         Use lowercase letters everywhere — except the English pronoun "I" (I'm, I've, I'll, I'd) and German
@@ -707,7 +722,7 @@ public struct PhotoCardsTemplate: PromptTemplate {
     }
 
     public func userMessage(for input: RecognizableImage) -> String {
-        "Make a \(studiedLanguage) vocabulary card for every meaningful word and expression in the image."
+        "Make the \(studiedLanguage) vocabulary cards for this image — only its featured phrase, if it has one."
     }
 
     public func image(for input: RecognizableImage) -> Data? { input.data }

@@ -31,8 +31,10 @@ won't see again for 21 days or more) in green, with how many of all your cards y
 **Caught.** What you save from Say it, Get it and See it now goes to **Caught** — your study list from
 before, with everything already in it. Add cards two new ways with **+**: **Generate from a phrase**
 (type a phrase in the language you're learning; the translation, an example and synonyms are filled
-in for you) or **From photos** (pick one or more photos or screenshots; every meaningful word and
-expression in them becomes a card, with a progress bar while it works). Swipe a phrase right (or tap
+in for you) or **From photos** (pick one or more photos or screenshots, with a progress bar while it
+works: a phrase set apart to be learned — like the caption of a language-learning post — becomes one
+card, whole, with the translation the picture shows; a page of text gives a card for every meaningful
+word and expression; the app around it — names, song titles, comments — is left out). Swipe a phrase right (or tap
 its card icon) to move it into flashcards, or **Move all to flashcards** at once. If a phrase looks
 like one you already learn ("hit the roof!" and "to hit the roof"), the app asks first: **Merge** joins
 it with the card it really is — your progress stays, and several meanings are numbered on one card —

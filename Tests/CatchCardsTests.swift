@@ -47,6 +47,17 @@ import Presentation
         #expect(prompt.contains("German vocabulary card generator for a French speaker"))
     }
 
+    /// A screenshot of a language-learning post: one card for the featured phrase, whole, with the
+    /// translation it shows — none for the app around it (names, song titles, captions, other posts).
+    @Test func photoCardsPromptKeepsAFeaturedPhraseWhole() {
+        let template = PhotoCardsTemplate()
+        #expect(template.systemPrompt.contains("make ONE card for that phrase, whole"))
+        #expect(template.systemPrompt.contains("never split it into words or parts"))
+        #expect(template.systemPrompt.contains("song and music titles"))
+        #expect(!template.systemPrompt.contains("do not skip anything"))
+        #expect(template.userMessage(for: RecognizableImage(data: Data())).contains("only its featured phrase"))
+    }
+
     // MARK: Batch
 
     /// Two photos: progress after each, cards stored, a card already saved (or repeated) is skipped.
