@@ -149,18 +149,17 @@ public enum Tokens {
 
     // MARK: Chart — data marks (Study dashboard)
     //  Validated with the dataviz validator against the card surface in each mode — light #FAFAFC,
-    //  dark #141415; dark is its own set, not a flip. Stages: not yet learned in grey (an ordinal ramp:
-    //  monotone lightness, ΔL ≥ 0.06, faint end ≥ 2:1), LEARNED (young, mature) in green — an ordinal
-    //  green pair, told apart from the grey next to it (CVD ΔE ≥ 12.7, normal ΔE ≥ 15.6) and from each
-    //  other (normal ΔE ≥ 17.1). The light green is under 3:1 on the surface: the legend's labels and
-    //  counts carry it.
+    //  dark #141415; dark is its own set, not a flip. Stages: not yet learned (new, learning, young) in
+    //  grey — an ordinal ramp: monotone lightness, ΔL ≥ 0.06, faint end ≥ 2:1 — and LEARNED (mature: an
+    //  interval of 21+ days) in green, told apart from the grey next to it (CVD ΔE ≥ 12.7, normal ΔE ≥
+    //  18.4 light / 21.7 dark; ≥ 3:1 on the surface). The legend's labels and counts carry every stage.
     public enum Chart {
-        /// Ordered stages (flashcards: new → learning → young → mature); the last two are "learned".
+        /// Ordered stages (flashcards: new → learning → young → mature); the last one is "learned".
         public static let stage = [
             Color(light: Color(hex: 0xAEAEB4), dark: Color(hex: 0x5A5A5F)),
             Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C)),
-            Color(light: Color(hex: 0x4FBF6E), dark: Color(hex: 0x207040)),
-            Color(light: Color(hex: 0x1B7F3A), dark: Color(hex: 0x28A84E)),
+            Color(light: Color(hex: 0x5A5A60), dark: Color(hex: 0xB4B4BA)),
+            Color(light: Color(hex: 0x1E8E43), dark: Color(hex: 0x28A84E)),
         ]
         /// A single-series bar (grey); `barEmphasis` marks the one that matters (today).
         public static let bar = Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C))

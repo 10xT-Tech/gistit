@@ -59,8 +59,8 @@ phrase, its translation, the example, synonyms and the note.
 
 **A study dashboard.** Study now opens with your progress: what's due today, new cards, how many
 phrases you're learning, your reviews today and over the last week, and how your cards are spread
-from new to well known — the learned part (young and mature cards) in green, with how many of all
-your cards you've learned.
+from new to well known — the learned part (cards you won't see again for 21 days or more) in green,
+with how many of all your cards you've learned.
 
 **The system tab bar.** The bar at the bottom of the screen is now the real iOS Liquid Glass tab bar:
 press and drag across it to slide the selection to another screen, as in Apple's own apps.

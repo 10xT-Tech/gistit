@@ -6,8 +6,8 @@
 //  Pro), the Caught and In-flashcards lists (pushed), answers per day for the last week, and how the
 //  cards are distributed by stage. Charts follow the dataviz rules: the reviews bars are one series
 //  (one tone, today emphasised); the stages use the validated `Tokens.Chart.stage` set — not yet
-//  learned in grey, learned (young, mature) in green — with a legend, counts and "N of M learned", so
-//  nothing is told by colour alone; VoiceOver reads the numbers.
+//  learned in grey, learned (mature: an interval of 21+ days) in green — with a legend, counts and
+//  "N of M learned", so nothing is told by colour alone; VoiceOver reads the numbers.
 //
 
 import SwiftUI
@@ -291,12 +291,12 @@ private struct DistributionCard: View {
                     .foregroundStyle(Tokens.Content.primary)
                 Spacer()
                 // Learned = past the learning steps (young + mature) — the green part of the bar.
-                Text(Loc.t("изучено \(distribution.young + distribution.mature) из \(distribution.total)",
-                           "\(distribution.young + distribution.mature) of \(distribution.total) learned",
-                           "\(distribution.young + distribution.mature) sur \(distribution.total) apprises",
-                           "\(distribution.young + distribution.mature) de \(distribution.total) aprendidas",
-                           "\(distribution.young + distribution.mature) von \(distribution.total) gelernt",
-                           "\(distribution.young + distribution.mature) di \(distribution.total) imparate"))
+                Text(Loc.t("изучено \(distribution.mature) из \(distribution.total)",
+                           "\(distribution.mature) of \(distribution.total) learned",
+                           "\(distribution.mature) sur \(distribution.total) apprises",
+                           "\(distribution.mature) de \(distribution.total) aprendidas",
+                           "\(distribution.mature) von \(distribution.total) gelernt",
+                           "\(distribution.mature) di \(distribution.total) imparate"))
                     .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
                     .monospacedDigit()
