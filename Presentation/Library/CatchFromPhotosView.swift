@@ -67,15 +67,24 @@ struct CatchFromPhotosView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("catch.empty")
                 }
+                if model.unloaded > 0 {
+                    note(Loc.t("Не загрузилось из галереи: \(model.unloaded). Если фото хранится в iCloud, откройте его в «Фото», чтобы оно скачалось, и попробуйте снова.",
+                               "Couldn't load from the library: \(model.unloaded). If the photo is in iCloud, open it in Photos so it downloads, and try again."))
+                        .accessibilityIdentifier("catch.unloaded")
+                }
                 if model.progress.failed > 0 {
-                    Text(Loc.t("Не удалось обработать фото: \(model.progress.failed)",
-                               "Photos that couldn't be read: \(model.progress.failed)",
-                               "Photos illisibles : \(model.progress.failed)",
-                               "Fotos que no se pudieron leer: \(model.progress.failed)",
-                               "Nicht lesbare Fotos: \(model.progress.failed)",
-                               "Foto non leggibili: \(model.progress.failed)"))
-                        .textStyle(Tokens.Text.footnote)
-                        .foregroundStyle(Tokens.Content.secondary)
+                    VStack(spacing: Tokens.Space.s4) {
+                        note(Loc.t("Не удалось обработать фото: \(model.progress.failed) — \(failureReason)",
+                                   "Photos that couldn't be processed: \(model.progress.failed) — \(failureReason)"))
+                        if let detail = failureDetail {
+                            Text(detail)
+                                .textStyle(Tokens.Text.caption)
+                                .foregroundStyle(Tokens.Content.tertiary)
+                                .multilineTextAlignment(.center)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .accessibilityIdentifier("catch.failed")
                 }
                 if let error = model.errorMessage {
                     Text(error)
@@ -114,6 +123,35 @@ struct CatchFromPhotosView: View {
     }
 
     private var isRunning: Bool { model.phase == .preparing || model.phase == .processing }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .textStyle(Tokens.Text.footnote)
+            .foregroundStyle(Tokens.Content.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Why the last failed photo failed, in words: a refusal, or the error as other screens put it.
+    private var failureReason: String {
+        guard let error = model.progress.lastError else {
+            return Loc.t("попробуйте ещё раз.", "try again.")
+        }
+        if error == .invalidOutput(LLMError.declinedDetail) {
+            return Loc.t("модель отказалась его обрабатывать. Обрежьте на скриншоте лишнее — чужие картинки, превью — и попробуйте снова.",
+                         "the model declined it. Crop out what's around the text — other pictures, previews — and try again.")
+        }
+        return presentableError(error).message
+    }
+
+    /// The technical detail behind a request or answer failure — to pass on if it keeps happening.
+    private var failureDetail: String? {
+        switch model.progress.lastError {
+        case .requestFailed(let detail)?: detail
+        case .invalidOutput(let detail)? where detail != LLMError.declinedDetail: detail
+        default: nil
+        }
+    }
 
     private var icon: String {
         switch model.phase {

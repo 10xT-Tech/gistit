@@ -20,15 +20,18 @@ public struct CatchProgress: Sendable, Equatable {
     public let failed: Int
     /// Photos with nothing to card: no featured phrase, nothing marked on the page.
     public let empty: Int
+    /// Why the last failed photo failed — the sheet says it.
+    public let lastError: LLMError?
 
     public var fraction: Double { total == 0 ? 1 : Double(processed) / Double(total) }
 
-    public init(processed: Int, total: Int, added: Int, failed: Int, empty: Int = 0) {
+    public init(processed: Int, total: Int, added: Int, failed: Int, empty: Int = 0, lastError: LLMError? = nil) {
         self.processed = processed
         self.total = total
         self.added = added
         self.failed = failed
         self.empty = empty
+        self.lastError = lastError
     }
 }
 
@@ -57,11 +60,12 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 var added = 0, failed = 0, empty = 0
+                var lastError: LLMError?
                 continuation.yield(CatchProgress(processed: 0, total: images.count, added: 0, failed: 0))
                 for (index, image) in images.enumerated() {
                     do {
                         try Task.checkCancellation()
-                        let result = try await llm.run(template, input: image)
+                        let result = try await Self.ask(llm, template, about: image)
                         if result.cards.isEmpty { empty += 1 }
                         for draft in result.cards {
                             guard try await repository.find(en: draft.expression) == nil else { continue }
@@ -81,13 +85,26 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                             return
                         }
                         failed += 1
+                        lastError = (error as? LLMError) ?? .requestFailed(String(describing: error))
                     }
                     continuation.yield(CatchProgress(processed: index + 1, total: images.count,
-                                                      added: added, failed: failed, empty: empty))
+                                                      added: added, failed: failed, empty: empty,
+                                                      lastError: lastError))
                 }
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// The cards for one photo — asked again once if the first answer fails in a way the next try
+    /// might not (an unreadable answer, a server hiccup).
+    private static func ask(_ llm: LLMClient, _ template: PhotoCardsTemplate,
+                            about image: RecognizableImage) async throws -> PhotoCardsResult {
+        do {
+            return try await llm.run(template, input: image)
+        } catch let error where canGoOn(after: error) {
+            return try await llm.run(template, input: image)
         }
     }
 

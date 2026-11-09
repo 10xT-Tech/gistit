@@ -9,6 +9,9 @@
 import Foundation
 
 public enum LLMError: Error, Sendable, Equatable {
+    /// The `invalidOutput` detail of a safety refusal (stop_reason "refusal") — screens can say so.
+    public static let declinedDetail = "model declined the request"
+
     case notConfigured              // missing/invalid/revoked API key (401/403)
     case overloaded                 // 429/529 — rate-limited or server overloaded (after retries)
     case offline                    // no usable network path (DNS/host/data/roaming/not-connected)

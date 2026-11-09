@@ -165,7 +165,7 @@ public final class ClaudeLLMClient: LLMClient {
         // clear, actionable error instead of a generic "couldn't parse the response".
         if message.stopReason == "max_tokens" { throw LLMError.responseTooLong }
         // A safety refusal is not bound by the output schema.
-        if message.stopReason == "refusal" { throw LLMError.invalidOutput("model declined the request") }
+        if message.stopReason == "refusal" { throw LLMError.invalidOutput(LLMError.declinedDetail) }
         let text = message.text
         guard !text.isEmpty else { throw LLMError.invalidOutput("empty model response") }
         // Structured outputs constrain the text to the template's schema — decode it as-is.

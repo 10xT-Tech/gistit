@@ -17,6 +17,8 @@ public final class CatchFromPhotosViewModel: Identifiable {
     public let id = UUID()
     public private(set) var phase: Phase = .preparing
     public private(set) var progress: CatchProgress
+    /// Photos that couldn't be loaded from the library (nothing was sent for them).
+    public private(set) var unloaded = 0
     public private(set) var errorMessage: String?
     /// The free plan's limit stopped the batch: offer the subscription.
     public private(set) var needsSubscription = false
@@ -35,12 +37,13 @@ public final class CatchFromPhotosViewModel: Identifiable {
         self.nativeLanguage = nativeLanguage
     }
 
-    /// Start on the prepared photos (nil = a photo that couldn't be read — counted as failed).
+    /// Start on the prepared photos (nil = a photo that couldn't be loaded — counted as `unloaded`).
     public func run(_ photos: [Data?]) {
         guard task == nil else { return }
         let images = photos.compactMap { $0 }.map { RecognizableImage(data: $0) }
         let unreadable = photos.count - images.count
-        progress = CatchProgress(processed: unreadable, total: photos.count, added: 0, failed: unreadable)
+        unloaded = unreadable
+        progress = CatchProgress(processed: unreadable, total: photos.count, added: 0, failed: 0)
         phase = .processing
         let studied = studiedLanguage(), native = nativeLanguage()
         task = Task { [weak self] in
@@ -48,7 +51,8 @@ public final class CatchFromPhotosViewModel: Identifiable {
             do {
                 for try await step in self.catchCards(images, studiedLanguage: studied, nativeLanguage: native) {
                     self.progress = CatchProgress(processed: step.processed + unreadable, total: unreadable + step.total,
-                                                  added: step.added, failed: step.failed + unreadable)
+                                                  added: step.added, failed: step.failed, empty: step.empty,
+                                                  lastError: step.lastError)
                 }
                 self.phase = .done
             } catch is CancellationError {

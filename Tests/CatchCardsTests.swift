@@ -109,11 +109,12 @@ import Presentation
         #expect(card.context == "нейтрально; о пределе значения.")      // the usage note is stored
     }
 
-    /// A photo the model answers badly is skipped; the free plan's limit stops the batch (cards so far stay).
+    /// A photo the model answers badly twice is skipped (why, is kept); the free plan's limit stops the
+    /// batch (cards so far stay).
     @Test func badPhotoIsSkippedButTheLimitStops() async throws {
         let repo = MockExpressionRepository(seed: [])
-        let llm = ScriptedPhotoLLM(script: [.failure(LLMError.invalidOutput("x")), .success,
-                                            .failure(LLMError.subscriptionRequired(retryAfter: 120)), .success])
+        let llm = ScriptedPhotoLLM(script: [.failure(LLMError.invalidOutput("x")), .failure(LLMError.invalidOutput("x")),
+                                            .success, .failure(LLMError.subscriptionRequired(retryAfter: 120)), .success])
         let sut = CatchCardsFromPhotosInteractor(llm: llm, repository: repo)
         var last: CatchProgress?
         var stoppedBy: Error?
@@ -125,12 +126,22 @@ import Presentation
         } catch {
             stoppedBy = error
         }
-        #expect(last == CatchProgress(processed: 2, total: 4, added: 2, failed: 1))
+        #expect(last == CatchProgress(processed: 2, total: 4, added: 2, failed: 1, lastError: .invalidOutput("x")))
         guard case LLMError.subscriptionRequired? = stoppedBy as? LLMError else {
             Issue.record("expected the plan limit to stop the batch, got \(String(describing: stoppedBy))")
             return
         }
         #expect(try await repo.all().count == 2)
+    }
+
+    /// One bad answer (a server hiccup, an unreadable reply) is asked again — the photo isn't lost.
+    @Test func aPhotoIsAskedAgainOnce() async throws {
+        let repo = MockExpressionRepository(seed: [])
+        let llm = ScriptedPhotoLLM(script: [.failure(LLMError.requestFailed("HTTP 502")), .success])
+        var last: CatchProgress?
+        for try await step in CatchCardsFromPhotosInteractor(llm: llm, repository: repo)(
+            [image(1)], studiedLanguage: "English", nativeLanguage: "Russian") { last = step }
+        #expect(last == CatchProgress(processed: 1, total: 1, added: 2, failed: 0))
     }
 
     @Test func progressSheetRunsToDone() async throws {
@@ -141,8 +152,20 @@ import Presentation
         #expect(vm.phase == .preparing)
         vm.run([Data([1]), nil, Data([2])])                       // the middle photo couldn't be loaded
         try await waitUntil { vm.phase == .done }
-        #expect(vm.progress == CatchProgress(processed: 3, total: 3, added: 2, failed: 1))
+        #expect(vm.progress == CatchProgress(processed: 3, total: 3, added: 2, failed: 0))
+        #expect(vm.unloaded == 1)                                  // told apart from a failed request
         #expect(vm.progress.fraction == 1)
+    }
+
+    /// The sheet hears of the photos with nothing featured or marked (its hint to mark them).
+    @Test func progressSheetCountsPhotosWithNothingMarked() async throws {
+        let vm = CatchFromPhotosViewModel(photoCount: 1,
+                                          catchCards: CatchCardsFromPhotosInteractor(llm: NothingMarkedLLM(),
+                                                                                     repository: MockExpressionRepository(seed: [])),
+                                          studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+        vm.run([Data([1])])
+        try await waitUntil { vm.phase == .done }
+        #expect(vm.progress.empty == 1)
     }
 
     @Test func progressSheetOffersTheSubscriptionAtTheLimit() async throws {
