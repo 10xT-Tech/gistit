@@ -18,14 +18,17 @@ public struct CatchProgress: Sendable, Equatable {
     public let added: Int
     /// Photos that failed (unreadable answer, a server hiccup) — the batch went on without them.
     public let failed: Int
+    /// Photos with nothing to card: no featured phrase, nothing marked on the page.
+    public let empty: Int
 
     public var fraction: Double { total == 0 ? 1 : Double(processed) / Double(total) }
 
-    public init(processed: Int, total: Int, added: Int, failed: Int) {
+    public init(processed: Int, total: Int, added: Int, failed: Int, empty: Int = 0) {
         self.processed = processed
         self.total = total
         self.added = added
         self.failed = failed
+        self.empty = empty
     }
 }
 
@@ -53,12 +56,13 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
         let template = PhotoCardsTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
         return AsyncThrowingStream { continuation in
             let task = Task {
-                var added = 0, failed = 0
+                var added = 0, failed = 0, empty = 0
                 continuation.yield(CatchProgress(processed: 0, total: images.count, added: 0, failed: 0))
                 for (index, image) in images.enumerated() {
                     do {
                         try Task.checkCancellation()
                         let result = try await llm.run(template, input: image)
+                        if result.cards.isEmpty { empty += 1 }
                         for draft in result.cards {
                             guard try await repository.find(en: draft.expression) == nil else { continue }
                             try await repository.add(Expression(en: draft.expression, ru: draft.translation,
@@ -74,7 +78,7 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                         failed += 1
                     }
                     continuation.yield(CatchProgress(processed: index + 1, total: images.count,
-                                                      added: added, failed: failed))
+                                                      added: added, failed: failed, empty: empty))
                 }
                 continuation.finish()
             }

@@ -47,15 +47,29 @@ import Presentation
         #expect(prompt.contains("German vocabulary card generator for a French speaker"))
     }
 
-    /// A screenshot of a language-learning post: one card for the featured phrase, whole, with the
-    /// translation it shows — none for the app around it (names, song titles, captions, other posts).
-    @Test func photoCardsPromptKeepsAFeaturedPhraseWhole() {
+    /// What's meant to be learned only: a post's featured phrase, whole, with the translation it shows;
+    /// on a page, the phrases the reader marked (dictionary form, their sentence as the example); never
+    /// unmarked running text or the app around the content.
+    @Test func photoCardsPromptCardsOnlyWhatsMeantToBeLearned() {
         let template = PhotoCardsTemplate()
         #expect(template.systemPrompt.contains("make ONE card for that phrase, whole"))
         #expect(template.systemPrompt.contains("never split it into words or parts"))
+        #expect(template.systemPrompt.contains("highlighted with a marker, underlined, circled"))
+        #expect(template.systemPrompt.contains("unmarked running text gives no cards"))
+        #expect(template.systemPrompt.contains("the sentence it stands in on the page"))
         #expect(template.systemPrompt.contains("song and music titles"))
         #expect(!template.systemPrompt.contains("do not skip anything"))
-        #expect(template.userMessage(for: RecognizableImage(data: Data())).contains("only its featured phrase"))
+        #expect(template.userMessage(for: RecognizableImage(data: Data())).contains("the phrases marked on it"))
+    }
+
+    /// A photo with nothing featured or marked gives no cards — and is counted, so the sheet can say
+    /// to mark the phrases.
+    @Test func aPhotoWithNothingMarkedIsCounted() async throws {
+        let sut = CatchCardsFromPhotosInteractor(llm: NothingMarkedLLM(), repository: MockExpressionRepository(seed: []))
+        var last: CatchProgress?
+        for try await step in sut([RecognizableImage(data: Data([1])), RecognizableImage(data: Data([2]))],
+                                  studiedLanguage: "English", nativeLanguage: "Russian") { last = step }
+        #expect(last == CatchProgress(processed: 2, total: 2, added: 0, failed: 0, empty: 2))
     }
 
     // MARK: Batch
@@ -244,5 +258,12 @@ private final class ScriptedPhotoLLM: LLMClient, @unchecked Sendable {
         case .failure(let error):
             throw error
         }
+    }
+}
+
+/// A page with nothing marked: the model returns no cards.
+private struct NothingMarkedLLM: LLMClient {
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        try template.decode(#"{"cards":[]}"#)
     }
 }

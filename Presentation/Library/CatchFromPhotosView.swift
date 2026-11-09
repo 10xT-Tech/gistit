@@ -54,6 +54,19 @@ struct CatchFromPhotosView: View {
                 .padding(Tokens.Space.s16)
                 .glassPanel(cornerRadius: Tokens.Radius.card)
 
+                if model.progress.empty > 0 {
+                    Text(Loc.t("Без карточек: \(model.progress.empty) — на фото нет выделенной фразы. Выделите маркером, подчеркните или обведите на странице то, что хотите учить.",
+                               "No cards from \(model.progress.empty) — nothing featured or marked on them. Highlight, underline or circle on the page what you want to learn.",
+                               "Aucune carte pour \(model.progress.empty) — rien n'y est mis en avant ni marqué. Surlignez, soulignez ou entourez sur la page ce que vous voulez apprendre.",
+                               "Sin tarjetas de \(model.progress.empty) — no hay nada destacado ni marcado. Resalta, subraya o rodea en la página lo que quieras aprender.",
+                               "Keine Karten aus \(model.progress.empty) — nichts hervorgehoben oder markiert. Markiere, unterstreiche oder umkreise auf der Seite, was du lernen willst.",
+                               "Nessuna scheda da \(model.progress.empty) — niente in evidenza né segnato. Evidenzia, sottolinea o cerchia sulla pagina ciò che vuoi imparare."))
+                        .textStyle(Tokens.Text.footnote)
+                        .foregroundStyle(Tokens.Content.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("catch.empty")
+                }
                 if model.progress.failed > 0 {
                     Text(Loc.t("Не удалось обработать фото: \(model.progress.failed)",
                                "Photos that couldn't be read: \(model.progress.failed)",
