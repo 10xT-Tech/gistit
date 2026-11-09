@@ -190,16 +190,23 @@ learned". Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower cas
 apostrophes, leading "to"/articles per language, placeholders someone/sth/jemanden/qqn…, brackets,
 "+ -ing", punctuation; then lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
 (NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
-identity there)) groups phrases in flashcards; `DuplicatesTemplate` (`.standard`, batches of 10
-groups) gives each a verdict duplicate / senses / different + the merged `CardText` (senses numbered
-"1) … 2) …" — the multi-meaning card is plain text in the existing fields, no schema change); `merge`
+identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("fuck about" /
+"fuck somebody about"). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
+device (`exactMerges`: PhraseKey without lemmas + the same translation; a group of only those
+(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 10 groups)
+returns per group a list of merges (ids + duplicate / senses + `CardText`; a card in none stays apart;
+`merges(_:among:)` sanitises ids). Senses = one card numbered "1) … 2) …" (plain text in the existing
+fields, no schema change); `merge`
 keeps the oldest phrase in flashcards with the merged texts (lettercase), per direction ONE card —
 duplicate: best known (review > learning, stability, reps), senses: least known among answered — card
 ids kept (today's answers still count), the rest deleted. "Not duplicates" = `DuplicateDismissalStoring`
-(UserDefaults, group id = sorted member ids). Caught: moving a phrase checks `lookAlikesInFlashcards`
-→ dialog Merge (model verdict + merge) / Move separately; Move all offers "all but look-alikes".
-In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with progress → Check →
-two-part progress, per-group Merge / Keep apart, "Merge all duplicates". Today's goal line is green
+(UserDefaults, `memberID` = sorted member ids). Caught: moving a phrase checks `lookAlikesInFlashcards`
+→ dialog Merge (`proposals(for:)`: exact first, else the model; only the merge containing the caught
+phrase is made; none → `notADuplicate` dialog "move separately?") / Move separately; Move all offers
+"all but look-alikes". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
+progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
+per-proposal Merge, per-group Keep apart, "Merge all duplicates"; after a merge a checked group with
+nothing left proposed is dismissed (its rest stays apart for good). Today's goal line is green
 (`ProgressLine`, `Tokens.Chart.progressDone`).
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
 case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`. XCUI

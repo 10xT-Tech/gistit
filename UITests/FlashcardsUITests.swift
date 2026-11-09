@@ -205,7 +205,8 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertEqual(app.buttons["study.studying"].label, "In flashcards: 1")
     }
 
-    /// Moved separately, the look-alike is found by In flashcards → Find duplicates: Check, Merge.
+    /// Moved separately, the look-alike is found by In flashcards → Find duplicates: the same phrase and
+    /// translation — an exact duplicate, merged without the model.
     func testFindDuplicatesMergesAGroup() {
         let app = openCaughtWithALookAlike()
         let separately = app.buttons["Move separately"]
@@ -221,13 +222,10 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 3))
         menu.tap()
         app.buttons["Find duplicates"].tap()
-        let check = app.buttons["dups.check"]
-        XCTAssertTrue(check.waitForExistence(timeout: 5), "no look-alike group found")
-        attach(app, "dups-found")
-        check.tap()
         let merge = app.buttons["dups.merge"]
-        XCTAssertTrue(merge.waitForExistence(timeout: 5), "no verdict")
-        attach(app, "dups-checked")
+        XCTAssertTrue(merge.waitForExistence(timeout: 5), "no exact duplicate proposed")
+        XCTAssertFalse(app.buttons["dups.check"].exists, "an exact duplicate needs no model")
+        attach(app, "dups-found")
         merge.tap()
         XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 5))
         attach(app, "dups-done")

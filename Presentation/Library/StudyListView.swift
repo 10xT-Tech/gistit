@@ -144,6 +144,18 @@ public struct StudyListView: View {
             Text(Loc.t("«\(lookAlike.caught.en)» похоже на:\n\(existing)\n\nОбъединить — модель соберёт одну карточку (несколько значений пронумерует), прогресс изучения сохранится.",
                        "\"\(lookAlike.caught.en)\" looks like:\n\(existing)\n\nMerge — the model makes one card (numbering several meanings), and the learning progress stays."))
         }
+        .confirmationDialog(Loc.t("Похоже, это другая фраза", "Looks like another phrase"),
+                            isPresented: notADuplicateBinding, titleVisibility: .visible,
+                            presenting: model.notADuplicate) { lookAlike in
+            Button(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément", "Mover por separado",
+                         "Separat verschieben", "Sposta separatamente")) {
+                model.moveSeparately(lookAlike)
+            }
+            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
+        } message: { lookAlike in
+            Text(Loc.t("Модель не нашла среди похожих карточек ту же фразу, что «\(lookAlike.caught.en)» — объединять не с чем.",
+                       "The model found none of the look-alikes to be the same phrase as \"\(lookAlike.caught.en)\" — nothing to merge with."))
+        }
         .sheet(item: $previewed) { expression in
             CardPreviewView(expression: expression, cards: model.cards(for: expression),
                             isPlaying: model.isPlaying(expression), onPlay: { model.play(expression) })
@@ -405,6 +417,10 @@ public struct StudyListView: View {
 
     private var lookAlikeBinding: Binding<Bool> {
         Binding(get: { model.lookAlike != nil }, set: { if !$0 { model.lookAlike = nil } })
+    }
+
+    private var notADuplicateBinding: Binding<Bool> {
+        Binding(get: { model.notADuplicate != nil }, set: { if !$0 { model.notADuplicate = nil } })
     }
 
     private var actionErrorBinding: Binding<Bool> {

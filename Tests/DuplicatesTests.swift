@@ -3,10 +3,11 @@
 //  EnglishHelperTests
 //
 //  Duplicates: the comparison key (articles, "to", placeholders, punctuation, word forms), the scan
-//  over flashcards (Caught left out, "not duplicates" hidden, progress), the model's check in batches
-//  (sent / answered, unusable answers, a stop that keeps the verdicts), the merge (texts, which card
-//  each direction keeps, a caught phrase merged into its flashcard), the template, and the screens:
-//  a look-alike moved from Caught, Move all without look-alikes, the Find duplicates sheet.
+//  over flashcards (Caught left out, "not duplicates" hidden, progress, exact duplicates), the
+//  model's check in batches (sent / answered, merges inside a group — look-alike isn't the same —
+//  unusable answers, a stop), the merge (texts, which card each direction keeps, a caught phrase
+//  merged into its flashcard), the template, and the screens: a look-alike moved from Caught (exact,
+//  by the model, or another phrase), Move all without look-alikes, the Find duplicates sheet.
 //
 
 import Testing
@@ -81,12 +82,14 @@ import Presentation
         let groups = try #require(try await scan(sut))
         #expect(groups.map { $0.expressions.map(\.id) } == [[roof1.id, roof2.id], [solid1.id, solid2.id]])
         #expect(groups[0].cards[roof1.id]?.count == 2)
+        #expect(groups[0].isExactOnly && groups[0].exact.first?.expressionIDs == [roof1.id, roof2.id])   // same translation
+        #expect(groups[1].exact.isEmpty)
 
         let alike = try await sut.lookAlikesInFlashcards(for: [caught, unique], studiedLanguage: "English")
         #expect(alike[caught.id]?.map(\.id) == [roof1.id, roof2.id])
         #expect(alike[unique.id] == nil)                                             // only itself
 
-        await sut.dismiss(groups[1])                                                 // "not duplicates"
+        await sut.dismiss(groups[1].expressions.map(\.id))                           // "not duplicates"
         #expect(try await scan(sut)?.map(\.key) == ["hit the roof"])
     }
 
@@ -98,6 +101,38 @@ import Presentation
         for try await step in sut.scan(studiedLanguage: "English") { steps.append(step) }
         #expect(steps.map(\.checked) == [0, 200, 400, 450])
         #expect(steps.last?.groups == [])
+    }
+
+    /// Look-alike isn't the same: "fuck about" twice is a duplicate, "fuck somebody about" another
+    /// phrase — the exact pair is found on the device, and the model merges only those two.
+    @Test func lookAlikeIsNotTheSame() async throws {
+        let a = phrase("fuck about", "выпендриваться", 0), b = phrase("fuck somebody about", "водить за нос", 1)
+        let c = phrase("Fuck about!", "Выпендриваться", 2, example: "stop fucking about.")
+        let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: [a, b, c]),
+                                       cards: MockReviewCardRepository(seed: [a, b, c].flatMap { cards($0) }))
+        let group = try #require(try await scan(sut)?.first)
+        #expect(group.expressions.map(\.id) == [a.id, b.id, c.id])                  // one look-alike group
+        #expect(group.exact.map(\.expressionIDs) == [[a.id, c.id]] && !group.isExactOnly)
+        #expect(group.exact[0].card.example == "stop fucking about.")                // filled from the other
+
+        var proposals: [String: [DuplicateMerge]] = [:]
+        for try await step in sut.check([group], studiedLanguage: "English", nativeLanguage: "Russian") {
+            proposals.merge(step.proposals) { _, new in new }
+        }
+        let merges = try #require(proposals[group.key])
+        #expect(merges.map(\.expressionIDs) == [[a.id, c.id]] && merges[0].kind == .duplicate)
+    }
+
+    /// The model's merges are kept to the group's own phrases, each in one merge, two or more each.
+    @Test func modelMergesAreSanitised() {
+        let a = phrase("solid", "твёрдый", 0), b = phrase("solid", "надёжный", 1), c = phrase("solid", "крепкий", 2)
+        let card = CardText(expression: "solid", translation: "1) … 2) …", example: "", synonyms: [], context: "")
+        let verdict = DuplicateVerdict(id: "g", merges: [
+            DuplicateMergeAnswer(ids: [b.id.uuidString, a.id.uuidString, "stranger"], verdict: .senses, card: card),
+            DuplicateMergeAnswer(ids: [a.id.uuidString, c.id.uuidString], verdict: .duplicate, card: card),   // a is taken
+        ])
+        let merges = DuplicatesInteractor.merges(verdict, among: [a, b, c])
+        #expect(merges.map(\.expressionIDs) == [[a.id, b.id]])                       // oldest first; c stays apart
     }
 
     private func scan(_ sut: DuplicatesInteractor) async throws -> [DuplicateGroup]? {
@@ -123,14 +158,15 @@ import Presentation
                                        cards: MockReviewCardRepository(seed: reviewCards))
         let groups = try #require(try await scan(sut))
         #expect(groups.count == 12)
+        #expect(groups.filter(\.isExactOnly).count == 6)                             // the same translation
         var steps: [DuplicateCheckStep] = []
         for try await step in sut.check(groups, studiedLanguage: "English", nativeLanguage: "Russian") { steps.append(step) }
         #expect(steps.map { [$0.sent, $0.answered] } == [[0, 0], [10, 0], [10, 10], [12, 10], [12, 12]])
-        let verdicts = steps.reduce(into: [String: DuplicateVerdict]()) { $0.merge($1.verdicts) { _, new in new } }
-        #expect(verdicts.count == 12)
-        let first = try #require(verdicts[groups[0].id]), second = try #require(verdicts[groups[1].id])
-        #expect(first.verdict == .duplicate && first.card.translation == "фраза 0")
-        #expect(second.verdict == .senses && second.card.translation == "1) фраза 1 2) другая 1")
+        let proposals = steps.reduce(into: [String: [DuplicateMerge]]()) { $0.merge($1.proposals) { _, new in new } }
+        #expect(proposals.count == 12)
+        let first = try #require(proposals[groups[0].key]), second = try #require(proposals[groups[1].key])
+        #expect(first.count == 1 && first[0].kind == .duplicate && first[0].card.translation == "фраза 0")
+        #expect(second.isEmpty)                                                      // two phrases after all
     }
 
     /// An unusable answer (twice) leaves its batch unchecked and the check goes on; going offline stops
@@ -145,7 +181,7 @@ import Presentation
         for try await step in sut.check(groups, studiedLanguage: "English", nativeLanguage: "Russian") { steps.append(step) }
         #expect(steps.last?.failed == 10)                                            // the first batch
         #expect(steps.last?.answered == 12)
-        #expect(steps.flatMap { $0.verdicts.keys }.count == 2)                       // the second batch
+        #expect(steps.flatMap { $0.proposals.keys }.count == 2)                      // the second batch
 
         let offline = DuplicatesInteractor(llm: ScriptedLLM(script: [.failure(LLMError.offline)]),
                                            expressions: MockExpressionRepository(seed: studied),
@@ -217,20 +253,27 @@ import Presentation
         let template = DuplicatesTemplate(studiedLanguage: "English", nativeLanguage: "Russian")
         #expect(template.modelTier == .standard)
         #expect(template.systemPrompt.contains("\"senses\""))
-        #expect(template.outputJSONSchema.contains(#""enum":["duplicate","senses","different"]"#))
+        #expect(template.systemPrompt.contains("\"fuck somebody about\" are two expressions"))
+        #expect(template.outputJSONSchema.contains(#""enum":["duplicate","senses"]"#))
         let item = FixCardItem(id: "1", expression: "solid", translation: "твёрдый", example: "", synonyms: [], context: "")
         let message = template.userMessage(for: [DuplicateGroupItem(id: "g", cards: [item])])
         #expect(message.hasPrefix(#"{"groups":["#) && message.contains(#""id":"g""#) && message.contains(#""expression":"solid""#))
         let decoded = try template.decode(#"""
         {"groups":[
-          {"id":"g","verdict":"senses","card":{"expression":" **solid** ","translation":"1) твёрдый 2) надёжный",
-           "example":"1) solid rock. 2) a solid plan.","synonyms":["firm","hard","sound","reliable","stable"],
-           "context":"Разные значения."}},
-          {"id":"h","verdict":"duplicate","card":{"expression":"","translation":"x","example":"","synonyms":[],"context":""}}
+          {"id":"g","merges":[
+            {"ids":["1","2","2"],"verdict":"senses","card":{"expression":" **solid** ","translation":"1) твёрдый 2) надёжный",
+             "example":"1) solid rock. 2) a solid plan.","synonyms":["firm","hard","sound","reliable","stable"],
+             "context":"Разные значения."}},
+            {"ids":["3"],"verdict":"duplicate","card":{"expression":"x","translation":"y","example":"","synonyms":[],"context":""}},
+            {"ids":["3","4"],"verdict":"duplicate","card":{"expression":"","translation":"y","example":"","synonyms":[],"context":""}}
+          ]},
+          {"id":"h","merges":[]}
         ]}
         """#)
-        #expect(decoded.groups.map(\.id) == ["g"])                                   // an empty expression is dropped
-        #expect(decoded.groups[0].card.expression == "solid" && decoded.groups[0].card.synonyms.count == 4)
+        #expect(decoded.groups.map(\.id) == ["g", "h"])
+        let merges = decoded.groups[0].merges
+        #expect(merges.map(\.ids) == [["1", "2"]])                                   // a lone card, an empty expression: dropped
+        #expect(merges[0].card.expression == "solid" && merges[0].card.synonyms.count == 4)
     }
 
     @Test func notDuplicatesAreRemembered() async throws {
@@ -273,9 +316,10 @@ import Presentation
         while !condition(), tries < 300 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
     }
 
-    /// Moving a look-alike from Caught asks first; Merge makes one card in flashcards.
+    /// Moving a look-alike from Caught asks first; Merge makes one card in flashcards — here the same
+    /// phrase in another meaning, numbered.
     @Test func aCaughtLookAlikeAsksThenMerges() async throws {
-        let existing = phrase("hit the roof", "взбеситься", 0), caught = phrase("Hit the roof!", "разозлиться", 1)
+        let existing = phrase("hit the roof", "взбеситься", 0), caught = phrase("hit the roof", "разозлиться", 1)
         let expressions = MockExpressionRepository(seed: [existing, caught])
         let cards = MockReviewCardRepository(seed: newCards(existing))
         let vm = list(expressions, cards, duplicates: DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions,
@@ -297,6 +341,35 @@ import Presentation
         #expect(all.map(\.id) == [existing.id])
         #expect(all[0].ru == "1) взбеситься 2) разозлиться")                        // two meanings, numbered
         #expect(try await cards.all().count == 2)
+    }
+
+    /// An exact duplicate merges on the device; a look-alike that's another phrase asks to move apart.
+    @Test func exactDuplicateAndAnotherPhrase() async throws {
+        let existing = phrase("fuck about", "выпендриваться", 0), other = phrase("fuck somebody about", "водить за нос", 1)
+        let exact = phrase("Fuck about!", "Выпендриваться", 2), different = phrase("to fuck about", "валять дурака", 3)
+        let expressions = MockExpressionRepository(seed: [existing, other, exact, different])
+        let cards = MockReviewCardRepository(seed: newCards(existing) + newCards(other))
+        let llm = CountingLLM()
+        let vm = list(expressions, cards, duplicates: DuplicatesInteractor(llm: llm, expressions: expressions, cards: cards))
+        await vm.load()
+
+        vm.moveToFlashcards(exact)
+        try await wait { vm.lookAlike != nil }
+        #expect(vm.lookAlike?.existing.map(\.id) == [existing.id, other.id])
+        vm.mergeIntoFlashcards(try #require(vm.lookAlike))
+        try await wait { !vm.isMerging }
+        #expect(llm.calls == 0)                                                      // no model for an exact one
+        #expect(try await expressions.all().contains { $0.id == exact.id } == false)
+        #expect(try await expressions.all().contains { $0.id == other.id })          // untouched
+
+        vm.moveToFlashcards(different)
+        try await wait { vm.lookAlike != nil }
+        vm.mergeIntoFlashcards(try #require(vm.lookAlike))
+        try await wait { vm.notADuplicate != nil }                                   // the model merged nothing
+        #expect(llm.calls == 1)
+        vm.moveSeparately(try #require(vm.notADuplicate))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id, different.id])
     }
 
     /// Move separately; and Move all leaving the look-alikes on the list.
@@ -324,11 +397,15 @@ import Presentation
         #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id, alike.id])
     }
 
-    /// The Find duplicates sheet: scan → Check → merge one group, keep the other apart — neither comes back.
+    /// The Find duplicates sheet: an exact pair merges without the model; Check proposes the rest —
+    /// "fuck about" twice merges and "fuck somebody about" is left apart for good; "solid" in two
+    /// meanings is kept apart by the user. Nothing comes back on the next scan.
     @Test func findDuplicatesSheet() async throws {
         let roof1 = phrase("hit the roof", "взбеситься", 0), roof2 = phrase("to hit the roof", "взбеситься", 1)
         let solid1 = phrase("solid", "надёжный", 2), solid2 = phrase("solid", "твёрдый", 3)
-        let all = [roof1, roof2, solid1, solid2]
+        let about1 = phrase("fuck about", "выпендриваться", 4), aboutSomebody = phrase("fuck somebody about", "водить за нос", 5)
+        let about2 = phrase("to fuck about", "Выпендриваться", 6)
+        let all = [roof1, roof2, solid1, solid2, about1, aboutSomebody, about2]
         let expressions = MockExpressionRepository(seed: all)
         let cards = MockReviewCardRepository(seed: all.flatMap(newCards))
         let duplicates = DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions, cards: cards)
@@ -336,22 +413,40 @@ import Presentation
 
         vm.start()
         try await wait { vm.phase != .scanning }
-        #expect(vm.phase == .found && vm.groups.count == 2 && vm.unchecked.count == 2)
+        #expect(vm.phase == .found && vm.groups.count == 3)
+        #expect(vm.unchecked.map(\.key) == ["solid", "fuck about"])                  // the roof pair is exact
+        #expect(vm.duplicateMerges.count == 2)                                       // roof + the exact "fuck about"s
+
         vm.startCheck()
         try await wait { vm.phase != .checking }
-        #expect(vm.phase == .checked && vm.verdicts.count == 2)
-        #expect(vm.duplicateGroups.map(\.key) == ["hit the roof"])
+        #expect(vm.phase == .checked && vm.checkedKeys == ["solid", "fuck about"])
+        #expect(vm.proposals["solid"]?.first?.kind == .senses)
+        #expect(vm.proposals["fuck about"]?.map(\.expressionIDs) == [[about1.id, about2.id]])
 
         vm.mergeAllDuplicates()
-        try await wait { vm.merged == 1 }
+        try await wait { vm.merged == 2 }
+        #expect(vm.groups.map(\.key) == ["solid"])                                   // the rest of "fuck about" is apart
         vm.keepApart(try #require(vm.groups.first))
         #expect(vm.groups.isEmpty)
-        #expect(try await expressions.all().count == 3)
+        #expect(Set(try await expressions.all().map(\.id)) == [roof1.id, solid1.id, solid2.id, about1.id, aboutSomebody.id])
 
+        try await Task.sleep(for: .milliseconds(50))
         let again = DuplicatesViewModel(duplicates: duplicates, studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
         again.start()
         try await wait { again.phase != .scanning }
         #expect(again.phase == .checked && again.groups.isEmpty)
+    }
+}
+
+/// Answers like the mock, counting the calls.
+private final class CountingLLM: LLMClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var calls: Int { lock.withLock { count } }
+
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        lock.withLock { count += 1 }
+        return try await MockLLMClient().run(template, input: input)
     }
 }
 

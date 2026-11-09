@@ -832,7 +832,7 @@ public struct FixCardsTemplate: PromptTemplate {
     }
 }
 
-// MARK: - dedupeCards (groups of look-alike flashcards → what they are + the card they'd make)
+// MARK: - dedupeCards (groups of look-alike flashcards → which of them to merge, and into what)
 
 /// A group of flashcards whose expressions look alike (`PhraseKey`), as sent to `DuplicatesTemplate`.
 public struct DuplicateGroupItem: Codable, Sendable, Equatable {
@@ -845,14 +845,12 @@ public struct DuplicateGroupItem: Codable, Sendable, Equatable {
     }
 }
 
-/// What the cards of a look-alike group are to each other.
+/// What the cards of a merge are to each other.
 public enum DuplicateKind: String, Codable, Sendable, CaseIterable {
     /// The same expression in the same meaning — one card is enough.
     case duplicate
-    /// The same expression in different meanings — one card with every meaning numbered.
+    /// The very same expression in different meanings — one card with every meaning numbered.
     case senses
-    /// Different expressions after all — they stay apart.
-    case different
 }
 
 /// A card's texts.
@@ -872,16 +870,28 @@ public struct CardText: Codable, Sendable, Equatable {
     }
 }
 
-/// The model's answer for one group: what the cards are, and the one card they'd make merged.
-public struct DuplicateVerdict: Codable, Sendable, Equatable {
-    public let id: String
+/// One merge the model proposes: two or more of the group's cards (by id), what they are, the card
+/// they'd make.
+public struct DuplicateMergeAnswer: Codable, Sendable, Equatable {
+    public let ids: [String]
     public let verdict: DuplicateKind
     public let card: CardText
 
-    public init(id: String, verdict: DuplicateKind, card: CardText) {
-        self.id = id
+    public init(ids: [String], verdict: DuplicateKind, card: CardText) {
+        self.ids = ids
         self.verdict = verdict
         self.card = card
+    }
+}
+
+/// The model's answer for one group: the merges to make — cards in none of them stay apart.
+public struct DuplicateVerdict: Codable, Sendable, Equatable {
+    public let id: String
+    public let merges: [DuplicateMergeAnswer]
+
+    public init(id: String, merges: [DuplicateMergeAnswer]) {
+        self.id = id
+        self.merges = merges
     }
 }
 
@@ -891,9 +901,10 @@ public struct DuplicatesResult: Codable, Sendable, Equatable {
     public init(groups: [DuplicateVerdict]) { self.groups = groups }
 }
 
-/// Groups of look-alike flashcards → for each, a verdict (one card twice / one expression with several
-/// meanings / different expressions) and the merged card: one meaning, or every meaning numbered
-/// ("1) … 2) …") with an example each and a note on how they differ. Metered on the free plan.
+/// Groups of look-alike flashcards → for each, the merges to make: cards that teach one expression in
+/// one meaning (a duplicate), or the very same expression in several meanings (one card, the meanings
+/// numbered "1) … 2) …" with an example each); a card that is another expression after all — another
+/// construction, word or idiom — stays out. Metered on the free plan.
 public struct DuplicatesTemplate: PromptTemplate {
     public typealias Input = [DuplicateGroupItem]
     public typealias Output = DuplicatesResult
@@ -908,27 +919,31 @@ public struct DuplicatesTemplate: PromptTemplate {
 
     /// The explanation model: telling meanings apart and merging them is judgement, not a lookup.
     public var modelTier: ModelTier { .standard }
-    /// Ten groups, each with a merged card that may number several meanings.
+    /// Ten groups, each with merged cards that may number several meanings.
     public var maxOutputTokens: Int { 8_000 }
 
     public var systemPrompt: String {
         """
         You check vocabulary flashcards of a \(nativeLanguage) speaker who is learning \(studiedLanguage). You get groups
         of cards whose \(studiedLanguage) expressions look alike — the same words apart from articles, infinitive
-        markers, placeholders such as "someone", punctuation or word forms. For EVERY group return its "id", a
-        "verdict" and the merged "card":
-        - "verdict": "duplicate" when the cards teach the same expression in the same meaning (translations worded
-          differently still count); "senses" when it is the same expression in different meanings; "different"
-          when they are different expressions after all — different idioms, different words, or words spelled alike
-          but pronounced differently (English "lead" /liːd/ and "lead" /led/).
-        - "card": the one card the group would become, keeping everything worth learning from it:
-          - "expression" (\(studiedLanguage)): the best-written form from the group, fixed if wrong; a single verb with
-            the infinitive marker and a single noun with the article, as \(studiedLanguage) vocabulary lists write them.
-          - "translation" (\(nativeLanguage)): for "duplicate", one or two variants separated by " / "; otherwise every
-            meaning numbered: "1) … 2) …".
-          - "example" (\(studiedLanguage)): one natural sentence; otherwise one per meaning, numbered the same way.
+        markers, placeholders such as "someone", punctuation or word forms. Look-alike is not the same: for EVERY
+        group return its "id" and the "merges" to make. A merge joins two or more of the group's cards, by their
+        "id", into one card:
+        - "verdict": "duplicate" when those cards teach the same expression in the same meaning (translations
+          worded differently still count); "senses" when they are the very same expression with different meanings.
+        - Leave a card out of every merge when it is another expression after all: another construction (an extra
+          object or slot — "fuck about" and "fuck somebody about" are two expressions), another word or part of
+          speech ("crooked" and "a crook", "bangs" and "banging"), another idiom, or a word spelled alike but
+          pronounced differently (English "lead" /liːd/ and "lead" /led/). Never put a card into two merges. A group
+          may need one merge, several, or none ("merges": []).
+        - "card": the one card the merge makes, keeping everything worth learning from its cards:
+          - "expression" (\(studiedLanguage)): the best-written form among them, fixed if wrong; a single verb with the
+            infinitive marker and a single noun with the article, as \(studiedLanguage) vocabulary lists write them.
+          - "translation" (\(nativeLanguage)): for "duplicate", one or two variants separated by " / "; for "senses",
+            every meaning numbered: "1) … 2) …".
+          - "example" (\(studiedLanguage)): one natural sentence; for "senses", one per meaning, numbered the same way.
           - "synonyms" (\(studiedLanguage)): 2 to 4 near-equivalents — fewer only if none fit, never invented.
-          - "context" (\(nativeLanguage)): one short note on when and how the expression is used; otherwise how the
+          - "context" (\(nativeLanguage)): one short note on when and how the expression is used; for "senses", how the
             meanings differ. Never leave it empty.
         Write every field in lowercase letters — except the English pronoun "I" (I'm, I've, I'll, I'd) and
         German nouns.
@@ -939,12 +954,15 @@ public struct DuplicatesTemplate: PromptTemplate {
     public var outputJSONSchema: String {
         """
         {"type":"object","properties":{"groups":{"type":"array","items":{"type":"object",
-        "properties":{"id":{"type":"string"},"verdict":{"type":"string","enum":["duplicate","senses","different"]},
+        "properties":{"id":{"type":"string"},"merges":{"type":"array","items":{"type":"object",
+        "properties":{"ids":{"type":"array","items":{"type":"string"}},
+        "verdict":{"type":"string","enum":["duplicate","senses"]},
         "card":{"type":"object","properties":{"expression":{"type":"string"},"translation":{"type":"string"},
         "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
         "context":{"type":"string"}},
         "required":["expression","translation","example","synonyms","context"],"additionalProperties":false}},
-        "required":["id","verdict","card"],"additionalProperties":false}}},
+        "required":["ids","verdict","card"],"additionalProperties":false}}},
+        "required":["id","merges"],"additionalProperties":false}}},
         "required":["groups"],"additionalProperties":false}
         """
     }
@@ -958,17 +976,22 @@ public struct DuplicatesTemplate: PromptTemplate {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// Cleans the texts; a merge of fewer than two cards, or without an expression or translation, is dropped.
     public func decode(_ rawJSON: String) throws -> DuplicatesResult {
         let raw = try decodeJSON(DuplicatesResult.self, from: rawJSON)
-        let groups = raw.groups.map { group in
-            DuplicateVerdict(id: group.id, verdict: group.verdict, card: CardText(
-                expression: PlainText.clean(group.card.expression),
-                translation: PlainText.clean(group.card.translation),
-                example: PlainText.clean(group.card.example),
-                synonyms: Array(group.card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(4)),
-                context: PlainText.clean(group.card.context)))
-        }
-        return DuplicatesResult(groups: groups.filter { !$0.card.expression.isEmpty && !$0.card.translation.isEmpty })
+        return DuplicatesResult(groups: raw.groups.map { group in
+            DuplicateVerdict(id: group.id, merges: group.merges.compactMap { merge in
+                let card = CardText(
+                    expression: PlainText.clean(merge.card.expression),
+                    translation: PlainText.clean(merge.card.translation),
+                    example: PlainText.clean(merge.card.example),
+                    synonyms: Array(merge.card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(4)),
+                    context: PlainText.clean(merge.card.context))
+                let ids = merge.ids.reduce(into: [String]()) { if !$1.isEmpty && !$0.contains($1) { $0.append($1) } }
+                guard ids.count > 1, !card.expression.isEmpty, !card.translation.isEmpty else { return nil }
+                return DuplicateMergeAnswer(ids: ids, verdict: merge.verdict, card: card)
+            })
+        })
     }
 }
 

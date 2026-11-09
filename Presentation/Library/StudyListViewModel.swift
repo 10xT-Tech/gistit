@@ -76,6 +76,8 @@ public final class StudyListViewModel {
     }
     /// Asks: merge into the look-alike, move separately, or cancel.
     public var lookAlike: LookAlike?
+    /// The look-alike turned out to be another phrase (nothing to merge with): move it separately?
+    public var notADuplicate: LookAlike?
     /// The model is writing the merged card of a caught phrase and its look-alike.
     public private(set) var isMerging = false
     /// Caught → From photos, on screen while non-nil.
@@ -228,8 +230,10 @@ public final class StudyListViewModel {
         enroll(lookAlike.caught)
     }
 
-    /// Merge the caught phrase into its look-alike in flashcards: the model writes the merged card (one
-    /// meaning, or several numbered); the flashcard keeps its progress and the caught phrase goes.
+    /// Merge the caught phrase into the look-alike it really is: an exact duplicate (the same phrase and
+    /// translation) at once, otherwise the model says which of the look-alikes it is one card with (one
+    /// meaning, or several numbered) and writes that card — only those merge; the flashcard keeps its
+    /// progress and the caught phrase goes. If it's none of them, `notADuplicate` asks to move it apart.
     public func mergeIntoFlashcards(_ lookAlike: LookAlike) {
         self.lookAlike = nil
         guard let duplicates, !isMerging else { return }
@@ -239,12 +243,15 @@ public final class StudyListViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let verdict = try await duplicates.verdict(for: group, studiedLanguage: studied, nativeLanguage: native)
-                try await duplicates.merge(group, into: verdict.card,
-                                           as: verdict.verdict == .duplicate ? .duplicate : .senses,
-                                           studiedLanguage: studied, nativeLanguage: native)
-                self.expressions.removeAll { $0.id == lookAlike.caught.id }
-                if self.expressions.isEmpty { self.phase = .empty }
+                let proposals = try await duplicates.proposals(for: group, studiedLanguage: studied, nativeLanguage: native)
+                if let merge = proposals.first(where: { $0.expressionIDs.contains(lookAlike.caught.id) }) {
+                    try await duplicates.merge(group.filter { merge.expressionIDs.contains($0.id) }, into: merge.card,
+                                               as: merge.kind, studiedLanguage: studied, nativeLanguage: native)
+                    self.expressions.removeAll { $0.id == lookAlike.caught.id }
+                    if self.expressions.isEmpty { self.phase = .empty }
+                } else {
+                    self.notADuplicate = lookAlike
+                }
             } catch {
                 self.actionError = Loc.t("Не удалось объединить.", "Couldn't merge.") + " " + presentableError(error).message
             }

@@ -34,19 +34,30 @@ public final class MockLLMClient: LLMClient {
             return String(decoding: data, as: UTF8.self)
         }
         if let groups = input as? [DuplicateGroupItem] {
-            // One answer per group: the same translation everywhere → a duplicate, else several meanings.
-            let verdicts = groups.compactMap { group -> DuplicateVerdict? in
-                guard let first = group.cards.first else { return nil }
-                let translations = group.cards.map { $0.translation.lowercased() }
-                let same = Set(translations).count == 1
-                let numbered = group.cards.enumerated().map { "\($0.offset + 1)) \($0.element.translation)" }
-                let synonyms = Array(Set(group.cards.flatMap(\.synonyms)).sorted().prefix(4))
-                return DuplicateVerdict(id: group.id, verdict: same ? .duplicate : .senses, card: CardText(
-                    expression: first.expression,
-                    translation: same ? first.translation : numbered.joined(separator: " "),
-                    example: group.cards.first { !$0.example.isEmpty }?.example ?? "An example with \(first.expression).",
-                    synonyms: synonyms.isEmpty ? ["similar"] : synonyms,
-                    context: group.cards.first { !$0.context.isEmpty }?.context ?? "Нейтрально."))
+            // Per group: cards with the same translation are a duplicate; the rest written exactly alike
+            // are one expression's senses; anything else stays apart.
+            let verdicts = groups.map { group -> DuplicateVerdict in
+                var left = group.cards
+                var merges: [DuplicateMergeAnswer] = []
+                func merge(_ cards: [FixCardItem], _ verdict: DuplicateKind) {
+                    guard cards.count > 1, let first = cards.first else { return }
+                    let numbered = cards.enumerated().map { "\($0.offset + 1)) \($0.element.translation)" }
+                    let synonyms = Array(Set(cards.flatMap(\.synonyms)).sorted().prefix(4))
+                    merges.append(DuplicateMergeAnswer(ids: cards.map(\.id), verdict: verdict, card: CardText(
+                        expression: first.expression,
+                        translation: verdict == .duplicate ? first.translation : numbered.joined(separator: " "),
+                        example: cards.first { !$0.example.isEmpty }?.example ?? "An example with \(first.expression).",
+                        synonyms: synonyms.isEmpty ? ["similar"] : synonyms,
+                        context: cards.first { !$0.context.isEmpty }?.context ?? "Нейтрально.")))
+                    left.removeAll { card in cards.contains { $0.id == card.id } }
+                }
+                for translation in group.cards.map({ $0.translation.lowercased() }) {
+                    merge(left.filter { $0.translation.lowercased() == translation }, .duplicate)
+                }
+                for expression in left.map({ $0.expression.lowercased() }) {
+                    merge(left.filter { $0.expression.lowercased() == expression }, .senses)
+                }
+                return DuplicateVerdict(id: group.id, merges: merges)
             }
             let data = (try? JSONEncoder().encode(DuplicatesResult(groups: verdicts))) ?? Data()
             return String(decoding: data, as: UTF8.self)

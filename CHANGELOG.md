@@ -30,8 +30,8 @@ filled in for you) or **From photos** (pick one or more photos or screenshots; e
 and expression in them becomes a card, with a progress bar while it works). Swipe a phrase right (or
 tap its card icon) to move it into flashcards, or **Move all to flashcards** at once — Caught empties.
 If a phrase looks like one you already learn ("hit the roof" and "to hit the roof!"), the app asks
-first: **Merge** makes them one card (several meanings are numbered, and your progress stays) or
-**Move separately**. **Move all** can leave such look-alikes in Caught to be moved one by one.
+first: **Merge** joins it with the card it really is (several meanings are numbered, and your progress
+stays) — or tells you it's another phrase after all — or **Move separately**. **Move all** can leave such look-alikes in Caught to be moved one by one.
 Swipe left to delete. **Copy** now copies the whole card as four lines (phrase, translation, example,
 synonyms), and **Copy all cards** in the share menu copies the list, ready to paste into another app.
 
@@ -53,11 +53,14 @@ shows both what's been sent off (grey) and what's done (green, catching up); sto
 next time it continues where it stopped. Your learning progress isn't touched. Part of **Gist It Pro**.
 
 **Find duplicates.** In flashcards' menu has **Find duplicates**: it finds the phrases that are written
-alike once articles, "to", "someone", punctuation and word forms are set aside, and checks every
-group with the model — the same meaning twice, one phrase with several meanings, or different phrases
-after all — proposing the merged card. Merge a group (a duplicate keeps your best-known card; several
-meanings are numbered on one card and keep the less-known one, since it now asks for all of them),
-keep it apart (it won't be offered again), or merge every duplicate at once. Part of **Gist It Pro**.
+alike once articles, "to", "someone", punctuation and word forms are set aside. Alike isn't the same,
+so inside each group it proposes only the merges that make sense: exact duplicates (the same phrase
+with the same translation) right away, and — after **Check** — the model's: which cards are one phrase
+in one meaning, which are one phrase's several meanings (one card, the meanings numbered), and which
+are another phrase after all ("fuck about" and "fuck somebody about" stay two cards). Merge a
+proposal (a duplicate keeps your best-known card; several meanings keep the less-known one, since the
+card now asks for all of them), keep a group apart (it won't be offered again), or merge every
+duplicate at once. Part of **Gist It Pro**.
 
 **Import and export cards.** In flashcards has an import / export menu. **Export cards** saves all
 your flashcards — with how well you know each one — to a file you can keep as a backup or move to
