@@ -15,6 +15,9 @@
 //  "something", "one's" / "sb's" → "someone's", "jdn" → "jemanden", "qqn" → "quelqu'un"…; and the
 //  English "+ -ing" marker is "doing". "pick on sb" = "pick on someone", but "fuck about" ≠ "fuck
 //  somebody about", "wind up" ≠ "wind sb up", "stop + -ing" ≠ "stop + to".
+//  The key drops the marker, but the marker tells the WORD CLASS (`wordClass`): "to drain" is a verb,
+//  "a drain" a noun — two words, never look-alikes (`PhraseKey.alike`); "drain" with no marker may be
+//  either.
 //
 
 import Foundation
@@ -34,6 +37,14 @@ public struct NoLemmatizer: Lemmatizing {
     public init() {}
     public func prepare(language: String) async {}
     public func lemmatize(_ text: String, language: String) -> String { text }
+}
+
+/// What a vocabulary list's leading marker says a phrase is.
+public enum WordClass: Sendable, Equatable {
+    /// "to drain", "zu machen", "sich freuen", "se lever".
+    case verb
+    /// "a drain", "der Tisch", "la mesa", "l'arbre".
+    case noun
 }
 
 public enum PhraseKey {
@@ -71,6 +82,40 @@ public enum PhraseKey {
         return lemmatizer.lemmatize(joined, language: language)
             .split(separator: " ").joined(separator: " ")
     }
+
+    /// The class the phrase's leading marker gives it — nil without one ("hit the roof!", "drain").
+    public static func wordClass(of text: String, language: String) -> WordClass? {
+        let words = text.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+            .split(whereSeparator: \.isWhitespace)
+        guard let first = words.first.map(String.init) else { return nil }
+        if words.count > 1 {
+            if (verbMarkers[language] ?? []).contains(first) { return .verb }
+            if (leading[language] ?? []).contains(first) { return .noun }
+        }
+        if let elided = elidedClass[language]?.first(where: { first.hasPrefix($0.key) && first.count > $0.key.count }) {
+            return elided.value                                    // "s'asseoir", "l'arbre"
+        }
+        return nil
+    }
+
+    /// Whether two phrases with one key are look-alikes: not a verb and a noun ("to drain" / "a drain").
+    public static func alike(_ a: WordClass?, _ b: WordClass?) -> Bool {
+        a == nil || b == nil || a == b
+    }
+
+    /// The leading markers (of `leading`) that make a verb; the rest are articles.
+    static let verbMarkers: [String: Set<String>] = [
+        "English": ["to"],
+        "German": ["zu", "sich"],
+        "French": ["se"],
+    ]
+
+    /// What an elided marker makes the word.
+    static let elidedClass: [String: [String: WordClass]] = [
+        "French": ["s'": .verb, "l'": .noun],
+        "Italian": ["l'": .noun, "un'": .noun],
+    ]
 
     /// Infinitive markers and articles a vocabulary list puts before a word.
     static let leading: [String: Set<String>] = [

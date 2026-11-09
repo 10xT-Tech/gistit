@@ -265,7 +265,8 @@ final class FlashcardsUITests: XCTestCase {
     }
 
     /// Don't merge: the two cards are linked as not duplicates — the card shows it, the next search
-    /// leaves them be, and a full re-check brings them back.
+    /// leaves them be, and a full re-check shows them again — they're an exact duplicate (the same
+    /// translation), a merge proposed without the model.
     func testDontMergeLinksTheCards() {
         let app = openCaughtWithALookAlike()
         let separately = app.buttons["Move separately"]
@@ -295,7 +296,7 @@ final class FlashcardsUITests: XCTestCase {
         attach(app, "card-not-duplicate")
         app.buttons["cardPreview.done"].tap()
 
-        // The next search leaves them be; a full re-check brings them back.
+        // The next search leaves them be; a full re-check shows them, an exact duplicate after all.
         openFindDuplicates(app)
         XCTAssertTrue(app.staticTexts["No duplicates found"].waitForExistence(timeout: 5))
         app.buttons["dups.full"].tap()

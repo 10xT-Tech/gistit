@@ -9,8 +9,9 @@
 //  several meanings) and the card they'd make; a phrase in no merge stays apart. Per group: Merge
 //  (makes its proposals; the rest of a checked group is marked "not duplicates") or Don't merge (its
 //  phrases are marked "not duplicates" of each other — with the cards — and a search leaves them be).
-//  "Full re-check" searches again ignoring the marks. Groups can be decided while the rest are still
-//  being checked.
+//  "Full re-check" searches again and puts the groups marked "not duplicates" to the model too — one
+//  shows up only if a merge is proposed in it (`shownGroups`); the rest stay marked
+//  (`confirmedApart`). Groups can be decided while the rest are still being checked.
 //
 
 import Foundation
@@ -23,8 +24,10 @@ public final class DuplicatesViewModel: Identifiable {
 
     public let id = UUID()
     public private(set) var phase: Phase = .scanning
-    /// A full re-check: the "not duplicates" marks are ignored.
+    /// A full re-check: the groups marked "not duplicates" are checked again.
     public private(set) var isFull = false
+    /// Marked groups a full re-check confirmed: the model proposed no merge in them.
+    public private(set) var confirmedApart = 0
     public private(set) var scan = DuplicateScanStep(checked: 0, total: 0)
     public private(set) var check = DuplicateCheckStep(sent: 0, answered: 0, total: 0)
     /// Groups still to decide on, oldest first.
@@ -58,6 +61,15 @@ public final class DuplicatesViewModel: Identifiable {
     public var unchecked: [DuplicateGroup] {
         groups.filter { !checkedKeys.contains($0.key) && !$0.isExactOnly }
     }
+    /// The groups on screen: a group marked "not duplicates" (a full re-check) only once a merge is
+    /// proposed in it — until then it's the model's question, not the user's.
+    public var shownGroups: [DuplicateGroup] {
+        groups.filter { !$0.isAllMarked || !(proposals[$0.key] ?? []).isEmpty }
+    }
+    /// Marked groups a full re-check still has to put to the model.
+    public var markedToCheck: Int {
+        groups.filter { $0.isAllMarked && (proposals[$0.key] ?? []).isEmpty }.count
+    }
     /// Every proposed duplicate merge, with its group's key — but none of a pair marked "not
     /// duplicates" before (a full re-check shows them; only the group's own Merge undoes the mark).
     public var duplicateMerges: [(key: String, merge: DuplicateMerge)] {
@@ -86,6 +98,7 @@ public final class DuplicatesViewModel: Identifiable {
     public func rescanFully() {
         guard task == nil else { return }
         isFull = true
+        confirmedApart = 0
         groups = []
         proposals = [:]
         checkedKeys = []
@@ -198,7 +211,13 @@ public final class DuplicatesViewModel: Identifiable {
     }
 
     private func adopt(_ found: [String: [DuplicateMerge]]) {
-        for (key, merges) in found where groups.contains(where: { $0.key == key }) {
+        for (key, merges) in found {
+            guard let group = groups.first(where: { $0.key == key }) else { continue }
+            if group.isAllMarked && merges.isEmpty {
+                remove(key)                                    // the model agrees: they stay marked
+                confirmedApart += 1
+                continue
+            }
             proposals[key] = merges
             checkedKeys.insert(key)
         }

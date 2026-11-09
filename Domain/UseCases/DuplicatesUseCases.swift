@@ -5,12 +5,14 @@
 //  Duplicates among the phrases in flashcards, and against them when a phrase moves in from Caught.
 //  - Scan (on the device): phrases whose studied-language expressions share a `PhraseKey` — the same
 //    words apart from letter case, "to" / articles, placeholders, brackets, punctuation and word forms
-//    — form a LOOK-ALIKE group. Look-alike is not the same ("pick on sb" in two meanings), so a group
-//    is a set of candidates, and what to merge inside it is proposed separately (below).
+//    — form a LOOK-ALIKE group. A verb and a noun ("to drain" / "a drain": `PhraseKey.wordClass`) are
+//    two words, never look-alikes; a phrase with no marker is alike with both. Look-alike is not the
+//    same ("pick on sb" in two meanings), so a group is a set of candidates, and what to merge inside it
+//    is proposed separately (below).
 //  - "Don't merge" links the group's phrases to each other as NOT DUPLICATES (`NotDuplicatePair`, kept
 //    with the cards by `NotDuplicateMarking`): a search leaves out a group whose phrases are all linked,
-//    and never proposes merging a linked pair. A FULL re-check (`full: true`) ignores the links — after
-//    the matching changed, or to think again; "Don't merge" there links them anew.
+//    and never proposes merging a linked pair. A FULL re-check (`full: true`) puts the linked groups to
+//    the model again — after the matching changed; the sheet shows one only if a merge is proposed in it.
 //  - Exact duplicates (on the device, no model): the same expression (`PhraseKey` without lemmas) with
 //    the same translation — a merge is proposed at once; a group made only of them needs no check.
 //  - Check (the model, `DuplicatesTemplate`, batches of `batchSize` groups, up to `inFlight` requests at
@@ -210,6 +212,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                     }
                     let groups = byKey
                         .filter { $0.value.count > 1 }
+                        .flatMap { key, members in Self.lookAlikeSets(members, key: key, language: studiedLanguage) }
                         .map { key, members in
                             let pairs = NotDuplicatePair.all(among: members.map(\.id)).intersection(marked)
                             return DuplicateGroup(
@@ -261,10 +264,25 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         }
         var found: [UUID: [Expression]] = [:]
         for candidate in candidates {
-            let alike = (byKey[key(candidate, studiedLanguage)] ?? []).filter { $0.id != candidate.id }
+            let wordClass = PhraseKey.wordClass(of: candidate.en, language: studiedLanguage)
+            let alike = (byKey[key(candidate, studiedLanguage)] ?? []).filter {
+                $0.id != candidate.id && PhraseKey.alike(wordClass, PhraseKey.wordClass(of: $0.en, language: studiedLanguage))
+            }
             if !alike.isEmpty { found[candidate.id] = alike }
         }
         return found
+    }
+
+    /// The look-alike groups among phrases sharing a key: all of them — unless verbs and nouns meet with
+    /// no phrase that could be either ("to drain", "a drain" — no "drain"): then the verbs and the nouns
+    /// apart, each keyed by its class. Groups of one are dropped.
+    static func lookAlikeSets(_ members: [Expression], key: String, language: String) -> [(String, [Expression])] {
+        let classes = members.map { PhraseKey.wordClass(of: $0.en, language: language) }
+        guard classes.contains(.verb), classes.contains(.noun), !classes.contains(nil) else { return [(key, members)] }
+        return [(WordClass.verb, "verb"), (.noun, "noun")].compactMap { wordClass, suffix in
+            let same = zip(members, classes).filter { $0.1 == wordClass }.map(\.0)
+            return same.count > 1 ? (key + "|" + suffix, same) : nil
+        }
     }
 
     private func key(_ expression: Expression, _ language: String) -> String {
@@ -292,6 +310,8 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         return order.compactMap { key in
             guard let same = sets[key], same.count > 1,
                   NotDuplicatePair.all(among: same.map(\.id)).isDisjoint(with: excluded) else { return nil }
+            let classes = same.map { PhraseKey.wordClass(of: $0.en, language: language) }
+            guard !(classes.contains(.verb) && classes.contains(.noun)) else { return nil }   // a verb and a noun: the model's call
             let first = same[0]
             let filled = { (field: (Expression) -> String) in same.map(field).first { !$0.isEmpty } ?? "" }
             var synonyms: [String] = []

@@ -74,7 +74,8 @@ touched. Part of **Gist It Pro**.
 
 **Find duplicates.** In flashcards' menu has **Find duplicates**: it finds the phrases written alike
 once articles, "to", punctuation and word forms are set aside ("sb", "smb" and "someone" count as one
-word, but a phrase with "someone" is never the same as one without). Alike isn't the same, so inside
+word, but a phrase with "someone" is never the same as one without; a verb and a noun — "to drain"
+and "a drain" — are two words, not look-alikes). Alike isn't the same, so inside
 each group it proposes only the merges that make sense: exact duplicates (the same phrase with the
 same translation) right away, and — after **Check** — the model's: which cards are one phrase in one
 meaning, which are one phrase's several meanings (one card, the meanings numbered), and which are
@@ -82,8 +83,9 @@ another phrase after all. The merged card is written in dictionary form — "to 
 corkscrew". Each group has two buttons: **Merge** (a duplicate keeps your best-known card; several
 meanings keep the less-known one, since the card now asks for all of them) and **Don't merge** — the
 cards are then marked as not duplicates of each other, the card shows it, and the next search leaves
-them be. **Merge all duplicates** takes the clear cases at once, and **Full re-check** searches again
-ignoring the "not duplicates" marks, if you want to think again. Part of **Gist It Pro**.
+them be. **Merge all duplicates** takes the clear cases at once, and **Full re-check** has the model
+look again at the groups you marked as not duplicates — after the search got smarter — and shows only
+those it now finds duplicates in. Part of **Gist It Pro**.
 
 **The system tab bar.** The bar at the bottom of the screen is now the real iOS Liquid Glass tab bar:
 press and drag across it to slide the selection to another screen, as in Apple's own apps.

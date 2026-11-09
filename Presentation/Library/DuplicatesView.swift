@@ -8,8 +8,9 @@
 //  merges (exact duplicates at once, the model's after the check) with the card each makes, and two
 //  buttons — Merge / Don't merge ("not duplicates", kept with the cards); a group nobody checked yet
 //  offers Check instead of Merge. "Merge all duplicates" takes the clear cases at once; "Full
-//  re-check" searches again ignoring the "not duplicates" marks. The paywall is presented from here (a
-//  second sheet can't open from the root).
+//  re-check" searches again and has the model check the groups marked "not duplicates" too — they
+//  show up only where it proposes a merge. The paywall is presented from here (a second sheet can't
+//  open from the root).
 //
 
 import SwiftUI
@@ -42,7 +43,7 @@ struct DuplicatesView: View {
                                  accessibilityID: "dups.mergeAll") { model.mergeAllDuplicates() }
                             .disabled(!model.busy.isEmpty)
                     }
-                    ForEach(model.groups) { group in
+                    ForEach(model.shownGroups) { group in
                         GroupCard(group: group, proposals: model.proposals[group.key] ?? [],
                                   isChecked: model.checkedKeys.contains(group.key), isSettled: model.isSettled(group),
                                   isBusy: model.busy.contains(group.key),
@@ -84,8 +85,14 @@ struct DuplicatesView: View {
                 .textStyle(Tokens.Text.headline)
                 .foregroundStyle(Tokens.Content.primary)
             if model.isFull {
-                caption(Loc.t("Полная перепроверка: отметки «не дубли» не учитываются.",
-                              "Full re-check: the \"not duplicates\" marks are ignored."))
+                if model.markedToCheck > 0 {
+                    caption(Loc.t("Полная перепроверка: группы, отмеченные «не дубли» (\(model.markedToCheck)), модель проверит заново и покажет только те, где теперь видит дубли.",
+                                  "Full re-check: the model checks the groups marked \"not duplicates\" (\(model.markedToCheck)) again and shows only those it now finds duplicates in."))
+                }
+                if model.confirmedApart > 0 {
+                    caption(Loc.t("Модель подтвердила «не дубли»: \(model.confirmedApart)",
+                                  "Confirmed not duplicates: \(model.confirmedApart)"))
+                }
             }
             switch model.phase {
             case .scanning:
@@ -99,7 +106,7 @@ struct DuplicatesView: View {
                         : Loc.t("Проверено фраз: \(model.scan.checked) из \(model.scan.total)",
                                 "Phrases checked: \(model.scan.checked) of \(model.scan.total)"))
             case .found:
-                if !model.groups.isEmpty {
+                if !model.shownGroups.isEmpty {
                     caption(Loc.t("Фразы, которые пишутся похоже (без учёта «to», артиклей, знаков и форм слова; «sb», «smb» и «someone» — одно и то же, но фраза с «someone» и без — разные). Похожие — ещё не одинаковые: точные дубли (та же фраза и тот же перевод) можно слить сразу, остальное проверит модель — какие карточки одно и то же, какие — разные значения одной фразы, а какие — разные фразы. «Не сливать» отмечает карточки как не дубли, и следующий поиск их не предложит.",
                                   "Phrases written alike (ignoring \"to\", articles, punctuation and word forms; \"sb\", \"smb\" and \"someone\" are one, but a phrase with \"someone\" and one without are two). Alike isn't the same: exact duplicates (the same phrase and translation) can be merged right away; the model checks the rest — which cards are one, which are one phrase's meanings, which are different phrases. \"Don't merge\" marks the cards as not duplicates, and the next search leaves them be."))
                 }
@@ -155,14 +162,25 @@ struct DuplicatesView: View {
     private var title: String {
         switch model.phase {
         case .scanning: Loc.t("Ищу похожие фразы…", "Looking for look-alikes…")
-        case .found: model.groups.isEmpty
-            ? Loc.t("Все группы разобраны", "Every group is sorted out")
-            : Loc.t("Похожих групп: \(model.groups.count)", "Look-alike groups: \(model.groups.count)")
+        case .found:
+            if !model.shownGroups.isEmpty {
+                Loc.t("Похожих групп: \(model.shownGroups.count)", "Look-alike groups: \(model.shownGroups.count)")
+            } else if !model.unchecked.isEmpty {
+                Loc.t("Групп на перепроверку: \(model.unchecked.count)", "Groups to re-check: \(model.unchecked.count)")
+            } else {
+                Loc.t("Все группы разобраны", "Every group is sorted out")
+            }
         case .checking: Loc.t("Модель проверяет группы…", "The model is checking the groups…")
-        case .checked: model.groups.isEmpty
-            ? (model.merged > 0 ? Loc.t("Все группы разобраны", "Every group is sorted out")
-                                : Loc.t("Дублей не найдено", "No duplicates found"))
-            : Loc.t("Проверено — решите по каждой группе", "Checked — decide on each group")
+        case .checked:
+            if !model.shownGroups.isEmpty {
+                Loc.t("Проверено — решите по каждой группе", "Checked — decide on each group")
+            } else if !model.unchecked.isEmpty {
+                Loc.t("Проверены не все группы", "Not every group was checked")
+            } else if model.merged > 0 {
+                Loc.t("Все группы разобраны", "Every group is sorted out")
+            } else {
+                Loc.t("Дублей не найдено", "No duplicates found")
+            }
         case .stopped: Loc.t("Остановлено", "Stopped")
         case .failed: Loc.t("Не удалось проверить", "Couldn't check")
         }

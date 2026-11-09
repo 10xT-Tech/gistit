@@ -7,7 +7,8 @@
 //  model's check in batches (sent / answered, merges inside a group — look-alike isn't the same —
 //  unusable answers, a stop), the merge (texts, which card each direction keeps, a caught phrase
 //  merged into its flashcard), "not duplicates" links (kept with the cards, honoured by a search,
-//  ignored by a full re-check, adopted from the first builds' UserDefaults, carried by card files), the
+//  put to the model again by a full re-check, adopted from the first builds' UserDefaults, carried by
+//  card files), a verb and a noun never look-alikes, the
 //  template, and the screens: a look-alike moved from Caught (exact, by the model, or another phrase),
 //  Move all without look-alikes, the Find duplicates sheet.
 //
@@ -65,6 +66,18 @@ import Presentation
         #expect(PhraseKey.make("café", language: "French") == "cafe")
     }
 
+    @Test func wordClassByMarker() {
+        let en = { PhraseKey.wordClass(of: $0, language: "English") }
+        #expect(en("to drain") == .verb && en("To hit the roof") == .verb)
+        #expect(en("a drain") == .noun && en("an apple") == .noun && en("the rip-off") == .noun)
+        #expect(en("drain") == nil && en("hit the roof!") == nil && en("to") == nil)
+        #expect(PhraseKey.wordClass(of: "sich freuen", language: "German") == .verb)
+        #expect(PhraseKey.wordClass(of: "der Tisch", language: "German") == .noun)
+        #expect(PhraseKey.wordClass(of: "s’asseoir", language: "French") == .verb)
+        #expect(PhraseKey.wordClass(of: "l'arbre", language: "French") == .noun)
+        #expect(PhraseKey.alike(.verb, nil) && PhraseKey.alike(.noun, .noun) && !PhraseKey.alike(.verb, .noun))
+    }
+
     @Test func wordFormsWithALemmatizer() async {
         struct Lemmas: Lemmatizing {
             func prepare(language: String) async {}
@@ -114,6 +127,36 @@ import Presentation
         let full = try #require(try await scan(sut, full: true))
         #expect(full.map(\.key) == ["hit the roof", "solid"])
         #expect(full[1].isAllMarked && !full[1].honorsMarks && full[1].excluded.isEmpty)
+    }
+
+    /// "to drain" and "a drain" are two words — no group, no look-alike from Caught, no exact merge; with
+    /// a bare "coat" next to "to coat" and "a coat" all three are one group (the bare one may be either);
+    /// with no bare one the nouns group on their own.
+    @Test func aVerbAndANounAreNotLookAlikes() async throws {
+        let drainVerb = phrase("to drain", "сливать воду", 0), drainNoun = phrase("a drain", "слив", 1)
+        let coatVerb = phrase("to coat", "покрывать", 2), coatNoun = phrase("a coat", "шерсть", 3)
+        let coat = phrase("coat", "пальто", 4)
+        let ripVerb = phrase("to rip off", "обмануть", 5), ripNoun = phrase("a rip-off", "обдираловка", 6)
+        let ripNoun2 = phrase("the rip-off", "надувательство", 7)
+        let studied = [drainVerb, drainNoun, coatVerb, coatNoun, coat, ripVerb, ripNoun, ripNoun2]
+        let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: studied),
+                                       cards: MockReviewCardRepository(seed: studied.flatMap { cards($0) }))
+
+        let groups = try #require(try await scan(sut, full: true))
+        #expect(groups.map(\.key) == ["coat", "rip off|noun"])
+        #expect(groups[0].expressions.map(\.id) == [coatVerb.id, coatNoun.id, coat.id])
+        #expect(groups[1].expressions.map(\.id) == [ripNoun.id, ripNoun2.id])
+
+        let drain = phrase("drain", "сток", 8), caughtNoun = phrase("A drain", "сток", 9)
+        let alike = try await DuplicatesInteractor(
+            llm: MockLLMClient(), expressions: MockExpressionRepository(seed: [drainVerb, drain, caughtNoun]),
+            cards: MockReviewCardRepository(seed: [drainVerb].flatMap { cards($0) })
+        ).lookAlikesInFlashcards(for: [drain, caughtNoun], studiedLanguage: "English")
+        #expect(alike[drain.id]?.map(\.id) == [drainVerb.id])
+        #expect(alike[caughtNoun.id] == nil)
+
+        let sameTranslation = [phrase("to drain", "сток", 0), phrase("a drain", "сток", 1)]
+        #expect(DuplicatesInteractor.exactMerges(among: sameTranslation, language: "English").isEmpty)
     }
 
     /// A new look-alike joins a marked pair: the group is offered again, but the marked pair is never
@@ -569,12 +612,19 @@ import Presentation
         try await wait { again.phase != .scanning }
         #expect(again.phase == .checked && again.groups.isEmpty)
 
-        // A full re-check ignores the "not duplicates" marks: both marked groups are back, marked.
+        // A full re-check puts both marked groups to the model, showing none until it answers…
         again.rescanFully()
         try await wait { again.phase != .scanning }
         #expect(again.isFull && again.groups.map(\.key) == ["solid", "pick on someone"])
         let allMarked = again.groups.allSatisfy { $0.isAllMarked }
         #expect(allMarked)
+        #expect(again.shownGroups.isEmpty && again.markedToCheck == 2)
+        #expect(again.unchecked.count == 2)
+        // …then only the one it proposes a merge in ("solid": two meanings); the other stays marked.
+        again.startCheck()
+        try await wait { again.phase != .checking }
+        #expect(again.shownGroups.map(\.key) == ["solid"] && again.confirmedApart == 1)
+        #expect(again.proposals["solid"]?.first?.kind == .senses)
         #expect(again.duplicateMerges.isEmpty)                                       // no bulk merge of marked pairs
     }
 }

@@ -197,7 +197,11 @@ qqn → quelqu'un; "(someone)" in brackets too; English "+ -ing" → "doing") �
 changes the expression, "fuck about" ≠ "fuck somebody about"; then lemmas — for PHRASES of several words
 only: a single word keeps its form ("dashing" ≠ "a dash"; lemmas grouped such forms with pairs already
 marked "not duplicates", and they came back); a group that joins marked cards with a new look-alike shows
-the marked ones as one line of context (`DuplicatesView` `settledMembers`); lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
+the marked ones as one line of context (`DuplicatesView` `settledMembers`); a verb and a noun are
+never look-alikes — the leading marker gives the class (`PhraseKey.wordClass`: "to"/"zu"/"sich"/"se"/"s'"
+→ verb, an article → noun, none → either; `PhraseKey.alike`), so "to drain" / "a drain" make no group
+unless a bare "drain" joins them (verbs-only / nouns-only buckets are keyed `key|verb`, `key|noun`;
+`lookAlikesInFlashcards` and `exactMerges` follow it); lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
 (NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
 identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
 meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
@@ -216,7 +220,10 @@ ids kept (today's answers still count), the rest deleted (and their links). "Don
 `NotDuplicatePairModel`, schema **V5**; shown in `CardPreviewView`; card files carry them as
 `notDuplicateOf` expressions): a scan leaves out a group whose members are all linked and never
 proposes a linked pair (`DuplicateGroup.excluded`); `scan(full: true)` ("Full re-check") ignores the
-links. The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
+links, but the sheet doesn't put the all-linked groups to the user: they go to the model with Check
+and show up (`DuplicatesViewModel.shownGroups`) only if a merge is proposed in them (exact or the
+model's) — the rest are removed and counted (`confirmedApart`); the user saw 39 marked noun/verb pairs
+come back as a wall of "Not checked yet". The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
 Caught: moving a phrase checks `lookAlikesInFlashcards`
 → dialog Merge (`proposals(for:)`: exact first, else the model; only the merge containing the caught
 phrase is made; none → `notADuplicate` dialog "move separately?") / Move separately; Move all offers
