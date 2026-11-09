@@ -289,8 +289,14 @@ private struct DistributionCard: View {
                     .textStyle(Tokens.Text.headline)
                     .foregroundStyle(Tokens.Content.primary)
                 Spacer()
-                Text("\(distribution.total)")
-                    .textStyle(Tokens.Text.headline)
+                // Learned = past the learning steps (young + mature) — the green part of the bar.
+                Text(Loc.t("изучено \(distribution.young + distribution.mature) из \(distribution.total)",
+                           "\(distribution.young + distribution.mature) of \(distribution.total) learned",
+                           "\(distribution.young + distribution.mature) sur \(distribution.total) apprises",
+                           "\(distribution.young + distribution.mature) de \(distribution.total) aprendidas",
+                           "\(distribution.young + distribution.mature) von \(distribution.total) gelernt",
+                           "\(distribution.young + distribution.mature) di \(distribution.total) imparate"))
+                    .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
                     .monospacedDigit()
             }

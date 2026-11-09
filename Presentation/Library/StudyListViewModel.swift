@@ -23,6 +23,14 @@ public final class StudyListViewModel {
 
     public private(set) var phase: Phase = .loading
     public private(set) var expressions: [Domain.Expression] = []   // Domain.* avoids Foundation.Expression
+    /// The search field: filters the list by any field of the card.
+    public var searchText = ""
+    /// What the list shows: every expression, or the ones matching the search.
+    public var visibleExpressions: [Domain.Expression] {
+        guard isSearching else { return expressions }
+        return expressions.filter { $0.matches(searchText) }
+    }
+    public var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     public private(set) var errorMessage: String?
 
     // Add form

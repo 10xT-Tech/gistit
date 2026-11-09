@@ -187,6 +187,27 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 3))
     }
 
+    /// The list's search finds a card by any field — here a word from its note.
+    func testSearchFindsByAnyField() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        app.buttons["study.caught"].tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 3), "no search field")
+        search.tap()
+        search.typeText("благодарн")
+        let found = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it'")).firstMatch
+        XCTAssertTrue(found.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.cells.containing(NSPredicate(format: "label BEGINSWITH 'No worries'")).firstMatch.exists)
+        XCTAssertFalse(app.buttons["caught.moveAll"].exists, "Move all would move more than what's shown")
+        attach(app, "search")
+    }
+
     /// Flashcards are Pro: on the free plan Start carries a lock and opens the paywall.
     func testFreePlanGetsThePaywall() {
         let app = XCUIApplication()

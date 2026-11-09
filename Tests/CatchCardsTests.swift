@@ -123,6 +123,34 @@ import Presentation
         #expect(Domain.Expression.cardsText([a, b]) == a.cardText + "\n---\n" + "discard\nотбросить")
     }
 
+    // MARK: Search
+
+    @Test func searchLooksInEveryField() {
+        let card = Domain.Expression(en: "Break the ice", ru: "растопить лёд", example: "A joke to break the ice.",
+                                     synonyms: ["warm up"], context: "Неформально, в начале встречи.")
+        #expect(card.matches("ICE"))                                   // case
+        #expect(card.matches("лед"))                                   // ё / е
+        #expect(card.matches("joke"))                                  // example
+        #expect(card.matches("warm"))                                  // synonyms
+        #expect(card.matches("встречи"))                               // note
+        #expect(!card.matches("tomorrow"))
+        #expect(card.matches("  "))                                    // empty query: everything
+        #expect(Domain.Expression(en: "café", ru: "кафе").matches("cafe"))   // diacritics
+    }
+
+    @Test func listFiltersBySearch() async throws {
+        let repo = MockExpressionRepository(seed: MockExpressionRepository.defaultSeed)
+        let caught = makeList(repo, MockReviewCardRepository(), scope: .caught)
+        await caught.load()
+        #expect(caught.visibleExpressions.count == 2 && !caught.isSearching)
+        caught.searchText = "благодарность"                           // the note of "I appreciate it"
+        #expect(caught.isSearching)
+        #expect(caught.visibleExpressions.map(\.en) == ["I appreciate it"])
+        caught.searchText = "nothing like this"
+        #expect(caught.visibleExpressions.isEmpty)
+        #expect(caught.expressions.count == 2)                         // the list itself is intact
+    }
+
     // MARK: Lists
 
     private func makeList(_ repo: MockExpressionRepository, _ cards: MockReviewCardRepository,

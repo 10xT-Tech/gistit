@@ -167,6 +167,9 @@ public struct StudyListView: View {
         } message: {
             Text(model.importMessage ?? "")
         }
+        // Searches every field of the cards (phrase, translation, example, synonyms, note).
+        .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: Loc.t("Поиск по карточкам", "Search cards"))
         .task {
             await model.load()
             #if DEBUG
@@ -275,7 +278,7 @@ public struct StudyListView: View {
 
     private var list: some View {
         List {
-            if model.canMoveToFlashcards {
+            if model.canMoveToFlashcards && !model.isSearching {
                 EHButton(Loc.t("Перенести все во флеш-карты", "Move all to flashcards"),
                          icon: "rectangle.stack.badge.plus", kind: .tonal, fillWidth: true,
                          accessibilityID: "caught.moveAll") { model.showMoveAllConfirmation = true }
@@ -284,7 +287,7 @@ public struct StudyListView: View {
                     .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
                                               bottom: Tokens.Space.s8, trailing: Tokens.Space.s16))
             }
-            ForEach(model.expressions) { expression in
+            ForEach(model.visibleExpressions) { expression in
                 StudyRow(expression: expression,
                          isPlaying: model.isPlaying(expression),
                          onPlay: { model.play(expression) },
@@ -314,6 +317,13 @@ public struct StudyListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .animation(.default, value: model.expressions.map(\.id))
+        .overlay {
+            if model.isSearching && model.visibleExpressions.isEmpty {
+                StatusView(systemImage: "magnifyingglass", title: Loc.t("Ничего не найдено", "No results"),
+                           message: Loc.t("Поиск идёт по фразе, переводу, примеру, синонимам и пояснению.",
+                                          "Search looks in the phrase, translation, example, synonyms and note."))
+            }
+        }
     }
 
     // MARK: Add sheet

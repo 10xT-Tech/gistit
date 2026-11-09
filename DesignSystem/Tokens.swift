@@ -148,20 +148,23 @@ public enum Tokens {
     }
 
     // MARK: Chart — data marks (Study dashboard)
-    //  Monochrome like the rest of the system. The ordinal ramp is validated (dataviz validator,
-    //  --ordinal: monotone lightness, adjacent ΔL ≥ 0.06, faint end ≥ 2:1) against the card surface
-    //  in each mode — light #FAFAFC, dark #141415. Dark is its own ramp, not a flip.
+    //  Validated with the dataviz validator against the card surface in each mode — light #FAFAFC,
+    //  dark #141415; dark is its own set, not a flip. Stages: not yet learned in grey (an ordinal ramp:
+    //  monotone lightness, ΔL ≥ 0.06, faint end ≥ 2:1), LEARNED (young, mature) in green — an ordinal
+    //  green pair, told apart from the grey next to it (CVD ΔE ≥ 12.7, normal ΔE ≥ 15.6) and from each
+    //  other (normal ΔE ≥ 17.1). The light green is under 3:1 on the surface: the legend's labels and
+    //  counts carry it.
     public enum Chart {
-        /// Ordered stages, faintest → strongest (flashcards: new → learning → young → mature).
+        /// Ordered stages (flashcards: new → learning → young → mature); the last two are "learned".
         public static let stage = [
             Color(light: Color(hex: 0xAEAEB4), dark: Color(hex: 0x5A5A5F)),
             Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C)),
-            Color(light: Color(hex: 0x5A5A60), dark: Color(hex: 0xB4B4BA)),
-            Color(light: Color(hex: 0x1C1C1E), dark: Color(hex: 0xF2F2F7)),
+            Color(light: Color(hex: 0x4FBF6E), dark: Color(hex: 0x207040)),
+            Color(light: Color(hex: 0x1B7F3A), dark: Color(hex: 0x28A84E)),
         ]
-        /// A single-series bar; `barEmphasis` marks the one that matters (today).
-        public static let bar = stage[1]
-        public static let barEmphasis = stage[3]
+        /// A single-series bar (grey); `barEmphasis` marks the one that matters (today).
+        public static let bar = Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C))
+        public static let barEmphasis = Color(light: Color(hex: 0x1C1C1E), dark: Color(hex: 0xF2F2F7))
         /// Gap between adjacent fills (stacked segments, neighbouring bars).
         public static let gap: CGFloat = 2
         /// Rounding of a bar's data end.

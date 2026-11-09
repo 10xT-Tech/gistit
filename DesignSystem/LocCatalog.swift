@@ -314,6 +314,9 @@ public enum LocCatalog {
         "Fixing the cards…": "Correction des cartes…",
         "Stopped — it continues from here next time": "Arrêté — reprendra d'ici la prochaine fois",
         "You can stop at any time — next time it continues from here.": "Vous pouvez arrêter à tout moment — la prochaine fois, ça reprend d'ici.",
+        "No results": "Aucun résultat",
+        "Search looks in the phrase, translation, example, synonyms and note.": "La recherche porte sur l'expression, la traduction, l'exemple, les synonymes et la note.",
+        "Search cards": "Rechercher des cartes",
     ]
 
     public static let es: [String: String] = [
@@ -619,6 +622,9 @@ public enum LocCatalog {
         "Fixing the cards…": "Corrigiendo las tarjetas…",
         "Stopped — it continues from here next time": "Detenido — la próxima vez sigue desde aquí",
         "You can stop at any time — next time it continues from here.": "Puedes detenerlo en cualquier momento — la próxima vez sigue desde aquí.",
+        "No results": "Sin resultados",
+        "Search looks in the phrase, translation, example, synonyms and note.": "La búsqueda mira la frase, la traducción, el ejemplo, los sinónimos y la nota.",
+        "Search cards": "Buscar tarjetas",
     ]
 
     public static let de: [String: String] = [
@@ -924,6 +930,9 @@ public enum LocCatalog {
         "Fixing the cards…": "Karten werden korrigiert…",
         "Stopped — it continues from here next time": "Gestoppt — beim nächsten Mal geht es hier weiter",
         "You can stop at any time — next time it continues from here.": "Du kannst jederzeit stoppen — beim nächsten Mal geht es hier weiter.",
+        "No results": "Keine Treffer",
+        "Search looks in the phrase, translation, example, synonyms and note.": "Gesucht wird im Ausdruck, in der Übersetzung, im Beispiel, in den Synonymen und im Hinweis.",
+        "Search cards": "Karten durchsuchen",
     ]
 
     public static let it: [String: String] = [
@@ -1229,5 +1238,8 @@ public enum LocCatalog {
         "Fixing the cards…": "Correggo le schede…",
         "Stopped — it continues from here next time": "Interrotto — la prossima volta riprende da qui",
         "You can stop at any time — next time it continues from here.": "Puoi fermarti in qualsiasi momento — la prossima volta riprende da qui.",
+        "No results": "Nessun risultato",
+        "Search looks in the phrase, translation, example, synonyms and note.": "La ricerca guarda la frase, la traduzione, l'esempio, i sinonimi e la nota.",
+        "Search cards": "Cerca schede",
     ]
 }

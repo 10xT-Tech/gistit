@@ -60,3 +60,13 @@ public extension Expression {
         expressions.map(\.cardText).joined(separator: "\n---\n")
     }
 }
+
+public extension Expression {
+    /// Whether `query` occurs in any field — the phrase, translation, example, synonyms or note —
+    /// ignoring case and diacritics ("cafe" finds "café", "ЁЛКА" finds "ёлка").
+    func matches(_ query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return ([en, ru, example, context] + synonyms).contains { $0.localizedStandardContains(query) }
+    }
+}
