@@ -199,7 +199,7 @@ public struct StudyListView: View {
             }
             #endif
         }
-        .sheet(isPresented: $model.showAddSheet) { addSheet }
+        .sheet(isPresented: $model.showAddSheet) { NewCardSheet(model: model) }
         .sheet(item: $shareItem) { item in ShareSheet(items: [item.url]) }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItems,
                       maxSelectionCount: Self.maxPhotos, matching: .images)
@@ -304,10 +304,22 @@ public struct StudyListView: View {
                        actionTitle: Loc.t("Повторить", "Retry"), action: { Task { await model.load() } })
         case .empty:
             if caught {
-                StatusView(systemImage: "tray", title: Loc.t("Пока пусто", "Nothing yet"),
-                           message: Loc.t("Сохраняйте фразы из «Сказать», «Понять» или «Смотреть», генерируйте карточки по фразе или распознавайте с фото.",
-                                          "Save phrases from “Say it”, “Get it”, or “See it”, generate a card from a phrase, or catch cards from photos."),
-                           actionTitle: Loc.t("Добавить", "Add"), action: { model.showAddSheet = true })
+                // Both ways to add a card, side by side — as the "+" menu offers them.
+                VStack(spacing: Tokens.Space.s8) {
+                    StatusView(systemImage: "tray", title: Loc.t("Пока пусто", "Nothing yet"),
+                               message: Loc.t("Сохраняйте фразы из «Сказать», «Понять» или «Смотреть» — или добавьте карточки сами:",
+                                              "Save phrases from “Say it”, “Get it”, or “See it” — or add cards yourself:"))
+                    VStack(spacing: Tokens.Space.s8) {
+                        if model.canCatchFromPhotos {
+                            EHButton(Loc.t("Распознать с фото", "From photos"), icon: "photo.on.rectangle", kind: .primary,
+                                     fillWidth: true, accessibilityID: "caught.empty.photos") { showPhotoPicker = true }
+                        }
+                        EHButton(Loc.t("Сгенерировать по фразе", "Generate from a phrase"), icon: "sparkles",
+                                 kind: model.canCatchFromPhotos ? .tonal : .primary, fillWidth: true,
+                                 accessibilityID: "caught.empty.phrase") { model.showAddSheet = true }
+                    }
+                    .padding(.horizontal, Tokens.Space.s24)
+                }
             } else {
                 StatusView(systemImage: "rectangle.stack", title: Loc.t("Пока пусто", "Nothing yet"),
                            message: Loc.t("Перенесите фразы из «Пойманных» или импортируйте файл карточек.",
@@ -368,57 +380,6 @@ public struct StudyListView: View {
                                           "Search looks in the phrase, translation, example, synonyms and note."))
             }
         }
-    }
-
-    // MARK: Add sheet
-
-    private var addSheet: some View {
-        NavigationStack {
-            VerticalScrollView {
-                VStack(spacing: Tokens.Space.s16) {
-                    if model.needsAPIKey {
-                        HStack(spacing: Tokens.Space.s8) {
-                            Image(systemName: "key.slash").foregroundStyle(Tokens.Signal.warning)
-                            Text(Loc.t("Без ключа Claude API карточка сохранится без перевода и примеров.",
-                                       "Without a Claude API key, the card is saved without translation or examples."))
-                                .textStyle(Tokens.Text.footnote)
-                                .foregroundStyle(Tokens.Content.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    GlassField(Loc.t("Фраза на изучаемом языке", "A phrase in the language you're learning"),
-                               text: $model.newEnglish)
-                    GlassField(Loc.t("Контекст (необязательно)", "Context (optional)"), text: $model.newContext)
-
-                    if let addError = model.addError {
-                        Text(addError)
-                            .textStyle(Tokens.Text.footnote)
-                            .foregroundStyle(Tokens.Signal.error)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    if model.isAdding {
-                        LoadingView(Loc.t("Дополняю переводом и примерами…", "Adding translation and examples…"))
-                    } else {
-                        EHButton(Loc.t("Сгенерировать карточку", "Generate the card"), icon: "sparkles", kind: .primary,
-                                 fillWidth: true) {
-                            model.add()
-                        }
-                        .disabled(!model.canAdd)   // EHButton dims itself when disabled
-                    }
-                }
-                .padding(Tokens.Space.s20)
-            }
-            .background(Tokens.Surface.background)
-            .navigationTitle(Loc.t("Новая карточка", "New card"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(Loc.t("Отмена", "Cancel")) { model.showAddSheet = false }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
     }
 
     // MARK: Helpers

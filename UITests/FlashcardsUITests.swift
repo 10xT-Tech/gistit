@@ -191,6 +191,36 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 3))
     }
 
+    /// An empty Caught offers both ways to add a card; "Generate from a phrase" opens the new-card
+    /// sheet (phrase on two lines, focused), and the generated card lands on the list.
+    func testEmptyCaughtOffersBothWays() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        app.buttons["study.caught"].tap()
+        XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
+        app.buttons["caught.moveAll"].tap()
+        app.buttons["Move (2)"].tap()
+
+        let phrase = app.buttons["caught.empty.phrase"]
+        XCTAssertTrue(phrase.waitForExistence(timeout: 3), "the empty list doesn't offer a phrase")
+        XCTAssertTrue(app.buttons["caught.empty.photos"].exists, "the empty list doesn't offer photos")
+        attach(app, "caught-empty")
+        phrase.tap()
+
+        let field = app.textFields["newCard.phrase"]
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.typeText("to hit the roof")                         // focused at once
+        attach(app, "new-card")
+        app.buttons["newCard.generate"].tap()
+        let card = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'to hit the roof'")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "the generated card isn't in Caught")
+    }
+
     /// A caught phrase that looks like one in flashcards asks before moving; Merge makes one card.
     func testCaughtLookAlikeMergesIntoFlashcards() {
         let app = openCaughtWithALookAlike()
