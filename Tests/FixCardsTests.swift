@@ -90,7 +90,8 @@ import Presentation
         let sut = FixCardsInteractor(llm: MockLLMClient(), expressions: expressions, cards: reviewCards)
 
         let steps = try await run(sut)
-        #expect(steps.map(\.processed) == [0, 20, 40, 45])
+        // Sent to the model first (grey), answered after (green): the second catches up with the first.
+        #expect(steps.map { [$0.sent, $0.processed] } == [[0, 0], [20, 0], [20, 20], [40, 20], [40, 40], [45, 40], [45, 45]])
         #expect(steps.last == FixProgress(processed: 45, total: 45, changed: 45, failed: 0))
         let fixed = try await expressions.all().filter { $0.id != caught.id }
         #expect(fixed.allSatisfy { $0.en.hasPrefix("phrase") && $0.ru.hasPrefix("фраза") })
@@ -137,8 +138,9 @@ import Presentation
             }
         } catch { stoppedBy = error }
 
-        // The first batch was already lower case: only the second changed.
-        #expect(steps.last == FixProgress(processed: 40, total: 45, changed: 20, failed: 20))
+        // The first batch was already lower case: only the second changed; the refused batch was sent,
+        // never answered.
+        #expect(steps.last == FixProgress(processed: 40, total: 45, changed: 20, failed: 20, sent: 45))
         guard case LLMError.subscriptionRequired? = stoppedBy as? LLMError else {
             Issue.record("the plan's limit should stop the run, got \(String(describing: stoppedBy))")
             return
@@ -177,6 +179,8 @@ import Presentation
         #expect(afterStop.left == 10 && afterStop.total == 10)          // the first 20 are complete now
         let all = try await sut.remaining(.all)
         #expect(all.left == 50 && all.total == 50)                      // its own position, untouched
+        let survey = try #require(try await lastSurvey(sut))
+        #expect(survey.all == FixCounts(left: 50, total: 50) && survey.incomplete == FixCounts(left: 10, total: 10))
 
         let rest = try await run(sut, .incomplete)
         #expect(rest.last == FixProgress(processed: 10, total: 10, changed: 10, failed: 0))
@@ -186,6 +190,32 @@ import Presentation
         #expect(try await expressions.all().allSatisfy { !FixCardsInteractor.isIncomplete($0) })
         let done = try await sut.remaining(.incomplete)
         #expect(done.left == 0 && done.total == 0)
+    }
+
+    /// Reading before a run: progress over every phrase, then what each mode covers.
+    @Test func surveyCountsWithProgress() async throws {
+        let (studied, cards) = deck(450)
+        let caught = Domain.Expression(en: "caught one", ru: "пойманная")
+        let sut = FixCardsInteractor(llm: SpyFixLLM(failing: [2: .offline]),             // one batch, then offline
+                                     expressions: MockExpressionRepository(seed: studied + [caught]),
+                                     cards: MockReviewCardRepository(seed: cards))
+        var steps: [FixSurvey] = []
+        for try await step in sut.survey() { steps.append(step) }
+        #expect(steps.map(\.checked) == [0, 200, 400, 450])
+        #expect(steps.last?.all == FixCounts(left: 450, total: 450))
+        #expect(steps.last?.incomplete == FixCounts(left: 450, total: 450))       // the deck has no examples
+        #expect(steps.dropLast().allSatisfy { $0.all == nil })
+
+        await #expect(throws: LLMError.self) { _ = try await run(sut) }
+        let after = try #require(try await lastSurvey(sut))
+        #expect(after.all == FixCounts(left: 430, total: 450))
+        #expect(after.incomplete == FixCounts(left: 430, total: 430))            // 20 are complete now
+    }
+
+    private func lastSurvey(_ sut: FixCardsInteractor) async throws -> FixSurvey? {
+        var last: FixSurvey?
+        for try await step in sut.survey() { last = step }
+        return last
     }
 
     /// A field the model returns empty keeps what the card had; filled ones replace it.
@@ -239,14 +269,17 @@ import Presentation
             pronounce: PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing()),
             isConfigured: true, flashcards: flashcards, fixCards: fix, scope: .studying)
         #expect(list.canFixCards)
-        list.prepareFix()
-        var tries = 0
-        while !list.showFixConfirmation, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
-        #expect(list.fixRemaining?.left == 2 && list.fixRemaining?.total == 2)
-        #expect(list.fixIncomplete?.total == 0)                         // the seed cards are complete
-
-        list.startFix(.all, restart: false)
+        list.openFix()
         let session = try #require(list.fixSession)
+        #expect(session.phase == .surveying)
+        session.prepare()                                               // the sheet does it on appear
+        var tries = 0
+        while session.phase == .surveying, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
+        #expect(session.phase == .choosing)
+        #expect(session.all == FixCounts(left: 2, total: 2))
+        #expect(session.incomplete == FixCounts(left: 0, total: 0))    // the seed cards are complete
+
+        session.run(.all, restart: false)
         tries = 0
         while session.isRunning, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
         #expect(session.phase == .done)

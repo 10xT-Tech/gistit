@@ -5,9 +5,12 @@
 //  The saved expressions, in one of two scopes:
 //  - Caught: saved from Say it / Get it / See it or caught here (generated from a phrase, or from
 //    photos) and not in flashcards yet — delete, move one or all into flashcards, copy as cards,
-//    export every saved expression to an AlgoApp .xml / Anki deck.
+//    export every saved expression to an AlgoApp .xml / Anki deck. A phrase that looks like one
+//    already in flashcards (`PhraseKey`) asks first: merge into it (the model writes the merged card),
+//    move it as a phrase of its own, or not; "Move all" can leave the look-alikes on the list.
 //  - In flashcards: the expressions being learned — delete (with their cards); export them to a card
-//    file with their progress, import a card file straight into flashcards.
+//    file with their progress, import a card file straight into flashcards; Fix cards and Find
+//    duplicates open their sheets.
 //
 
 import Foundation
@@ -63,14 +66,24 @@ public final class StudyListViewModel {
 
     /// "Move all to flashcards" asks first.
     public var showMoveAllConfirmation = false
+    /// Caught phrases that look like phrases already in flashcards — "Move all" can leave them here.
+    public private(set) var moveAllLookAlikes: Set<UUID> = []
+    /// A caught phrase being moved that looks like one already in flashcards.
+    public struct LookAlike: Identifiable, Equatable {
+        public let caught: Domain.Expression
+        public let existing: [Domain.Expression]
+        public var id: UUID { caught.id }
+    }
+    /// Asks: merge into the look-alike, move separately, or cancel.
+    public var lookAlike: LookAlike?
+    /// The model is writing the merged card of a caught phrase and its look-alike.
+    public private(set) var isMerging = false
     /// Caught → From photos, on screen while non-nil.
     public var catchSession: CatchFromPhotosViewModel?
-    /// "Fix cards": what a run of each scope would go through, asked before starting.
-    public private(set) var fixRemaining: (left: Int, total: Int)?
-    public private(set) var fixIncomplete: (left: Int, total: Int)?
-    public var showFixConfirmation = false
-    /// The "Fix cards" run on screen while non-nil.
+    /// The "Fix cards" sheet on screen while non-nil.
     public var fixSession: FixCardsViewModel?
+    /// The "Find duplicates" sheet on screen while non-nil.
+    public var duplicatesSession: DuplicatesViewModel?
     /// A card-file import is running.
     public private(set) var isImporting = false
     /// The outcome of the last import, for an alert.
@@ -86,6 +99,9 @@ public final class StudyListViewModel {
     private let catchFromPhotos: (any CatchCardsFromPhotosUseCase)?
     private let cardTransfer: (any CardTransferUseCase)?
     private let fixCards: (any FixCardsUseCase)?
+    private let duplicates: (any DuplicatesUseCase)?
+    private let studiedLanguage: () -> String
+    private let nativeLanguage: () -> String
     private var playTask: Task<Void, Never>?
 
     public init(
@@ -99,7 +115,10 @@ public final class StudyListViewModel {
         catchFromPhotos: (any CatchCardsFromPhotosUseCase)? = nil,
         cardTransfer: (any CardTransferUseCase)? = nil,
         fixCards: (any FixCardsUseCase)? = nil,
-        scope: Scope = .caught
+        duplicates: (any DuplicatesUseCase)? = nil,
+        scope: Scope = .caught,
+        studiedLanguage: @escaping () -> String = { StudiedLanguage.current.promptName },
+        nativeLanguage: @escaping () -> String = { TargetLanguage.current.promptName }
     ) {
         self.studyList = studyList
         self.saveExpression = saveExpression
@@ -111,7 +130,10 @@ public final class StudyListViewModel {
         self.catchFromPhotos = catchFromPhotos
         self.cardTransfer = cardTransfer
         self.fixCards = fixCards
+        self.duplicates = duplicates
         self.scope = scope
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
     }
 
     public var canAdd: Bool { !newEnglish.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -183,9 +205,55 @@ public final class StudyListViewModel {
         }
     }
 
-    /// Move an expression into flashcards (its two cards are created; it leaves this list). Optimistic
-    /// like `delete`: the row goes at once and comes back if the move fails.
+    /// Move an expression into flashcards (its two cards are created; it leaves this list) — unless it
+    /// looks like a phrase already there: then `lookAlike` asks first.
     public func moveToFlashcards(_ expression: Domain.Expression) {
+        guard flashcards != nil, expressions.contains(where: { $0.id == expression.id }) else { return }
+        guard let duplicates else { enroll(expression); return }
+        let language = studiedLanguage()
+        Task { [weak self] in
+            guard let self else { return }
+            let found = (try? await duplicates.lookAlikesInFlashcards(for: [expression], studiedLanguage: language)) ?? [:]
+            if let existing = found[expression.id] {
+                self.lookAlike = LookAlike(caught: expression, existing: existing)
+            } else {
+                self.enroll(expression)
+            }
+        }
+    }
+
+    /// Move the caught phrase anyway, as a phrase of its own.
+    public func moveSeparately(_ lookAlike: LookAlike) {
+        self.lookAlike = nil
+        enroll(lookAlike.caught)
+    }
+
+    /// Merge the caught phrase into its look-alike in flashcards: the model writes the merged card (one
+    /// meaning, or several numbered); the flashcard keeps its progress and the caught phrase goes.
+    public func mergeIntoFlashcards(_ lookAlike: LookAlike) {
+        self.lookAlike = nil
+        guard let duplicates, !isMerging else { return }
+        isMerging = true
+        let group = lookAlike.existing + [lookAlike.caught]
+        let studied = studiedLanguage(), native = nativeLanguage()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let verdict = try await duplicates.verdict(for: group, studiedLanguage: studied, nativeLanguage: native)
+                try await duplicates.merge(group, into: verdict.card,
+                                           as: verdict.verdict == .duplicate ? .duplicate : .senses,
+                                           studiedLanguage: studied, nativeLanguage: native)
+                self.expressions.removeAll { $0.id == lookAlike.caught.id }
+                if self.expressions.isEmpty { self.phase = .empty }
+            } catch {
+                self.actionError = Loc.t("Не удалось объединить.", "Couldn't merge.") + " " + presentableError(error).message
+            }
+            self.isMerging = false
+        }
+    }
+
+    /// Optimistic like `delete`: the row goes at once and comes back if the move fails.
+    private func enroll(_ expression: Domain.Expression) {
         guard let flashcards, let index = expressions.firstIndex(where: { $0.id == expression.id }) else { return }
         let moved = expressions.remove(at: index)
         let wasLoaded = phase
@@ -211,13 +279,32 @@ public final class StudyListViewModel {
     /// Whether Caught offers "move to flashcards" (flashcards wired).
     public var canMoveToFlashcards: Bool { flashcards != nil && scope == .caught }
 
-    /// Move every caught expression into flashcards — the list empties. New cards are introduced in
-    /// list order, oldest first.
-    public func moveAllToFlashcards() {
+    /// "Move all": find the caught phrases that look like phrases already in flashcards, then ask.
+    public func prepareMoveAll() {
+        guard canMoveToFlashcards, !expressions.isEmpty else { return }
+        guard let duplicates else {
+            moveAllLookAlikes = []
+            showMoveAllConfirmation = true
+            return
+        }
+        let caught = expressions, language = studiedLanguage()
+        Task { [weak self] in
+            guard let self else { return }
+            let found = (try? await duplicates.lookAlikesInFlashcards(for: caught, studiedLanguage: language)) ?? [:]
+            self.moveAllLookAlikes = Set(found.keys)
+            self.showMoveAllConfirmation = true
+        }
+    }
+
+    /// Move every caught expression into flashcards — or every one but the look-alikes, which stay to
+    /// be moved one by one. New cards are introduced in list order, oldest first.
+    public func moveAllToFlashcards(skippingLookAlikes: Bool = false) {
         guard let flashcards, canMoveToFlashcards, !expressions.isEmpty else { return }
-        let moving = expressions.sorted { $0.createdAt < $1.createdAt }
-        expressions = []
-        phase = .empty
+        let skipped = skippingLookAlikes ? moveAllLookAlikes : []
+        let moving = expressions.filter { !skipped.contains($0.id) }.sorted { $0.createdAt < $1.createdAt }
+        guard !moving.isEmpty else { return }
+        expressions.removeAll { !skipped.contains($0.id) }
+        phase = expressions.isEmpty ? .empty : .loaded
         Task { [weak self] in
             guard let self else { return }
             let now = Date()
@@ -243,33 +330,35 @@ public final class StudyListViewModel {
     /// In flashcards offers "Fix cards".
     public var canFixCards: Bool { fixCards != nil && scope == .studying }
 
-    /// Count what a run of each scope would cover, then ask (all: start / continue / start over;
-    /// only the incomplete ones).
-    public func prepareFix() {
-        guard let fixCards else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            if let remaining = try? await fixCards.remaining(.all),
-               let incomplete = try? await fixCards.remaining(.incomplete) {
-                self.fixRemaining = remaining
-                self.fixIncomplete = incomplete
-                self.showFixConfirmation = remaining.total > 0
-            }
-        }
-    }
-
-    /// Run over the scope's phrases — `restart`: all of them again, not from where its last run stopped.
-    public func startFix(_ scope: FixScope, restart: Bool) {
+    /// Open the "Fix cards" sheet: it counts what each mode covers, then the user picks one.
+    public func openFix() {
         guard let fixCards, fixSession == nil else { return }
-        let session = FixCardsViewModel(fixCards: fixCards)
-        fixSession = session
-        session.run(scope, restart: restart)
+        fixSession = FixCardsViewModel(fixCards: fixCards, studiedLanguage: studiedLanguage,
+                                       nativeLanguage: nativeLanguage)
     }
 
     /// The sheet closed: the fixed texts appear.
     public func endFix() {
         fixSession?.stop()
         fixSession = nil
+        Task { await load() }
+    }
+
+    // MARK: Find duplicates
+
+    /// In flashcards offers "Find duplicates".
+    public var canFindDuplicates: Bool { duplicates != nil && scope == .studying }
+
+    public func openDuplicates() {
+        guard let duplicates, duplicatesSession == nil else { return }
+        duplicatesSession = DuplicatesViewModel(duplicates: duplicates, studiedLanguage: studiedLanguage,
+                                                nativeLanguage: nativeLanguage)
+    }
+
+    /// The sheet closed: merged cards appear as one.
+    public func endDuplicates() {
+        duplicatesSession?.stop()
+        duplicatesSession = nil
         Task { await load() }
     }
 

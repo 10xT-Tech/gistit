@@ -164,6 +164,12 @@ public enum Tokens {
         /// A single-series bar (grey); `barEmphasis` marks the one that matters (today).
         public static let bar = Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C))
         public static let barEmphasis = Color(light: Color(hex: 0x1C1C1E), dark: Color(hex: 0xF2F2F7))
+        /// Progress lines (`ProgressLine`): done in the learned green; sent and waiting for an answer in grey
+        /// (validated against the green: CVD ΔE 9.1 light / 13.7 dark, normal ΔE 16.3 / 20.3, ≥ 3:1).
+        public static let progressDone = stage[3]
+        public static let progressPending = Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x6E6E73))
+        public static let progressTrack = Color(light: Color(hex: 0x787880, opacity: 0.16),
+                                                dark: Color(hex: 0x787880, opacity: 0.32))
         /// Gap between adjacent fills (stacked segments, neighbouring bars).
         public static let gap: CGFloat = 2
         /// Rounding of a bar's data end.

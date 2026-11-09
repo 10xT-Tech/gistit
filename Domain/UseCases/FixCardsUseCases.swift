@@ -54,8 +54,10 @@ public actor InMemoryCardFixProgressStore: CardFixProgressStoring {
 
 /// Where a run stands.
 public struct FixProgress: Sendable, Equatable {
-    /// Phrases gone through in this run.
+    /// Phrases gone through in this run (the model answered for them).
     public let processed: Int
+    /// Phrases sent to the model so far — `processed` plus the batch waiting for its answer.
+    public let sent: Int
     /// Phrases this run goes through.
     public let total: Int
     /// Phrases whose card changed.
@@ -64,18 +66,51 @@ public struct FixProgress: Sendable, Equatable {
     public let failed: Int
 
     public var fraction: Double { total == 0 ? 1 : Double(processed) / Double(total) }
+    public var sentFraction: Double { total == 0 ? 1 : Double(sent) / Double(total) }
 
-    public init(processed: Int, total: Int, changed: Int, failed: Int) {
+    /// `sent` defaults to `processed` (nothing waiting for an answer).
+    public init(processed: Int, total: Int, changed: Int, failed: Int, sent: Int? = nil) {
         self.processed = processed
+        self.sent = sent ?? processed
         self.total = total
         self.changed = changed
         self.failed = failed
     }
 }
 
+/// A scope's phrases: those the next run would go through (after where its last run stopped), and all.
+public struct FixCounts: Sendable, Equatable {
+    public let left: Int
+    public let total: Int
+    public init(left: Int, total: Int) {
+        self.left = left
+        self.total = total
+    }
+}
+
+/// Reading the phrases before a run: how far, and — once every one is read — what each scope covers.
+public struct FixSurvey: Sendable, Equatable {
+    public let checked: Int
+    public let total: Int
+    public let all: FixCounts?
+    public let incomplete: FixCounts?
+
+    public var fraction: Double { total == 0 ? 0 : Double(checked) / Double(total) }
+
+    public init(checked: Int, total: Int, all: FixCounts? = nil, incomplete: FixCounts? = nil) {
+        self.checked = checked
+        self.total = total
+        self.all = all
+        self.incomplete = incomplete
+    }
+}
+
 public protocol FixCardsUseCase: Sendable {
     /// Phrases of the scope the next run would go through (after where its last run stopped), and all.
     func remaining(_ scope: FixScope) async throws -> (left: Int, total: Int)
+    /// Reads the phrases in flashcards and counts what each scope's next run would cover — progress
+    /// while reading.
+    func survey() -> AsyncThrowingStream<FixSurvey, Error>
     /// Yields progress at the start and after every batch. Ends by throwing when going on can't help —
     /// offline, the plan's limit, no API key, cancellation — keeping what's done (and where it stopped).
     func callAsFunction(_ scope: FixScope, studiedLanguage: String, nativeLanguage: String, restart: Bool)
@@ -103,6 +138,41 @@ public struct FixCardsInteractor: FixCardsUseCase {
         return (Self.after(await progress.load(scope), in: all).count, all.count)
     }
 
+    public func survey() -> AsyncThrowingStream<FixSurvey, Error> {
+        let expressions = self.expressions, cards = self.cards, progress = self.progress
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    continuation.yield(FixSurvey(checked: 0, total: 0))
+                    let enrolled = Set(try await cards.all().map(\.expressionID))
+                    let studied = try await expressions.all().filter { enrolled.contains($0.id) }
+                    let allMark = await progress.load(.all), incompleteMark = await progress.load(.incomplete)
+                    var all = 0, allLeft = 0, incomplete = 0, incompleteLeft = 0
+                    for (index, expression) in studied.enumerated() {
+                        all += 1
+                        if Self.isAfter(expression, allMark) { allLeft += 1 }
+                        if Self.isIncomplete(expression) {
+                            incomplete += 1
+                            if Self.isAfter(expression, incompleteMark) { incompleteLeft += 1 }
+                        }
+                        if index % 200 == 199 {
+                            try Task.checkCancellation()
+                            continuation.yield(FixSurvey(checked: index + 1, total: studied.count))
+                            await Task.yield()
+                        }
+                    }
+                    continuation.yield(FixSurvey(checked: studied.count, total: studied.count,
+                                                 all: FixCounts(left: allLeft, total: all),
+                                                 incomplete: FixCounts(left: incompleteLeft, total: incomplete)))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     public func callAsFunction(_ scope: FixScope, studiedLanguage: String, nativeLanguage: String, restart: Bool)
         -> AsyncThrowingStream<FixProgress, Error> {
         let llm = self.llm, expressions = self.expressions, progress = self.progress
@@ -117,6 +187,8 @@ public struct FixCardsInteractor: FixCardsUseCase {
                     for start in stride(from: 0, to: todo.count, by: Self.batchSize) {
                         try Task.checkCancellation()
                         let batch = Array(todo[start..<min(start + Self.batchSize, todo.count)])
+                        continuation.yield(FixProgress(processed: processed, total: todo.count, changed: changed,
+                                                       failed: failed, sent: processed + batch.count))
                         let fixes = try await Self.ask(llm, template, about: batch)
                         if fixes == nil { failed += batch.count }
                         for expression in batch {
@@ -161,8 +233,13 @@ public struct FixCardsInteractor: FixCardsUseCase {
 
     /// The part of `all` after the checkpoint.
     static func after(_ checkpoint: CardFixCheckpoint?, in all: [Expression]) -> [Expression] {
-        guard let checkpoint else { return all }
-        return all.filter { ($0.createdAt, $0.id.uuidString) > (checkpoint.createdAt, checkpoint.id.uuidString) }
+        all.filter { isAfter($0, checkpoint) }
+    }
+
+    /// Whether a run that stopped at `checkpoint` hasn't reached `expression` yet.
+    static func isAfter(_ expression: Expression, _ checkpoint: CardFixCheckpoint?) -> Bool {
+        guard let checkpoint else { return true }
+        return (expression.createdAt, expression.id.uuidString) > (checkpoint.createdAt, checkpoint.id.uuidString)
     }
 
     /// The model's fixes for a batch, by card id — one retry; nil when the answer is unusable twice

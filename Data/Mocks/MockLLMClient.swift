@@ -20,7 +20,7 @@ public final class MockLLMClient: LLMClient {
     }
 
     /// Canned output — computed from the input where a fixed answer can't fit (`fixCards` answers
-    /// card by card, by id).
+    /// card by card, `dedupeCards` group by group, by id).
     static func cannedJSON<Template: PromptTemplate>(for template: Template, input: Template.Input) -> String {
         if let cards = input as? [FixCardItem] {
             // Echo every card, filling what's missing — the way the real model completes a card.
@@ -31,6 +31,24 @@ public final class MockLLMClient: LLMClient {
                             context: card.context.isEmpty ? "Нейтрально." : card.context)
             }
             let data = (try? JSONEncoder().encode(FixCardsResult(cards: fixed))) ?? Data()
+            return String(decoding: data, as: UTF8.self)
+        }
+        if let groups = input as? [DuplicateGroupItem] {
+            // One answer per group: the same translation everywhere → a duplicate, else several meanings.
+            let verdicts = groups.compactMap { group -> DuplicateVerdict? in
+                guard let first = group.cards.first else { return nil }
+                let translations = group.cards.map { $0.translation.lowercased() }
+                let same = Set(translations).count == 1
+                let numbered = group.cards.enumerated().map { "\($0.offset + 1)) \($0.element.translation)" }
+                let synonyms = Array(Set(group.cards.flatMap(\.synonyms)).sorted().prefix(4))
+                return DuplicateVerdict(id: group.id, verdict: same ? .duplicate : .senses, card: CardText(
+                    expression: first.expression,
+                    translation: same ? first.translation : numbered.joined(separator: " "),
+                    example: group.cards.first { !$0.example.isEmpty }?.example ?? "An example with \(first.expression).",
+                    synonyms: synonyms.isEmpty ? ["similar"] : synonyms,
+                    context: group.cards.first { !$0.context.isEmpty }?.context ?? "Нейтрально."))
+            }
+            let data = (try? JSONEncoder().encode(DuplicatesResult(groups: verdicts))) ?? Data()
             return String(decoding: data, as: UTF8.self)
         }
         return cannedJSON(for: template.id)

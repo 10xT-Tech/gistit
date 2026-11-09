@@ -52,7 +52,7 @@ are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 ### Prompt templates (Domain)
 `PromptTemplate` owns a system prompt + output JSON schema + typed decoder. Templates (all in
 `Domain/Prompts/Templates.swift`): `howToSay` (3 variants), `whatToSay`, `explainExpression`,
-`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `fixCards`, `healthCheck`. Adding a use case = adding
+`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `fixCards`, `dedupeCards`, `healthCheck`. Adding a use case = adding
 a template; the LLM adapter never changes.
 
 ## Folder layout
@@ -155,6 +155,9 @@ article, missing example / synonyms / note; a field the model returns empty keep
 (`lettercase`: everything lower case except the English "I"/I'm/I've/I'll/I'd — simple word
 boundaries, English text only, since Italian "i" is an article — and German left as is for its nouns);
 one retry per batch, then letter case only; offline / plan limit / no key stop the run.
+The "Fix cards" sheet (`FixCardsView`/`FixCardsViewModel`) does it all: `survey()` reads the
+phrases with progress and counts each mode, the modes are buttons there, and the run shows a two-part
+`ProgressLine` (DesignSystem: `sent` grey, `processed` green; `FixProgress.sent`).
 The position after each batch is kept per scope (`CardFixProgressStoring`, UserDefaults; the all-cards
 key predates scopes) — Stop and resume without sending a card twice; "start over" resets it; "Only
 incomplete" restarts by itself once its run went through them all. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
@@ -183,7 +186,22 @@ if the goal was raised, and `extra` appends an extra set of 25. A card is answer
 Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
 cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,
 green for learned (mature only), validated with the dataviz validator for both modes; "N of M
-learned". Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
+learned". Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower case, accents,
+apostrophes, leading "to"/articles per language, placeholders someone/sth/jemanden/qqn…, brackets,
+"+ -ing", punctuation; then lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
+(NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
+identity there)) groups phrases in flashcards; `DuplicatesTemplate` (`.standard`, batches of 10
+groups) gives each a verdict duplicate / senses / different + the merged `CardText` (senses numbered
+"1) … 2) …" — the multi-meaning card is plain text in the existing fields, no schema change); `merge`
+keeps the oldest phrase in flashcards with the merged texts (lettercase), per direction ONE card —
+duplicate: best known (review > learning, stability, reps), senses: least known among answered — card
+ids kept (today's answers still count), the rest deleted. "Not duplicates" = `DuplicateDismissalStoring`
+(UserDefaults, group id = sorted member ids). Caught: moving a phrase checks `lookAlikesInFlashcards`
+→ dialog Merge (model verdict + merge) / Move separately; Move all offers "all but look-alikes".
+In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with progress → Check →
+two-part progress, per-group Merge / Keep apart, "Merge all duplicates". Today's goal line is green
+(`ProgressLine`, `Tokens.Chart.progressDone`).
+Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
 case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`. XCUI
 `FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
 sideways-only tab swipes from 1.5.3 (3) ship here too. Main screens put the large title in the

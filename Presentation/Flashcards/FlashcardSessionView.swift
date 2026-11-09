@@ -243,14 +243,13 @@ public struct FlashcardSessionView: View {
     }
 }
 
-/// "Today: 12 of 50" with a bar — the session's end and the dashboard.
+/// "Today: 12 of 50" with a green line — the session's end and the dashboard.
 struct GoalProgress: View {
     let plan: DailyPlan
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s4) {
-            ProgressView(value: Double(min(plan.studied, plan.goal)), total: Double(max(plan.goal, 1)))
-                .tint(Tokens.Content.primary)
+            ProgressLine(done: Double(min(plan.studied, plan.goal)) / Double(max(plan.goal, 1)))
             Text(Loc.t("Сегодня: \(plan.studied) из \(plan.goal)", "Today: \(plan.studied) of \(plan.goal)",
                        "Aujourd'hui : \(plan.studied) sur \(plan.goal)", "Hoy: \(plan.studied) de \(plan.goal)",
                        "Heute: \(plan.studied) von \(plan.goal)", "Oggi: \(plan.studied) di \(plan.goal)"))

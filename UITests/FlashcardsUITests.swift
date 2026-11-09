@@ -5,7 +5,8 @@
 //  The Study dashboard and flashcard practice end to end on the stub data (two saved expressions, none
 //  in flashcards): dashboard → Caught → swipe a phrase right into flashcards → back → Start → Show
 //  answer → Good (a 10-minute learning step, so it comes back) → Show answer → Good (graduates) → done
-//  → the dashboard counts the two answers. Plus: Move all, deleting from In flashcards, the paywall.
+//  → the dashboard counts the two answers. Plus: Move all, deleting from In flashcards, the paywall,
+//  Fix cards, and look-alikes: merged when moved from Caught, or found and merged by Find duplicates.
 //
 
 import XCTest
@@ -156,7 +157,7 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(threshold.waitForExistence(timeout: 3), "the caught cards aren't on the list")
     }
 
-    /// In flashcards → Fix cards: confirm, the progress sheet runs over every phrase, Done.
+    /// In flashcards → Fix cards: the sheet counts the phrases, offers the modes, runs over every phrase, Done.
     func testFixCards() {
         let app = XCUIApplication()
         app.launchArguments += [
@@ -176,8 +177,11 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 3))
         menu.tap()
         app.buttons["Fix cards"].tap()
-        let start = app.buttons["All cards (2)"]
-        XCTAssertTrue(start.waitForExistence(timeout: 3), "no confirmation before overwriting the cards")
+        let start = app.buttons["fix.all"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5), "no choice of mode before overwriting the cards")
+        XCTAssertEqual(start.label, "All cards (2)")
+        XCTAssertFalse(app.buttons["fix.incomplete"].exists, "the stub cards are complete")
+        attach(app, "fix-modes")
         start.tap()
         let done = app.buttons["fix.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10))
@@ -185,6 +189,87 @@ final class FlashcardsUITests: XCTestCase {
         attach(app, "fix-done")
         done.tap()
         XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 3))
+    }
+
+    /// A caught phrase that looks like one in flashcards asks before moving; Merge makes one card.
+    func testCaughtLookAlikeMergesIntoFlashcards() {
+        let app = openCaughtWithALookAlike()
+        let merge = app.buttons["Merge"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 5), "moving a look-alike didn't ask")
+        attach(app, "look-alike")
+        merge.tap()
+        let lookAlike = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
+        XCTAssertTrue(lookAlike.waitForNonExistence(timeout: 5), "the merged phrase stayed in Caught")
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["study.studying"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons["study.studying"].label, "In flashcards: 1")
+    }
+
+    /// Moved separately, the look-alike is found by In flashcards → Find duplicates: Check, Merge.
+    func testFindDuplicatesMergesAGroup() {
+        let app = openCaughtWithALookAlike()
+        let separately = app.buttons["Move separately"]
+        XCTAssertTrue(separately.waitForExistence(timeout: 5))
+        separately.tap()
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
+        let studying = app.buttons["study.studying"]
+        XCTAssertTrue(studying.waitForExistence(timeout: 3))
+        XCTAssertEqual(studying.label, "In flashcards: 2")
+        studying.tap()
+
+        let menu = app.buttons["cards.transfer"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        menu.tap()
+        app.buttons["Find duplicates"].tap()
+        let check = app.buttons["dups.check"]
+        XCTAssertTrue(check.waitForExistence(timeout: 5), "no look-alike group found")
+        attach(app, "dups-found")
+        check.tap()
+        let merge = app.buttons["dups.merge"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 5), "no verdict")
+        attach(app, "dups-checked")
+        merge.tap()
+        XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 5))
+        attach(app, "dups-done")
+        app.buttons["dups.done"].tap()
+        XCTAssertTrue(app.cells.element(boundBy: 1).waitForNonExistence(timeout: 3), "the duplicate is still listed")
+    }
+
+    /// Caught with "I appreciate it" moved into flashcards and "I appreciate it!" generated, then moved
+    /// too (swipe right → Learn) — the app is left asking about the look-alike.
+    private func openCaughtWithALookAlike() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        let caught = app.buttons["study.caught"]
+        XCTAssertTrue(caught.waitForExistence(timeout: 5))
+        caught.tap()
+        let original = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it'")).firstMatch
+        XCTAssertTrue(original.waitForExistence(timeout: 3))
+        swipeToLearn(original, in: app)
+        XCTAssertTrue(original.waitForNonExistence(timeout: 3))
+
+        app.buttons["caught.add"].tap()
+        app.buttons["Generate from a phrase"].tap()
+        let field = app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.tap()
+        field.typeText("I appreciate it!")
+        app.buttons["Generate the card"].tap()
+        let lookAlike = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
+        XCTAssertTrue(lookAlike.waitForExistence(timeout: 5), "the generated card isn't in Caught")
+        swipeToLearn(lookAlike, in: app)
+        return app
+    }
+
+    private func swipeToLearn(_ row: XCUIElement, in app: XCUIApplication) {
+        row.swipeRight()
+        let learn = app.buttons["Learn"]
+        if learn.waitForExistence(timeout: 2) { learn.tap() }   // a short swipe only reveals the action
     }
 
     /// The list's search finds a card by any field — here a word from its note.

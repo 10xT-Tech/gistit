@@ -21,7 +21,7 @@ review), and those come before brand-new phrases. The whole day is one practice:
 today's set exactly where you left it. A card you keep getting wrong is asked at most three times a
 day, then waits until tomorrow. Reached your goal? Keep going, 25 cards at a time. Raised the goal during the
 day? Today's set grows to match. Studied less, or skipped a day? Nothing is lost — what's due simply
-waits. Study shows today's progress towards the goal.
+waits. Study shows today's progress towards the goal as a green line.
 
 **Caught.** What you save from Say it, Get it and See it now goes to **Caught** — your study list
 from before, with everything already in it. Add cards two new ways with **+**: **Generate from a
@@ -29,6 +29,9 @@ phrase** (type a phrase in the language you're learning; the translation, an exa
 filled in for you) or **From photos** (pick one or more photos or screenshots; every meaningful word
 and expression in them becomes a card, with a progress bar while it works). Swipe a phrase right (or
 tap its card icon) to move it into flashcards, or **Move all to flashcards** at once — Caught empties.
+If a phrase looks like one you already learn ("hit the roof" and "to hit the roof!"), the app asks
+first: **Merge** makes them one card (several meanings are numbered, and your progress stays) or
+**Move separately**. **Move all** can leave such look-alikes in Caught to be moved one by one.
 Swipe left to delete. **Copy** now copies the whole card as four lines (phrase, translation, example,
 synonyms), and **Copy all cards** in the share menu copies the list, ready to paste into another app.
 
@@ -45,8 +48,16 @@ and writes everything in lower case (except "I"), fixes grammar and spelling, gi
 "to" (or the infinitive marker of the language you're learning) and a single noun its article, and
 fills in a missing example, synonyms and usage note — a field that's already filled in is never
 emptied. Go through all your cards, or **only the incomplete ones** (missing an example, synonyms or
-a note). It works in batches with a progress bar; stop whenever you like — next time it continues
-where it stopped. Your learning progress isn't touched. Part of **Gist It Pro**.
+a note) — the sheet counts them first and lets you pick. It works in batches, and its progress line
+shows both what's been sent off (grey) and what's done (green, catching up); stop whenever you like —
+next time it continues where it stopped. Your learning progress isn't touched. Part of **Gist It Pro**.
+
+**Find duplicates.** In flashcards' menu has **Find duplicates**: it finds the phrases that are written
+alike once articles, "to", "someone", punctuation and word forms are set aside, and checks every
+group with the model — the same meaning twice, one phrase with several meanings, or different phrases
+after all — proposing the merged card. Merge a group (a duplicate keeps your best-known card; several
+meanings are numbered on one card and keep the less-known one, since it now asks for all of them),
+keep it apart (it won't be offered again), or merge every duplicate at once. Part of **Gist It Pro**.
 
 **Import and export cards.** In flashcards has an import / export menu. **Export cards** saves all
 your flashcards — with how well you know each one — to a file you can keep as a backup or move to

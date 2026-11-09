@@ -49,6 +49,8 @@ public final class AppContainer: Sendable {
     public let cardTransfer: any CardTransferUseCase
     /// In flashcards → Fix cards: capitals, grammar, verb markers / articles, missing fields.
     public let fixCards: any FixCardsUseCase
+    /// Look-alike phrases in flashcards (and against them when moving from Caught): find, check, merge.
+    public let duplicates: any DuplicatesUseCase
     public let requestHistory: any RequestHistoryUseCase
     public let exportDeck: any ExportDeckUseCase        // AlgoApp .xml
     public let exportAnkiDeck: any ExportDeckUseCase    // Anki .txt
@@ -82,6 +84,8 @@ public final class AppContainer: Sendable {
         reviewCards: any ReviewCardRepository = MockReviewCardRepository(),
         practiceDays: any PracticeDayStoring = InMemoryPracticeDayStore(),
         cardFixProgress: any CardFixProgressStoring = InMemoryCardFixProgressStore(),
+        duplicateDismissals: any DuplicateDismissalStoring = InMemoryDuplicateDismissalStore(),
+        lemmatizer: any Lemmatizing = NoLemmatizer(),
         history: any HistoryRepository,
         exporter: any DeckExporting,
         cache: (any TranslationCache)? = nil,
@@ -127,6 +131,8 @@ public final class AppContainer: Sendable {
         self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards)
         self.fixCards = FixCardsInteractor(llm: llm, expressions: expressions, cards: reviewCards,
                                            progress: cardFixProgress)
+        self.duplicates = DuplicatesInteractor(llm: llm, expressions: expressions, cards: reviewCards,
+                                               lemmatizer: lemmatizer, dismissals: duplicateDismissals)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -216,6 +222,8 @@ public final class AppContainer: Sendable {
             reviewCards: SwiftDataReviewCardRepository(modelContainer: modelContainer),
             practiceDays: UserDefaultsPracticeDayStore(),
             cardFixProgress: UserDefaultsCardFixProgressStore(),
+            duplicateDismissals: UserDefaultsDuplicateDismissalStore(),
+            lemmatizer: NaturalLanguageLemmatizer(),
             history: SwiftDataHistoryRepository(modelContainer: modelContainer, recordings: recordings),
             exporter: AlgoAppXMLExporter(),
             // Persistent translation cache: repeat text translations skip the model (Say it + Get-it Translate).
@@ -350,6 +358,7 @@ public final class AppContainer: Sendable {
             catchFromPhotos: catchFromPhotos,
             cardTransfer: cardTransfer,
             fixCards: fixCards,
+            duplicates: duplicates,
             scope: scope
         )
     }

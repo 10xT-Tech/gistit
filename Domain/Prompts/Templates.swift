@@ -832,6 +832,146 @@ public struct FixCardsTemplate: PromptTemplate {
     }
 }
 
+// MARK: - dedupeCards (groups of look-alike flashcards → what they are + the card they'd make)
+
+/// A group of flashcards whose expressions look alike (`PhraseKey`), as sent to `DuplicatesTemplate`.
+public struct DuplicateGroupItem: Codable, Sendable, Equatable {
+    public let id: String
+    public let cards: [FixCardItem]
+
+    public init(id: String, cards: [FixCardItem]) {
+        self.id = id
+        self.cards = cards
+    }
+}
+
+/// What the cards of a look-alike group are to each other.
+public enum DuplicateKind: String, Codable, Sendable, CaseIterable {
+    /// The same expression in the same meaning — one card is enough.
+    case duplicate
+    /// The same expression in different meanings — one card with every meaning numbered.
+    case senses
+    /// Different expressions after all — they stay apart.
+    case different
+}
+
+/// A card's texts.
+public struct CardText: Codable, Sendable, Equatable {
+    public var expression: String
+    public var translation: String
+    public var example: String
+    public var synonyms: [String]
+    public var context: String
+
+    public init(expression: String, translation: String, example: String, synonyms: [String], context: String) {
+        self.expression = expression
+        self.translation = translation
+        self.example = example
+        self.synonyms = synonyms
+        self.context = context
+    }
+}
+
+/// The model's answer for one group: what the cards are, and the one card they'd make merged.
+public struct DuplicateVerdict: Codable, Sendable, Equatable {
+    public let id: String
+    public let verdict: DuplicateKind
+    public let card: CardText
+
+    public init(id: String, verdict: DuplicateKind, card: CardText) {
+        self.id = id
+        self.verdict = verdict
+        self.card = card
+    }
+}
+
+/// `{ "groups": [ DuplicateVerdict ] }`.
+public struct DuplicatesResult: Codable, Sendable, Equatable {
+    public let groups: [DuplicateVerdict]
+    public init(groups: [DuplicateVerdict]) { self.groups = groups }
+}
+
+/// Groups of look-alike flashcards → for each, a verdict (one card twice / one expression with several
+/// meanings / different expressions) and the merged card: one meaning, or every meaning numbered
+/// ("1) … 2) …") with an example each and a note on how they differ. Metered on the free plan.
+public struct DuplicatesTemplate: PromptTemplate {
+    public typealias Input = [DuplicateGroupItem]
+    public typealias Output = DuplicatesResult
+
+    public let id = "dedupeCards"
+    public let studiedLanguage: String
+    public let nativeLanguage: String
+    public init(studiedLanguage: String = "English", nativeLanguage: String = "Russian") {
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
+    }
+
+    /// The explanation model: telling meanings apart and merging them is judgement, not a lookup.
+    public var modelTier: ModelTier { .standard }
+    /// Ten groups, each with a merged card that may number several meanings.
+    public var maxOutputTokens: Int { 8_000 }
+
+    public var systemPrompt: String {
+        """
+        You check vocabulary flashcards of a \(nativeLanguage) speaker who is learning \(studiedLanguage). You get groups
+        of cards whose \(studiedLanguage) expressions look alike — the same words apart from articles, infinitive
+        markers, placeholders such as "someone", punctuation or word forms. For EVERY group return its "id", a
+        "verdict" and the merged "card":
+        - "verdict": "duplicate" when the cards teach the same expression in the same meaning (translations worded
+          differently still count); "senses" when it is the same expression in different meanings; "different"
+          when they are different expressions after all — different idioms, different words, or words spelled alike
+          but pronounced differently (English "lead" /liːd/ and "lead" /led/).
+        - "card": the one card the group would become, keeping everything worth learning from it:
+          - "expression" (\(studiedLanguage)): the best-written form from the group, fixed if wrong; a single verb with
+            the infinitive marker and a single noun with the article, as \(studiedLanguage) vocabulary lists write them.
+          - "translation" (\(nativeLanguage)): for "duplicate", one or two variants separated by " / "; otherwise every
+            meaning numbered: "1) … 2) …".
+          - "example" (\(studiedLanguage)): one natural sentence; otherwise one per meaning, numbered the same way.
+          - "synonyms" (\(studiedLanguage)): 2 to 4 near-equivalents — fewer only if none fit, never invented.
+          - "context" (\(nativeLanguage)): one short note on when and how the expression is used; otherwise how the
+            meanings differ. Never leave it empty.
+        Write every field in lowercase letters — except the English pronoun "I" (I'm, I've, I'll, I'd) and
+        German nouns.
+        \(plainTextRule)
+        """
+    }
+
+    public var outputJSONSchema: String {
+        """
+        {"type":"object","properties":{"groups":{"type":"array","items":{"type":"object",
+        "properties":{"id":{"type":"string"},"verdict":{"type":"string","enum":["duplicate","senses","different"]},
+        "card":{"type":"object","properties":{"expression":{"type":"string"},"translation":{"type":"string"},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
+        "context":{"type":"string"}},
+        "required":["expression","translation","example","synonyms","context"],"additionalProperties":false}},
+        "required":["id","verdict","card"],"additionalProperties":false}}},
+        "required":["groups"],"additionalProperties":false}
+        """
+    }
+
+    private struct Payload: Encodable { let groups: [DuplicateGroupItem] }
+
+    public func userMessage(for input: [DuplicateGroupItem]) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = (try? encoder.encode(Payload(groups: input))) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public func decode(_ rawJSON: String) throws -> DuplicatesResult {
+        let raw = try decodeJSON(DuplicatesResult.self, from: rawJSON)
+        let groups = raw.groups.map { group in
+            DuplicateVerdict(id: group.id, verdict: group.verdict, card: CardText(
+                expression: PlainText.clean(group.card.expression),
+                translation: PlainText.clean(group.card.translation),
+                example: PlainText.clean(group.card.example),
+                synonyms: Array(group.card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(4)),
+                context: PlainText.clean(group.card.context)))
+        }
+        return DuplicatesResult(groups: groups.filter { !$0.card.expression.isEmpty && !$0.card.translation.isEmpty })
+    }
+}
+
 // MARK: - healthCheck (connection probe)
 
 /// Minimal probe used by the Settings live health check — the cheapest possible round-trip.

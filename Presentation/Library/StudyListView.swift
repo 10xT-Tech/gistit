@@ -5,10 +5,11 @@
 //  A list of saved expressions, pushed from the Study dashboard, in one of two scopes:
 //  - Caught: everything saved from Say it / Get it / See it, or caught here — "+" generates a card
 //    from a phrase or catches cards from photos. Swipe left to delete; swipe right or tap the stack
-//    icon to move one into flashcards, or move them all; copy every card as text; export.
+//    icon to move one into flashcards (a look-alike of a phrase already there asks: merge / move
+//    separately), or move them all (optionally leaving the look-alikes); copy every card as text; export.
 //  - In flashcards: the expressions being learned — tap one to see the whole card (both sides and
 //    its progress; not a practice), swipe left to delete (with their cards); export them to a card
-//    file (with progress) or import a card file straight into flashcards.
+//    file (with progress) or import a card file straight into flashcards; Fix cards; Find duplicates.
 //
 
 import SwiftUI
@@ -56,14 +57,25 @@ public struct StudyListView: View {
                         Button { showImporter = true } label: {
                             Label(Loc.t("Импортировать карточки", "Import cards"), systemImage: "square.and.arrow.down")
                         }
-                        if model.canFixCards {
+                        if model.canFixCards || model.canFindDuplicates {
                             Divider()
+                        }
+                        if model.canFixCards {
                             Button {
-                                if subscription.tier.canUseFlashcards { model.prepareFix() } else { ui.showPaywall = true }
+                                if subscription.tier.canUseFlashcards { model.openFix() } else { ui.showPaywall = true }
                             } label: {
                                 Label(Loc.t("Исправить карточки", "Fix cards"), systemImage: "wand.and.stars")
                             }
                             .disabled(model.expressions.isEmpty)
+                        }
+                        if model.canFindDuplicates {
+                            Button {
+                                if subscription.tier.canUseFlashcards { model.openDuplicates() } else { ui.showPaywall = true }
+                            } label: {
+                                Label(Loc.t("Найти дубли", "Find duplicates", "Trouver les doublons", "Buscar duplicados",
+                                            "Duplikate finden", "Trova duplicati"), systemImage: "square.on.square")
+                            }
+                            .disabled(model.expressions.count < 2)
                         }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down.circle")
@@ -108,47 +120,29 @@ public struct StudyListView: View {
                 }
             }
         }
-        .confirmationDialog(Loc.t("Исправить карточки?", "Fix the cards?"),
-                            isPresented: $model.showFixConfirmation, titleVisibility: .visible) {
-            if let remaining = model.fixRemaining {
-                if let incomplete = model.fixIncomplete, incomplete.total > 0 {
-                    // From where the last such run stopped; once it went through them all, from the start.
-                    let count = incomplete.left > 0 ? incomplete.left : incomplete.total
-                    Button(Loc.t("Только неполные (\(count))", "Only incomplete (\(count))",
-                                 "Seulement les incomplètes (\(count))", "Solo las incompletas (\(count))",
-                                 "Nur unvollständige (\(count))", "Solo le incomplete (\(count))")) {
-                        model.startFix(.incomplete, restart: incomplete.left == 0)
-                    }
-                }
-                if remaining.left == remaining.total {
-                    Button(Loc.t("Все карточки (\(remaining.total))", "All cards (\(remaining.total))",
-                                 "Toutes les cartes (\(remaining.total))", "Todas las tarjetas (\(remaining.total))",
-                                 "Alle Karten (\(remaining.total))", "Tutte le carte (\(remaining.total))")) {
-                        model.startFix(.all, restart: false)
-                    }
-                } else {
-                    if remaining.left > 0 {
-                        Button(Loc.t("Продолжить все (осталось \(remaining.left))", "Continue all (\(remaining.left) left)",
-                                     "Continuer toutes (\(remaining.left) restantes)", "Continuar todas (quedan \(remaining.left))",
-                                     "Alle fortsetzen (noch \(remaining.left))", "Continua tutte (\(remaining.left) rimanenti)")) {
-                            model.startFix(.all, restart: false)
-                        }
-                    }
-                    Button(Loc.t("Начать заново (все \(remaining.total))", "Start over (all \(remaining.total))",
-                                 "Recommencer (toutes les \(remaining.total))", "Empezar de nuevo (las \(remaining.total))",
-                                 "Neu beginnen (alle \(remaining.total))", "Ricomincia (tutte le \(remaining.total))")) {
-                        model.startFix(.all, restart: true)
-                    }
-                }
-            }
-            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
-        } message: {
-            Text(Loc.t("Всё строчными буквами (кроме I), грамматика, «to» у глаголов и артикли у существительных, недостающие примеры, синонимы и пояснения. «Только неполные» — карточки без примера, синонимов или пояснения. Тексты карточек перезаписываются, но заполненное поле не стирается — можно сначала экспортировать карточки как резервную копию. Прогресс изучения не меняется.",
-                       "All lower case (except I), grammar, \"to\" for verbs and articles for nouns, missing examples, synonyms and notes. \"Only incomplete\" takes the cards missing an example, synonyms or a note. The card texts are overwritten, but a filled-in field is never emptied — you may want to export the cards as a backup first. Learning progress stays as it is."))
-        }
         .sheet(item: $model.fixSession, onDismiss: { model.endFix() }) { session in
             FixCardsView(model: session) { model.fixSession = nil }
                 .environment(subscription)
+        }
+        .sheet(item: $model.duplicatesSession, onDismiss: { model.endDuplicates() }) { session in
+            DuplicatesView(model: session) { model.duplicatesSession = nil }
+                .environment(subscription)
+        }
+        .confirmationDialog(Loc.t("Похоже, уже есть во флеш-картах", "Looks like it's already in flashcards"),
+                            isPresented: lookAlikeBinding, titleVisibility: .visible,
+                            presenting: model.lookAlike) { lookAlike in
+            Button(Loc.t("Объединить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci")) {
+                model.mergeIntoFlashcards(lookAlike)
+            }
+            Button(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément", "Mover por separado",
+                         "Separat verschieben", "Sposta separatamente")) {
+                model.moveSeparately(lookAlike)
+            }
+            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
+        } message: { lookAlike in
+            let existing = lookAlike.existing.map { "«\($0.en)» — \($0.ru)" }.joined(separator: "\n")
+            Text(Loc.t("«\(lookAlike.caught.en)» похоже на:\n\(existing)\n\nОбъединить — модель соберёт одну карточку (несколько значений пронумерует), прогресс изучения сохранится.",
+                       "\"\(lookAlike.caught.en)\" looks like:\n\(existing)\n\nMerge — the model makes one card (numbering several meanings), and the learning progress stays."))
         }
         .sheet(item: $previewed) { expression in
             CardPreviewView(expression: expression, cards: model.cards(for: expression),
@@ -161,10 +155,11 @@ public struct StudyListView: View {
             if let data = try? Data(contentsOf: url) { model.importCards(data) } else { model.reportImportReadFailed() }
         }
         .overlay {
-            if model.isImporting {
+            if model.isImporting || model.isMerging {
                 VStack(spacing: Tokens.Space.s12) {
                     ProgressView()
-                    Text(Loc.t("Импортирую карточки…", "Importing cards…"))
+                    Text(model.isMerging ? Loc.t("Объединяю карточки…", "Merging the cards…")
+                                         : Loc.t("Импортирую карточки…", "Importing cards…"))
                         .textStyle(Tokens.Text.subhead)
                         .foregroundStyle(Tokens.Content.secondary)
                 }
@@ -208,15 +203,26 @@ public struct StudyListView: View {
             isPresented: $model.showMoveAllConfirmation,
             titleVisibility: .visible
         ) {
-            Button(Loc.t("Перенести (\(model.expressions.count))", "Move (\(model.expressions.count))",
-                         "Déplacer (\(model.expressions.count))", "Mover (\(model.expressions.count))",
-                         "Verschieben (\(model.expressions.count))", "Sposta (\(model.expressions.count))")) {
+            let all = model.expressions.count, alike = model.moveAllLookAlikes.count
+            if alike > 0 && alike < all {
+                Button(Loc.t("Перенести без похожих (\(all - alike))", "Move all but look-alikes (\(all - alike))",
+                             "Déplacer sauf les similaires (\(all - alike))", "Mover salvo las parecidas (\(all - alike))",
+                             "Ohne ähnliche verschieben (\(all - alike))", "Sposta tranne le simili (\(all - alike))")) {
+                    model.moveAllToFlashcards(skippingLookAlikes: true)
+                }
+            }
+            Button(Loc.t("Перенести (\(all))", "Move (\(all))", "Déplacer (\(all))", "Mover (\(all))",
+                         "Verschieben (\(all))", "Sposta (\(all))")) {
                 model.moveAllToFlashcards()
             }
             Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
         } message: {
-            Text(Loc.t("Все фразы из «Пойманных» станут флеш-картами, список очистится.",
-                       "Every phrase in Caught becomes flashcards, and the list empties."))
+            let alike = model.moveAllLookAlikes.count
+            Text(alike == 0
+                 ? Loc.t("Все фразы из «Пойманных» станут флеш-картами, список очистится.",
+                         "Every phrase in Caught becomes flashcards, and the list empties.")
+                 : Loc.t("Похожи на фразы во флеш-картах: \(alike). Без них они останутся в «Пойманных» — их можно перенести по одной и объединить.",
+                         "Look like phrases in flashcards: \(alike). Leave them out, and they stay in Caught — move them one by one to merge."))
         }
         .onChange(of: model.exportedDeck) { _, deck in
             guard let deck else { return }
@@ -291,7 +297,7 @@ public struct StudyListView: View {
             if model.canMoveToFlashcards && !model.isSearching {
                 EHButton(Loc.t("Перенести все во флеш-карты", "Move all to flashcards"),
                          icon: "rectangle.stack.badge.plus", kind: .tonal, fillWidth: true,
-                         accessibilityID: "caught.moveAll") { model.showMoveAllConfirmation = true }
+                         accessibilityID: "caught.moveAll") { model.prepareMoveAll() }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
@@ -395,6 +401,10 @@ public struct StudyListView: View {
 
     private var importMessageBinding: Binding<Bool> {
         Binding(get: { model.importMessage != nil }, set: { if !$0 { model.clearImportMessage() } })
+    }
+
+    private var lookAlikeBinding: Binding<Bool> {
+        Binding(get: { model.lookAlike != nil }, set: { if !$0 { model.lookAlike = nil } })
     }
 
     private var actionErrorBinding: Binding<Bool> {
