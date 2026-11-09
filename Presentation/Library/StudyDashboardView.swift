@@ -4,9 +4,10 @@
 //
 //  The Study tab: a learning dashboard. Practice (due today, new, expressions in flashcards, Start —
 //  Pro), the Caught and In-flashcards lists (pushed), answers per day for the last week, and how the
-//  cards are distributed by stage. Charts follow the dataviz rules: the reviews bars are one series (one tone,
-//  today emphasised), the stages are ordinal (the validated `Tokens.Chart.stage` ramp) with a legend
-//  and counts, so nothing is told by tone alone; VoiceOver reads the numbers.
+//  cards are distributed by stage. Charts follow the dataviz rules: the reviews bars are one series
+//  (one tone, today emphasised); the stages use the validated `Tokens.Chart.stage` set — not yet
+//  learned in grey, learned (young, mature) in green — with a legend, counts and "N of M learned", so
+//  nothing is told by colour alone; VoiceOver reads the numbers.
 //
 
 import SwiftUI

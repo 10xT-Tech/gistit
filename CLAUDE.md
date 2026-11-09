@@ -177,8 +177,10 @@ if the goal was raised, and `extra` appends a goal-sized draw. A card is answere
 `PracticeDay.maxAnswersPerCard` (3) times a day (counted from the review log), across sessions. `stats(now:)` feeds
 `StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
 Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
-cards by stage (new/learning/young/mature at 21 d) — monochrome `Tokens.Chart` ramp validated with
-the dataviz validator for both modes. Session: full-screen `FlashcardSessionView`. XCUI
+cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,
+green for learned (young, mature), validated with the dataviz validator for both modes; "N of M
+learned". Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
+case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`. XCUI
 `FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
 sideways-only tab swipes from 1.5.3 (3) ship here too. Main screens put the large title in the
 gear's row (`.toolbarTitleDisplayMode(.inlineLarge)`, set in `SettingsTrigger`).
