@@ -82,6 +82,8 @@ public final class StudyListViewModel {
     public var notADuplicate: LookAlike?
     /// The model is writing the merged card of a caught phrase and its look-alike.
     public private(set) var isMerging = false
+    /// "Move all" is looking for look-alikes among the phrases in flashcards before it asks.
+    public private(set) var isCheckingLookAlikes = false
     /// Caught → From photos, on screen while non-nil.
     public var catchSession: CatchFromPhotosViewModel?
     /// The "Fix cards" sheet on screen while non-nil.
@@ -220,18 +222,35 @@ public final class StudyListViewModel {
     /// Move an expression into flashcards (its two cards are created; it leaves this list) — unless it
     /// looks like a phrase already there: then `lookAlike` asks first.
     public func moveToFlashcards(_ expression: Domain.Expression) {
-        guard flashcards != nil, expressions.contains(where: { $0.id == expression.id }) else { return }
-        guard let duplicates else { enroll(expression); return }
-        let language = studiedLanguage()
+        guard let flashcards, let index = expressions.firstIndex(where: { $0.id == expression.id }) else { return }
+        // The row goes at once; the look-alike check runs behind it. The row comes back to ask if the
+        // phrase looks like one already in flashcards, or if the move fails.
+        let moved = expressions.remove(at: index)
+        let wasLoaded = phase
+        if expressions.isEmpty { phase = .empty }
+        let duplicates = self.duplicates, language = studiedLanguage()
         Task { [weak self] in
             guard let self else { return }
-            let found = (try? await duplicates.lookAlikesInFlashcards(for: [expression], studiedLanguage: language)) ?? [:]
-            if let existing = found[expression.id] {
-                self.lookAlike = LookAlike(caught: expression, existing: existing)
-            } else {
-                self.enroll(expression)
+            if let duplicates,
+               let existing = (try? await duplicates.lookAlikesInFlashcards(for: [moved], studiedLanguage: language))?[moved.id] {
+                self.restore(moved, at: index, phase: wasLoaded)
+                self.lookAlike = LookAlike(caught: moved, existing: existing)
+                return
+            }
+            do {
+                try await flashcards.enroll(moved.id, now: Date())
+            } catch {
+                self.restore(moved, at: index, phase: wasLoaded)
+                self.actionError = Loc.t("Не удалось перенести во флеш-карты. Попробуйте ещё раз.",
+                                         "Couldn't move to flashcards. Try again.")
             }
         }
+    }
+
+    private func restore(_ expression: Domain.Expression, at index: Int, phase: Phase) {
+        guard !expressions.contains(where: { $0.id == expression.id }) else { return }
+        expressions.insert(expression, at: min(index, expressions.count))
+        self.phase = phase
     }
 
     /// Move the caught phrase anyway, as a phrase of its own.
@@ -310,10 +329,13 @@ public final class StudyListViewModel {
             showMoveAllConfirmation = true
             return
         }
+        guard !isCheckingLookAlikes else { return }
+        isCheckingLookAlikes = true
         let caught = expressions, language = studiedLanguage()
         Task { [weak self] in
             guard let self else { return }
             let found = (try? await duplicates.lookAlikesInFlashcards(for: caught, studiedLanguage: language)) ?? [:]
+            self.isCheckingLookAlikes = false
             self.moveAllLookAlikes = Set(found.keys)
             self.showMoveAllConfirmation = true
         }

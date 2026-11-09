@@ -194,6 +194,11 @@ public final class AppContainer: Sendable {
                 }
             }
         }
+        // Lemma assets for the duplicate check: asked for at launch, in the background, so they're on the
+        // device by the first search (nothing waits for them).
+        let lemmatizer = NaturalLanguageLemmatizer()
+        let studied = StudiedLanguage.current.promptName
+        Task { await lemmatizer.prepare(language: studied) }
         let claudeAuth: any RequestAuthorizing = backend ?? DirectAPIKeyAuthorizer(apiKey: config.claudeAPIKey ?? "")
         let sonioxCredential: SonioxCredential = backend.map { .temporaryKeys(from: $0) }
             ?? .apiKey(config.sonioxAPIKey ?? "")
@@ -226,7 +231,7 @@ public final class AppContainer: Sendable {
             cardFixProgress: UserDefaultsCardFixProgressStore(),
             notDuplicates: SwiftDataNotDuplicateMarks(modelContainer: modelContainer),
             duplicateDismissals: UserDefaultsDuplicateDismissalStore(),
-            lemmatizer: NaturalLanguageLemmatizer(),
+            lemmatizer: lemmatizer,
             history: SwiftDataHistoryRepository(modelContainer: modelContainer, recordings: recordings),
             exporter: AlgoAppXMLExporter(),
             // Persistent translation cache: repeat text translations skip the model (Say it + Get-it Translate).

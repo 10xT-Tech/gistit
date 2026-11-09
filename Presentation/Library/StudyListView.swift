@@ -168,11 +168,12 @@ public struct StudyListView: View {
             if let data = try? Data(contentsOf: url) { model.importCards(data) } else { model.reportImportReadFailed() }
         }
         .overlay {
-            if model.isImporting || model.isMerging {
+            if model.isImporting || model.isMerging || model.isCheckingLookAlikes {
                 VStack(spacing: Tokens.Space.s12) {
                     ProgressView()
                     Text(model.isMerging ? Loc.t("Объединяю карточки…", "Merging the cards…")
-                                         : Loc.t("Импортирую карточки…", "Importing cards…"))
+                         : model.isCheckingLookAlikes ? Loc.t("Ищу похожие во флеш-картах…", "Looking for look-alikes in flashcards…")
+                         : Loc.t("Импортирую карточки…", "Importing cards…"))
                         .textStyle(Tokens.Text.subhead)
                         .foregroundStyle(Tokens.Content.secondary)
                 }

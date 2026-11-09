@@ -75,9 +75,14 @@ import Presentation
         }
         #expect(PhraseKey.make("Jumping the gun", language: "English", lemmatizer: Lemmas())
                 == PhraseKey.make("to jump the gun", language: "English", lemmatizer: Lemmas()))
+        // `prepare` never waits for the asset download (it can hang for minutes): it returns at once,
+        // and until the assets are there, words keep their written form.
         let natural = NaturalLanguageLemmatizer()
-        await natural.prepare(language: "English")
-        #expect(natural.lemmatize("jumping the gun", language: "English") == "jump the gun")
+        let clock = ContinuousClock()
+        let prepared = await clock.measure { await natural.prepare(language: "English") }
+        #expect(prepared < .seconds(1))
+        let lemmas = natural.lemmatize("jumping the gun", language: "English")
+        #expect(lemmas == "jump the gun" || lemmas == "jumping the gun")
     }
 
     // MARK: Scan
@@ -446,10 +451,11 @@ import Presentation
         #expect(vm.expressions.map(\.id) == [caught.id])
 
         vm.moveToFlashcards(caught)
+        #expect(vm.expressions.isEmpty)                                              // the row goes at once…
         try await wait { vm.lookAlike != nil }
         let lookAlike = try #require(vm.lookAlike)
         #expect(lookAlike.existing.map(\.id) == [existing.id])
-        #expect(vm.expressions.map(\.id) == [caught.id])                             // not moved yet
+        #expect(vm.expressions.map(\.id) == [caught.id])                             // …and comes back to ask
 
         vm.mergeIntoFlashcards(lookAlike)
         #expect(vm.isMerging)
@@ -501,7 +507,9 @@ import Presentation
                                                                            cards: cards))
         await vm.load()
         vm.prepareMoveAll()
+        #expect(vm.isCheckingLookAlikes)                                             // "Looking for look-alikes…"
         try await wait { vm.showMoveAllConfirmation }
+        #expect(!vm.isCheckingLookAlikes)
         #expect(vm.moveAllLookAlikes == [alike.id])
         vm.moveAllToFlashcards(skippingLookAlikes: true)
         #expect(vm.expressions.map(\.id) == [alike.id])
