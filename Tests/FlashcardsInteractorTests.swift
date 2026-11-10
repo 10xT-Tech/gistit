@@ -54,13 +54,11 @@ struct SplitMix64: RandomNumberGenerator {
 
     private func make(_ expressions: [Domain.Expression], cards: [ReviewCard] = [], logs: [ReviewLog] = [],
                       goal: Int = 50, seed: UInt64 = 1,
-                      days: PracticeDayStoring = InMemoryPracticeDayStore(),
-                      tier: AccessTier = .unlimited) -> (FlashcardsInteractor, MockReviewCardRepository) {
+                      days: PracticeDayStoring = InMemoryPracticeDayStore()) -> (FlashcardsInteractor, MockReviewCardRepository) {
         let repo = MockReviewCardRepository(seed: cards, logs: logs)
         let interactor = FlashcardsInteractor(expressions: MockExpressionRepository(seed: expressions), cards: repo,
                                               dailyGoal: { goal }, days: days, calendar: calendar,
-                                              makeRandom: { SplitMix64(seed: seed) },
-                                              access: StubSubscriptionManaging(tier: tier))
+                                              makeRandom: { SplitMix64(seed: seed) })
         return (interactor, repo)
     }
 
@@ -215,21 +213,6 @@ struct SplitMix64: RandomNumberGenerator {
         let topped = try await bigger.queue(now: now)
         #expect(topped.count == 25)
         #expect(Array(topped.prefix(10)).map(\.id) == first.map(\.id))     // the day's set first
-    }
-
-    /// The free plan: 25 cards a day whatever the goal says, and no extra set past them.
-    @Test func theFreePlanStudies25ADay() async throws {
-        let phrases = (0..<60).map { expression("p\($0)") }
-        let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
-        let (free, _) = make(phrases, cards: cards, goal: 100, tier: .free)
-        let set = try await free.queue(now: now)
-        #expect(set.count == AccessTier.freeDailyCards)
-        #expect(try await free.stats(now: now).today.goal == 25)
-        for card in set { _ = try await free.rate(card.card, .easy, now: now) }
-        #expect(try await free.queue(now: now, extra: true).isEmpty)              // "25 more" is Pro
-        #expect(try await free.stats(now: now).today.nextSet.total == 0)
-        let (pro, _) = make(phrases, cards: cards, goal: 100, tier: .subscribed(expires: nil))
-        #expect(try await pro.queue(now: now).count == 60)
     }
 
     /// Today's progress counts a card done only once it won't come back today: one answered "Again"

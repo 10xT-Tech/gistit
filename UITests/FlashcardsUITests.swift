@@ -402,8 +402,7 @@ final class FlashcardsUITests: XCTestCase {
         ]
         app.launch()
         app.tab("Study").tap()
-        // Flashcards are free up to 25 a day: the goal is 25 and Start opens the practice.
-        XCTAssertTrue(app.staticTexts["Goal: 25 a day"].waitForExistence(timeout: 5))
+        // Flashcards are on the device: free.
         app.buttons["study.caught"].tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
@@ -413,10 +412,9 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 3))
         start.tap()
         XCTAssertTrue(app.buttons["flashcards.reveal"].waitForExistence(timeout: 5), "the free plan can't practise")
-        attach(app, "free-practice")
         app.buttons["flashcards.close"].firstMatch.tap()
 
-        // Fix cards (and Find duplicates) are Pro: the paywall.
+        // Fix cards calls the model: the paywall.
         let studying = app.buttons["study.studying"]
         XCTAssertTrue(studying.waitForExistence(timeout: 5))
         studying.tap()

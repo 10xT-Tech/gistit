@@ -11,8 +11,7 @@ card again, and all four look the same — no answer is suggested, you rate ever
 it is FSRS, the spaced-repetition method modern Anki uses: cards you know well come back rarely, cards
 you struggle with come back sooner. Every phrase is practised both ways: first you learn to understand
 it, and once you recognise it — from the next day — you're also asked to say it from its meaning.
-Without a subscription you can practise **25 cards a day**; **Gist It Pro** adds a daily goal of
-your own and extra sets past it.
+Flashcards are free — everything that runs on your device is.
 
 **A daily goal.** In Settings, choose how many cards a day you plan to study at least: 25, 50, 75, 100
 or 150. Cards you're still learning (and ones you got wrong) come first; the rest of the set mixes new
@@ -94,7 +93,8 @@ meanings keep the less-known one, since the card now asks for all of them) and *
 cards are then marked as not duplicates of each other, the card shows it, and the next search leaves
 them be. **Merge all duplicates** takes the clear cases at once, and **Full re-check** has the model
 look again at the groups you marked as not duplicates — after the search got smarter — and shows only
-those it now finds duplicates in. Part of **Gist It Pro**.
+those it now finds duplicates in. The search and exact duplicates are free; the model's **Check** is
+part of **Gist It Pro**.
 
 **A clear daily allowance.** Gist It Pro now allows up to 3,000 requests a day — enough to fix or
 check thousands of cards in one go. If you ever reach the day's allowance, the app says so plainly and

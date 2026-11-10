@@ -47,7 +47,7 @@ struct DuplicatesView: View {
                         GroupCard(group: group, proposals: model.proposals[group.key] ?? [],
                                   isChecked: model.checkedKeys.contains(group.key), isSettled: model.isSettled(group),
                                   isBusy: model.busy.contains(group.key),
-                                  onMerge: { model.mergeGroup(group) }, onCheck: { model.checkGroup(group) },
+                                  onMerge: { model.mergeGroup(group) }, onCheck: { check { model.checkGroup(group) } },
                                   onKeepApart: { model.keepApart(group) })
                     }
                 }
@@ -115,7 +115,7 @@ struct DuplicatesView: View {
                                    "Vérifier (\(model.unchecked.count))", "Revisar (\(model.unchecked.count))",
                                    "Prüfen (\(model.unchecked.count))", "Controlla (\(model.unchecked.count))"),
                              icon: "sparkles", kind: .primary, fillWidth: true,
-                             accessibilityID: "dups.check") { model.startCheck() }
+                             accessibilityID: "dups.check") { check { model.startCheck() } }
                         .padding(.top, Tokens.Space.s4)
                 }
                 if model.merged > 0 {
@@ -140,7 +140,7 @@ struct DuplicatesView: View {
                     EHButton(Loc.t("Проверить оставшиеся (\(model.unchecked.count))",
                                    "Check the rest (\(model.unchecked.count))"),
                              icon: "sparkles", kind: .tonal, fillWidth: true,
-                             accessibilityID: "dups.check") { model.startCheck() }
+                             accessibilityID: "dups.check") { check { model.startCheck() } }
                 }
             }
             if let error = model.errorMessage { caption(error) }
@@ -157,6 +157,11 @@ struct DuplicatesView: View {
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
         .padding(.top, Tokens.Space.s8)
+    }
+
+    /// The check asks the model: Pro (the search and exact merges are on the device, free).
+    private func check(_ run: () -> Void) {
+        if subscription.tier.canUseModelCardTools { run() } else { showPaywall = true }
     }
 
     private var title: String {

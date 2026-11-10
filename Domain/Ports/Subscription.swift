@@ -14,20 +14,16 @@ public enum AccessTier: Sendable, Equatable {
     case unlimited
     /// App Store / TestFlight build with an active subscription.
     case subscribed(expires: Date?)
-    /// App Store / TestFlight build without one: translations are unlimited; explanations and Say it
-    /// share one request per 5 minutes (whatever the model); flashcards `freeDailyCards` a day (no
-    /// goal of one's own, no extra sets); live translation, Fix cards and Find duplicates unavailable.
+    /// App Store / TestFlight build without one. Everything on the device is free — flashcards with
+    /// any goal, the lists, the duplicate search and exact merges, card files. What calls the model:
+    /// translations unlimited; explanations and Say it share one request per 5 minutes (whatever the
+    /// model); live translation, Fix cards and the model's duplicate check unavailable.
     case free
-
-    /// Flashcards a day on the free plan — the goal, whatever Settings say.
-    public static let freeDailyCards = 25
 
     public var hasUnlimitedExplanations: Bool { self != .free }
     public var canUseLiveTranslation: Bool { self != .free }
-    /// A daily goal of one's own and extra sets past it (flashcards are on-device: the app is the only gate).
-    public var canStudyUnlimited: Bool { self != .free }
-    /// Fix cards and Find duplicates.
-    public var canUseCardTools: Bool { self != .free }
+    /// Fix cards and the duplicate check — card tools that call the model.
+    public var canUseModelCardTools: Bool { self != .free }
     /// Whether the app should offer the subscription at all.
     public var offersSubscription: Bool { self != .unlimited }
 }

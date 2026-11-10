@@ -127,7 +127,7 @@ public final class AppContainer: Sendable {
         self.studyList = StudyListInteractor(repository: expressions, cards: reviewCards)
         self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards,
                                                dailyGoal: { DailyGoal.current }, days: practiceDays,
-                                               analytics: analytics, access: subscriptions)
+                                               analytics: analytics)
         self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
         self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards, marks: notDuplicates)
         self.fixCards = FixCardsInteractor(llm: llm, expressions: expressions, cards: reviewCards,
