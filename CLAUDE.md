@@ -104,7 +104,10 @@ with `#include?`). Two credential modes:
 **Subscription (App Store + TestFlight).** One monthly auto-renewable product
 (`AppConfig.subscriptionProductID`). Free plan, by SCENARIO not model: translations (Get it/See it →
 Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode,
-no flashcards (on-device, so the APP is the only gate: `AccessTier.canUseFlashcards`).
+flashcards 25 a day (`AccessTier.freeDailyCards`: the goal whatever Settings say — Settings shows it
+locked — and no extra sets: `FlashcardsInteractor(access:)` enforces it, the dashboard / session lock "25 more"
+→ paywall; `canStudyUnlimited`), no Fix cards / Find duplicates (`canUseCardTools`) — on-device, so the APP is
+the only gate.
 Subscribers and Xcode builds (`AppDistribution.local`): no paywall; the backend still caps every device
 at 20 model requests/min and per UTC day 500 (free) / 3000 (pro, beta) — a spent day is
 `LLMError.dailyLimitReached(retryAfter:)` (backend 429 `daily_limit`, never retried; the message says when

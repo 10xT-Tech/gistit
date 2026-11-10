@@ -62,18 +62,20 @@ public struct StudyListView: View {
                         }
                         if model.canFixCards {
                             Button {
-                                if subscription.tier.canUseFlashcards { model.openFix() } else { ui.showPaywall = true }
+                                if subscription.tier.canUseCardTools { model.openFix() } else { ui.showPaywall = true }
                             } label: {
-                                Label(Loc.t("Исправить карточки", "Fix cards"), systemImage: "wand.and.stars")
+                                Label(Loc.t("Исправить карточки", "Fix cards"),
+                                      systemImage: subscription.tier.canUseCardTools ? "wand.and.stars" : "lock.fill")
                             }
                             .disabled(model.expressions.isEmpty)
                         }
                         if model.canFindDuplicates {
                             Button {
-                                if subscription.tier.canUseFlashcards { model.openDuplicates() } else { ui.showPaywall = true }
+                                if subscription.tier.canUseCardTools { model.openDuplicates() } else { ui.showPaywall = true }
                             } label: {
                                 Label(Loc.t("Найти дубли", "Find duplicates", "Trouver les doublons", "Buscar duplicados",
-                                            "Duplikate finden", "Trova duplicati"), systemImage: "square.on.square")
+                                            "Duplikate finden", "Trova duplicati"),
+                                      systemImage: subscription.tier.canUseCardTools ? "square.on.square" : "lock.fill")
                             }
                             .disabled(model.expressions.count < 2)
                         }

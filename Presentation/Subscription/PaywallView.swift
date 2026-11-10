@@ -50,8 +50,10 @@ public struct PaywallView: View {
                                            "Unlimited explanations and Say it — words, phrases and photos."))
                 feature("waveform", Loc.t("Онлайн-перевод: живой переводчик речи вокруг вас.",
                                           "Online translation: a live interpreter for the speech around you."))
-                feature("rectangle.stack", Loc.t("Флеш-карты с интервальным повторением для ваших слов и фраз.",
-                                                 "Flashcards with spaced repetition for your words and phrases."))
+                feature("rectangle.stack", Loc.t("Флеш-карты без ограничений: своя цель на день и дополнительные наборы (без подписки — 25 карточек в день).",
+                                                 "Flashcards without limits: a daily goal of your own and extra sets (25 cards a day without a subscription)."))
+                feature("wand.and.stars", Loc.t("Исправление карточек и поиск дублей.",
+                                                "Fix cards and Find duplicates."))
                 feature("character.bubble", Loc.t("Перевод остаётся бесплатным для всех.",
                                                   "Translation stays free for everyone."))
             }

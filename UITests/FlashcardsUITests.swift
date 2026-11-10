@@ -402,11 +402,29 @@ final class FlashcardsUITests: XCTestCase {
         ]
         app.launch()
         app.tab("Study").tap()
+        // Flashcards are free up to 25 a day: the goal is 25 and Start opens the practice.
+        XCTAssertTrue(app.staticTexts["Goal: 25 a day"].waitForExistence(timeout: 5))
+        app.buttons["study.caught"].tap()
+        XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
+        app.buttons["caught.moveAll"].tap()
+        app.buttons["Move (2)"].tap()
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
         let start = app.buttons["flashcards.start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        XCTAssertTrue(start.waitForExistence(timeout: 3))
         start.tap()
+        XCTAssertTrue(app.buttons["flashcards.reveal"].waitForExistence(timeout: 5), "the free plan can't practise")
+        attach(app, "free-practice")
+        app.buttons["flashcards.close"].firstMatch.tap()
+
+        // Fix cards (and Find duplicates) are Pro: the paywall.
+        let studying = app.buttons["study.studying"]
+        XCTAssertTrue(studying.waitForExistence(timeout: 5))
+        studying.tap()
+        let menu = app.buttons["cards.transfer"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        menu.tap()
+        app.buttons["Fix cards"].tap()
         XCTAssertTrue(app.staticTexts["Gist It Pro"].firstMatch.waitForExistence(timeout: 5), "the paywall didn't open")
-        XCTAssertFalse(app.buttons["flashcards.reveal"].exists)
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {

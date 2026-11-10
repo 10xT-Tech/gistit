@@ -14,6 +14,8 @@ public struct FlashcardSessionView: View {
     @State private var model: FlashcardSessionViewModel
     private let onClose: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(SubscriptionState.self) private var subscription
+    @State private var showPaywall = false
 
     public init(model: FlashcardSessionViewModel, onClose: @escaping () -> Void) {
         self.model = model
@@ -114,11 +116,14 @@ public struct FlashcardSessionView: View {
             }
             Spacer()
             if model.canStudyMore, let plan {
+                // Extra sets past the goal are Pro.
+                let locked = plan.goalReached && !subscription.tier.canStudyUnlimited
                 EHButton(Loc.t("Ещё \(plan.moreSize)", "\(plan.moreSize) more", "\(plan.moreSize) de plus",
                                "\(plan.moreSize) más", "\(plan.moreSize) weitere", "Altre \(plan.moreSize)"),
-                         icon: "plus", kind: .primary, fillWidth: true, accessibilityID: "flashcards.more") {
-                    Task { await model.more() }
+                         icon: locked ? "lock.fill" : "plus", kind: .primary, fillWidth: true, accessibilityID: "flashcards.more") {
+                    if locked { showPaywall = true } else { Task { await model.more() } }
                 }
+                .sheet(isPresented: $showPaywall) { PaywallView().environment(subscription) }
             }
             EHButton(Loc.t("Закрыть", "Close"), kind: model.canStudyMore ? .tonal : .primary, fillWidth: true,
                      accessibilityID: "flashcards.done", action: onClose)

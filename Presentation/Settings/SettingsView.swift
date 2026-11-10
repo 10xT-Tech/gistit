@@ -341,13 +341,29 @@ public struct SettingsView: View {
     private var goalCard: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s12) {
             sectionTitle(Loc.t("Флеш-карты: цель на день", "Flashcards: daily goal"))
-            Picker(Loc.t("Карточек в день", "Cards a day"), selection: $dailyGoal) {
+            let free = !subscription.tier.canStudyUnlimited
+            Picker(Loc.t("Карточек в день", "Cards a day"),
+                   selection: free ? .constant(AccessTier.freeDailyCards) : $dailyGoal) {
                 ForEach(DailyGoalOptions.all, id: \.self) { goal in
                     Text("\(goal)").tag(goal)
                 }
             }
             .pickerStyle(.segmented)
+            .disabled(free)
             .accessibilityIdentifier("settings.dailyGoal")
+            if free {
+                // Without a subscription: 25 a day; a goal of one's own and extra sets come with Pro.
+                Button { showPaywall = true } label: {
+                    Label(Loc.t("Без подписки — \(AccessTier.freeDailyCards) карточек в день. Своя цель и дополнительные наборы — с Gist It Pro.",
+                                "Without a subscription: \(AccessTier.freeDailyCards) cards a day. A goal of your own and extra sets come with Gist It Pro."),
+                          systemImage: "lock.fill")
+                        .textStyle(Tokens.Text.footnote)
+                        .foregroundStyle(Tokens.Content.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.dailyGoal.locked")
+            }
             Text(Loc.t("Минимум карточек в день. Сначала идут карточки, которые вы ещё учите, остальное делится между новыми и повторяемыми пропорционально, карточки выбираются случайно. Можно заниматься больше — или пропустить день: ничего не теряется.",
                        "At least this many cards a day. Cards you're still learning come first; the rest is shared out between new and review cards in proportion, drawn at random. Study more if you like — or skip a day: nothing is lost."))
                 .textStyle(Tokens.Text.footnote)

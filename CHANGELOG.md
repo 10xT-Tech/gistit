@@ -11,7 +11,8 @@ card again, and all four look the same — no answer is suggested, you rate ever
 it is FSRS, the spaced-repetition method modern Anki uses: cards you know well come back rarely, cards
 you struggle with come back sooner. Every phrase is practised both ways: first you learn to understand
 it, and once you recognise it — from the next day — you're also asked to say it from its meaning.
-Flashcards are part of **Gist It Pro**.
+Without a subscription you can practise **25 cards a day**; **Gist It Pro** adds a daily goal of
+your own and extra sets past it.
 
 **A daily goal.** In Settings, choose how many cards a day you plan to study at least: 25, 50, 75, 100
 or 150. Cards you're still learning (and ones you got wrong) come first; the rest of the set mixes new

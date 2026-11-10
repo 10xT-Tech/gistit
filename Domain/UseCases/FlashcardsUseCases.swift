@@ -205,6 +205,8 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
     private let calendar: Calendar
     private let makeRandom: @Sendable () -> any RandomNumberGenerator
     private let analytics: (any AnalyticsTracking)?
+    /// The plan: on the free one the goal is `AccessTier.freeDailyCards` and there are no extra sets.
+    private let access: (any SubscriptionManaging)?
     public let learnAhead: TimeInterval = 20 * 60   // Anki's default
 
     public init(expressions: ExpressionRepository, cards: ReviewCardRepository, scheduler: FSRS = FSRS(),
@@ -212,7 +214,9 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
                 days: PracticeDayStoring = InMemoryPracticeDayStore(),
                 calendar: Calendar = .current,
                 makeRandom: @escaping @Sendable () -> any RandomNumberGenerator = { SystemRandomNumberGenerator() },
-                analytics: (any AnalyticsTracking)? = nil) {
+                analytics: (any AnalyticsTracking)? = nil,
+                access: (any SubscriptionManaging)? = nil) {
+        self.access = access
         self.expressions = expressions
         self.cards = cards
         self.scheduler = scheduler
@@ -230,10 +234,10 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         var distribution = CardDistribution()
         for card in deck.cards { distribution[card.stage] += 1 }
 
-        let goal = dailyGoal()
+        let (goal, extras) = await limits()
         let pending = StageCounts(today.pending)
         let available = StageCounts(today.drawable)
-        let topUp = drawSize(goal: goal, today: today, extra: today.studied >= goal && today.pending.isEmpty)
+        let topUp = drawSize(goal: goal, today: today, extra: extras && today.studied >= goal && today.pending.isEmpty)
         let next = SetComposer.quotas(size: topUp, available: available)
         let comingBack = today.pending.filter { today.answers[$0.id] != nil }.count
         let plan = DailyPlan(goal: goal, studied: today.studied, comingBack: comingBack, pending: pending, available: available,
@@ -258,7 +262,8 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
     public func queue(now: Date, extra: Bool) async throws -> [Flashcard] {
         let deck = try await loadDeck()
         var today = try await today(deck, now: now)
-        let size = drawSize(goal: dailyGoal(), today: today, extra: extra)
+        let (goal, extras) = await limits()
+        let size = drawSize(goal: goal, today: today, extra: extra && extras)
         var drawn: [Flashcard] = []
         if size > 0 {
             var random = AnyRandom(makeRandom())
@@ -376,6 +381,12 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
 
     /// How many cards to draw now: up to the goal (cards still to do in the set count), or an extra
     /// set beyond it.
+    /// Today's goal and whether extra sets are allowed — by the plan.
+    private func limits() async -> (goal: Int, extras: Bool) {
+        guard let access, await access.currentTier() == .free else { return (dailyGoal(), true) }
+        return (AccessTier.freeDailyCards, false)
+    }
+
     private func drawSize(goal: Int, today: Today, extra: Bool) -> Int {
         if extra { return DailyGoalOptions.extraSet }
         let unanswered = today.pending.filter { today.answers[$0.id] == nil }.count

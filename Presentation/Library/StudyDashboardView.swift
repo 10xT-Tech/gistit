@@ -3,7 +3,7 @@
 //  EnglishHelper — Presentation
 //
 //  The Study tab: a learning dashboard. Practice (due today, new, expressions in flashcards, Start —
-//  Pro), the Caught and In-flashcards lists (pushed), answers per day for the last week, and how the
+//  the free plan: 25 a day, "25 more" locked → paywall), the Caught and In-flashcards lists (pushed), answers per day for the last week, and how the
 //  cards are distributed by stage. Charts follow the dataviz rules: the reviews bars are one series
 //  (one tone, today emphasised); the stages use the validated `Tokens.Chart.stage` set — not yet
 //  learned in grey, learned (mature: an interval of 21+ days) in green — with a legend, counts and
@@ -68,6 +68,8 @@ public struct StudyDashboardView: View {
             .onAppear { Task { await model.load() } }
             // The goal is set in Settings (a sheet over this screen): re-count when it closes.
             .onChange(of: ui.showSettings) { _, shown in if !shown { Task { await model.load() } } }
+            // The plan sets the goal (25 a day without a subscription).
+            .onChange(of: subscription.tier) { _, _ in Task { await model.load() } }
             .fullScreenCover(item: $model.session, onDismiss: { model.endPractice() }) { session in
                 FlashcardSessionView(model: session) { model.session = nil }
             }
@@ -77,7 +79,6 @@ public struct StudyDashboardView: View {
     // MARK: Practice
 
     private func practiceCard(_ stats: StudyStats) -> some View {
-        let locked = !subscription.tier.canUseFlashcards
         let plan = stats.today
         return VStack(alignment: .leading, spacing: Tokens.Space.s16) {
             HStack(alignment: .firstTextBaseline) {
@@ -104,15 +105,17 @@ public struct StudyDashboardView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .accessibilityHidden(status == nil)
-            if stats.inStudy == 0 && !locked {
+            if stats.inStudy == 0 {
                 EHButton(Loc.t("Открыть «Пойманные»", "Open Caught"), icon: "tray", kind: .tonal,
                          fillWidth: true, accessibilityID: "flashcards.openCaught") { showCaught = true }
             } else {
                 // The day is one practice: Start, then Continue after a pause; past the goal, more.
-                let more = plan.goalReached && plan.pending.total == 0 && !locked
+                // Extra sets are Pro: on the free plan "25 more" opens the paywall.
+                let more = plan.goalReached && plan.pending.total == 0
+                let locked = more && !subscription.tier.canStudyUnlimited
                 EHButton(more ? Loc.t("Ещё \(plan.moreSize)", "\(plan.moreSize) more", "\(plan.moreSize) de plus",
                                       "\(plan.moreSize) más", "\(plan.moreSize) weitere", "Altre \(plan.moreSize)")
-                              : plan.studied > 0 && !locked ? Loc.t("Продолжить", "Continue") : Loc.t("Начать", "Start"),
+                              : plan.studied > 0 ? Loc.t("Продолжить", "Continue") : Loc.t("Начать", "Start"),
                          icon: locked ? "lock.fill" : nil, kind: .primary,
                          fillWidth: true, accessibilityID: "flashcards.start") {
                     if locked { ui.showPaywall = true } else { model.startPractice(extra: more) }
