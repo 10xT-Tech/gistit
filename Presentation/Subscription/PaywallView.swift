@@ -46,12 +46,11 @@ public struct PaywallView: View {
                 .textStyle(Tokens.Text.largeTitle)
                 .foregroundStyle(Tokens.Content.primary)
             VStack(alignment: .leading, spacing: Tokens.Space.s12) {
-                feature("lightbulb", Loc.t("Объяснения и «Сказать» без ограничений — слова, фразы и фото.",
-                                           "Unlimited explanations and Say it — words, phrases and photos."))
+                feature("lightbulb", Loc.t("Объяснения, «Сказать», карточки из фото и исправление карточек без ограничений (без подписки — один запрос в 5 минут).",
+                                           "Unlimited explanations, Say it, cards from photos and Fix cards (one request every 5 minutes without a subscription)."))
                 feature("waveform", Loc.t("Онлайн-перевод: живой переводчик речи вокруг вас.",
                                           "Online translation: a live interpreter for the speech around you."))
-                feature("wand.and.stars", Loc.t("Исправление карточек и проверка дублей моделью.",
-                                                "Fix cards and the duplicate check by the model."))
+                feature("wand.and.stars", Loc.t("Проверка дублей моделью.", "The duplicate check by the model."))
                 feature("character.bubble", Loc.t("Перевод и флеш-карты остаются бесплатными для всех.",
                                                   "Translation and flashcards stay free for everyone."))
             }

@@ -414,7 +414,7 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["flashcards.reveal"].waitForExistence(timeout: 5), "the free plan can't practise")
         app.buttons["flashcards.close"].firstMatch.tap()
 
-        // Fix cards calls the model: the paywall.
+        // Fix cards is within the request limit: it opens (the backend meters it).
         let studying = app.buttons["study.studying"]
         XCTAssertTrue(studying.waitForExistence(timeout: 5))
         studying.tap()
@@ -422,7 +422,8 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 3))
         menu.tap()
         app.buttons["Fix cards"].tap()
-        XCTAssertTrue(app.staticTexts["Gist It Pro"].firstMatch.waitForExistence(timeout: 5), "the paywall didn't open")
+        XCTAssertTrue(app.buttons["fix.all"].waitForExistence(timeout: 10), "Fix cards didn't open")
+        XCTAssertFalse(app.staticTexts["Gist It Pro"].exists)
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {

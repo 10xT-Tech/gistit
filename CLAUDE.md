@@ -105,8 +105,9 @@ with `#include?`). Two credential modes:
 (`AppConfig.subscriptionProductID`). Free plan, by SCENARIO not model: translations (Get it/See it →
 Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode,
 everything ON THE DEVICE is free (the user's rule: only what calls a model is Pro) — flashcards with any
-goal and extra sets, lists, the duplicate search + exact merges, card files; Fix cards and the duplicates
-Check → paywall (`AccessTier.canUseModelCardTools`; app-side only, the backend meters them like explanations).
+goal and extra sets, lists, the duplicate search + exact merges, card files; Fix cards and cards from
+photos are within the free request limit like explanations (backend-metered: their prompts aren't free
+openings); only the duplicates Check → paywall (`AccessTier.canCheckDuplicates`, app-side).
 Subscribers and Xcode builds (`AppDistribution.local`): no paywall; the backend still caps every device
 at 20 model requests/min and per UTC day 500 (free) / 3000 (pro, beta) — a spent day is
 `LLMError.dailyLimitReached(retryAfter:)` (backend 429 `daily_limit`, never retried; the message says when

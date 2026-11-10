@@ -62,11 +62,9 @@ public struct StudyListView: View {
                         }
                         if model.canFixCards {
                             Button {
-                                // Fix cards calls the model: Pro.
-                                if subscription.tier.canUseModelCardTools { model.openFix() } else { ui.showPaywall = true }
+                                model.openFix()                    // free plan: within the request limit (the backend meters it)
                             } label: {
-                                Label(Loc.t("Исправить карточки", "Fix cards"),
-                                      systemImage: subscription.tier.canUseModelCardTools ? "wand.and.stars" : "lock.fill")
+                                Label(Loc.t("Исправить карточки", "Fix cards"), systemImage: "wand.and.stars")
                             }
                             .disabled(model.expressions.isEmpty)
                         }

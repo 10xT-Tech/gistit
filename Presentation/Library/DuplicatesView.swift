@@ -161,7 +161,7 @@ struct DuplicatesView: View {
 
     /// The check asks the model: Pro (the search and exact merges are on the device, free).
     private func check(_ run: () -> Void) {
-        if subscription.tier.canUseModelCardTools { run() } else { showPaywall = true }
+        if subscription.tier.canCheckDuplicates { run() } else { showPaywall = true }
     }
 
     private var title: String {

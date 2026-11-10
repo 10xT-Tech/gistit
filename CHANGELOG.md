@@ -53,7 +53,8 @@ comments — are left out. Every card comes with synonyms and a note on when and
 progress line shows the photos done in green and the one being read in grey; when it's all done, a
 green check, a short chime and a tap. Then the sheet tells you what happened: which phrases were
 already in your cards (they aren't added twice), which photos had nothing marked on them, and why a
-photo couldn't be read, if one couldn't.
+photo couldn't be read, if one couldn't. Each photo is one request to the model: without a
+subscription, one every 5 minutes (shared with explanations); with **Gist It Pro**, no limit.
 
 **In flashcards.** A list of the phrases you're learning, reached from the dashboard. Each phrase shows
 both of its cards — Recognize and Recall — with how well you know it (new, learning, young or mature,
@@ -78,7 +79,8 @@ note — a field that's already filled in is never emptied. The sheet first coun
 you pick: **only the incomplete ones** (missing an example, synonyms or a note) or **all cards**. It
 works in batches; its progress line shows what's been sent off (grey) and what's done (green, catching
 up). Stop whenever you like — next time it continues where it stopped. Your learning progress isn't
-touched. Part of **Gist It Pro**.
+touched. Without a subscription it shares the one-request-every-5-minutes limit with explanations
+(it stops and goes on later); with **Gist It Pro**, no limit.
 
 **Find duplicates.** In flashcards' menu has **Find duplicates**: it finds the phrases written alike
 once articles, "to", punctuation and word forms are set aside ("sb", "smb" and "someone" count as one
