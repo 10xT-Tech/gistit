@@ -192,7 +192,9 @@ if the goal was raised, and `extra` appends an extra set of 25. A card is answer
 Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
 cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,
 green for learned (mature only), validated with the dataviz validator for both modes; "N of M
-learned". Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower case, accents,
+learned". The dashboard layout is FIXED (the user asked): every block keeps its size in every state —
+GoalProgress and the status line always present (an empty status keeps its room), captions one line
+(`lineLimit(1)` + `minimumScaleFactor`, never wrapping), the stage legend always the 2 × 2 `Grid`. Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower case, accents,
 apostrophes, leading "to"/articles per language, glosses in brackets, punctuation; SLOTS ARE KEPT, only
 their spellings unified (sb/smb/somebody → someone, sth → something, one's → someone's, jdn → jemanden,
 qqn → quelqu'un; "(someone)" in brackets too; English "+ -ing" → "doing") — the user's rule: a slot

@@ -257,6 +257,8 @@ struct GoalProgress: View {
                 .textStyle(Tokens.Text.footnote)
                 .foregroundStyle(Tokens.Content.secondary)
                 .monospacedDigit()
+                .lineLimit(1)                                  // one line, whatever it says: a fixed height
+                .minimumScaleFactor(0.75)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("flashcards.goalProgress")

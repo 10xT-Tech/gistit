@@ -8,6 +8,9 @@
 //  (one tone, today emphasised); the stages use the validated `Tokens.Chart.stage` set — not yet
 //  learned in grey, learned (mature: an interval of 21+ days) in green — with a legend, counts and
 //  "N of M learned", so nothing is told by colour alone; VoiceOver reads the numbers.
+//  FIXED LAYOUT: every block keeps its size whatever the state — the progress line and the status
+//  line are always there (an empty status keeps its room), every caption is one line (shrinking to
+//  fit, never wrapping), and the stage legend is always the 2 × 2 grid. Only Dynamic Type resizes.
 //
 
 import SwiftUI
@@ -43,7 +46,7 @@ public struct StudyDashboardView: View {
                             listRow(icon: "rectangle.stack", title: Loc.t("Во флеш-картах", "In flashcards"),
                                     subtitle: Loc.t("Фразы, которые вы учите", "The phrases you're learning"),
                                     count: stats.inStudy, id: "study.studying") { showStudying = true }
-                            if stats.distribution.total > 0 || stats.reviewsByDay.contains(where: { $0.count > 0 }) {
+                            if stats.inStudy > 0 || stats.distribution.total > 0 || stats.reviewsByDay.contains(where: { $0.count > 0 }) {
                                 ReviewsCard(days: stats.reviewsByDay)
                                 DistributionCard(distribution: stats.distribution)
                             }
@@ -87,30 +90,20 @@ public struct StudyDashboardView: View {
                     .textStyle(Tokens.Text.footnote)
                     .foregroundStyle(Tokens.Content.secondary)
             }
-            if stats.inStudy > 0 {
-                GoalProgress(plan: plan)
-            }
+            GoalProgress(plan: plan)
             HStack(alignment: .top, spacing: Tokens.Space.s8) {
                 StatTile(value: plan.due, label: Loc.t("к повторению", "to review"))
                 StatTile(value: plan.nextSet.new, label: Loc.t("новых в наборе", "new in the set"))
                 StatTile(value: stats.inStudy, label: Loc.t("фраз в обучении", "phrases in study"))
             }
-            if stats.inStudy == 0 {
-                Text(Loc.t("Перенесите фразы из «Пойманных», чтобы начать учить.",
-                           "Move phrases from Caught to start learning."))
-                    .textStyle(Tokens.Text.subhead)
-                    .foregroundStyle(Tokens.Content.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if !plan.hasMore {
-                Text(Loc.t("На сегодня всё — возвращайтесь завтра.", "All done for today — come back tomorrow."))
-                    .textStyle(Tokens.Text.subhead)
-                    .foregroundStyle(Tokens.Content.secondary)
-            } else if plan.goalReached && plan.pending.total == 0 {
-                Text(Loc.t("Цель на сегодня выполнена — можно позаниматься ещё.",
-                           "Today's goal reached — you can keep going."))
-                    .textStyle(Tokens.Text.subhead)
-                    .foregroundStyle(Tokens.Content.secondary)
-            }
+            // Always one line, even with nothing to say — the card never changes height.
+            let status = practiceStatus(stats)
+            Text(status ?? " ")
+                .textStyle(Tokens.Text.subhead)
+                .foregroundStyle(Tokens.Content.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .accessibilityHidden(status == nil)
             if stats.inStudy == 0 && !locked {
                 EHButton(Loc.t("Открыть «Пойманные»", "Open Caught"), icon: "tray", kind: .tonal,
                          fillWidth: true, accessibilityID: "flashcards.openCaught") { showCaught = true }
@@ -132,6 +125,18 @@ public struct StudyDashboardView: View {
         .glassPanel(cornerRadius: Tokens.Radius.card)
     }
 
+    private func practiceStatus(_ stats: StudyStats) -> String? {
+        let plan = stats.today
+        if stats.inStudy == 0 {
+            return Loc.t("Перенесите фразы из «Пойманных», чтобы начать.", "Move phrases from Caught to start learning.")
+        } else if !plan.hasMore {
+            return Loc.t("На сегодня всё — возвращайтесь завтра.", "All done for today — come back tomorrow.")
+        } else if plan.goalReached && plan.pending.total == 0 {
+            return Loc.t("Цель на сегодня выполнена — можно позаниматься ещё.", "Today's goal reached — you can keep going.")
+        }
+        return nil
+    }
+
     // MARK: Lists
 
     private func listRow(icon: String, title: String, subtitle: String, count: Int, id: String,
@@ -149,8 +154,8 @@ public struct StudyDashboardView: View {
                     Text(subtitle)
                         .textStyle(Tokens.Text.footnote)
                         .foregroundStyle(Tokens.Content.secondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 Spacer(minLength: Tokens.Space.s8)
                 Text("\(count)")
@@ -188,8 +193,8 @@ private struct StatTile: View {
             Text(label)
                 .textStyle(Tokens.Text.footnote)
                 .foregroundStyle(Tokens.Content.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -300,6 +305,8 @@ private struct DistributionCard: View {
                     .textStyle(Tokens.Text.subhead)
                     .foregroundStyle(Tokens.Content.secondary)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             bar
             legend
@@ -333,16 +340,11 @@ private struct DistributionCard: View {
         .accessibilityValue(stages.map { "\($0.label) \($0.count)" }.joined(separator: ", "))
     }
 
-    /// One row when it fits (keeps the card short); two columns with large text.
+    /// Always two columns, two rows — the card keeps its height whatever the counts.
     private var legend: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: Tokens.Space.s12) {
-                ForEach(stages, id: \.label) { legendItem($0) }
-            }
-            LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
-                      alignment: .leading, spacing: Tokens.Space.s8) {
-                ForEach(stages, id: \.label) { legendItem($0) }
-            }
+        Grid(alignment: .leading, horizontalSpacing: Tokens.Space.s12, verticalSpacing: Tokens.Space.s8) {
+            GridRow { legendItem(stages[0]); legendItem(stages[1]) }
+            GridRow { legendItem(stages[2]); legendItem(stages[3]) }
         }
     }
 
@@ -357,7 +359,9 @@ private struct DistributionCard: View {
                 .foregroundStyle(Tokens.Content.primary)
                 .monospacedDigit()
         }
-        .fixedSize()
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
