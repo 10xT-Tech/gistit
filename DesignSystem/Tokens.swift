@@ -147,6 +147,35 @@ public enum Tokens {
         public static let thin: SwiftUI.Material = .ultraThinMaterial
     }
 
+    // MARK: Chart — data marks (Study dashboard)
+    //  Validated with the dataviz validator against the card surface in each mode — light #FAFAFC,
+    //  dark #141415; dark is its own set, not a flip. Stages: not yet learned (new, learning, young) in
+    //  grey — an ordinal ramp: monotone lightness, ΔL ≥ 0.06, faint end ≥ 2:1 — and LEARNED (mature: an
+    //  interval of 21+ days) in green, told apart from the grey next to it (CVD ΔE ≥ 12.7, normal ΔE ≥
+    //  18.4 light / 21.7 dark; ≥ 3:1 on the surface). The legend's labels and counts carry every stage.
+    public enum Chart {
+        /// Ordered stages (flashcards: new → learning → young → mature); the last one is "learned".
+        public static let stage = [
+            Color(light: Color(hex: 0xAEAEB4), dark: Color(hex: 0x5A5A5F)),
+            Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C)),
+            Color(light: Color(hex: 0x5A5A60), dark: Color(hex: 0xB4B4BA)),
+            Color(light: Color(hex: 0x1E8E43), dark: Color(hex: 0x28A84E)),
+        ]
+        /// A single-series bar (grey); `barEmphasis` marks the one that matters (today).
+        public static let bar = Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x86868C))
+        public static let barEmphasis = Color(light: Color(hex: 0x1C1C1E), dark: Color(hex: 0xF2F2F7))
+        /// Progress lines (`ProgressLine`): done in the learned green; sent and waiting for an answer in grey
+        /// (validated against the green: CVD ΔE 9.1 light / 13.7 dark, normal ΔE 16.3 / 20.3, ≥ 3:1).
+        public static let progressDone = stage[3]
+        public static let progressPending = Color(light: Color(hex: 0x86868C), dark: Color(hex: 0x6E6E73))
+        public static let progressTrack = Color(light: Color(hex: 0x787880, opacity: 0.16),
+                                                dark: Color(hex: 0x787880, opacity: 0.32))
+        /// Gap between adjacent fills (stacked segments, neighbouring bars).
+        public static let gap: CGFloat = 2
+        /// Rounding of a bar's data end.
+        public static let barRadius: CGFloat = 4
+    }
+
     /// Literal glass tint values + border/highlight (for flat-tint fallback or material overlays).
     public enum Glass {
         /// `--glass` tint  ·  theme.css:26 / theme.css:61
@@ -235,6 +264,19 @@ public enum Tokens {
     //  ⚠️ PRODUCT OVERRIDE: every size + lineHeight below is the design scale MINUS 1pt (a global
     //     "one notch smaller" type request). The leading `size / lineHeight` annotation is the
     //     adjusted value; `theme.css:NN` still points at the original design source (+1pt).
+    /// The back of a flashcard: the answer as large as the prompt (`Text.title1`), the example and the
+    /// notes scaled up with it (×1.25 of `body` / `subhead`). Synonyms and notes share one style.
+    public enum Flashcard {
+        /// The front: the phrase (or its meaning) being asked.
+        public static let prompt = Text.title1
+        /// The answer — the same size as the prompt, one weight lighter. 25 / 30 / 600
+        public static let answer = TextStyleToken(size: 25, lineHeight: 30, weight: .semibold, weightCSS: 600, tracking: -0.4)
+        /// The example sentence (×1.25 of `body`). 20 / 27 / 400
+        public static let example = TextStyleToken(size: 20, lineHeight: 27, weight: .regular, weightCSS: 400, tracking: 0)
+        /// Synonyms and the context note (×1.25 of `subhead`). 17.5 / 24 / 400
+        public static let note = TextStyleToken(size: 17.5, lineHeight: 24, weight: .regular, weightCSS: 400, tracking: 0)
+    }
+
     public enum Text {
         /// 31 / 37 / 700 / -0.5  ·  theme.css:89  (design 32/38 −1)
         public static let largeTitle = TextStyleToken(size: 31, lineHeight: 37, weight: .bold,     weightCSS: 700, tracking: -0.5)

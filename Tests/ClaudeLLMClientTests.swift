@@ -126,6 +126,23 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(StubURLProtocol.callCount == 2)   // 1 initial + 1 retry
     }
 
+    /// Our backend's "daily limit" 429 is not an overload: no retries, and when it turns comes along.
+    @Test func dailyLimitIsNotRetried() async {
+        StubURLProtocol.statusCode = 429
+        StubURLProtocol.callCount = 0
+        StubURLProtocol.responseBody = Data(#"{"error":{"type":"daily_limit","message":"daily limit of 3000 requests reached","retry_after":3600}}"#.utf8)
+        StubURLProtocol.responseHeaders = ["Retry-After": "3600"]
+        defer { StubURLProtocol.responseHeaders = nil; StubURLProtocol.responseBody = nil }
+        let client = makeClient(maxRetries: 3)
+
+        await #expect(throws: LLMError.dailyLimitReached(retryAfter: 3600)) {
+            _ = try await client.run(UnderstandTemplate(), input: "hello")
+        }
+        #expect(StubURLProtocol.callCount == 1)
+        #expect(ClaudeLLMClient.isDailyLimit(Data(#"{"error":{"type":"rate_limited","message":"daily request limit reached"}}"#.utf8)))
+        #expect(!ClaudeLLMClient.isDailyLimit(Data(#"{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"#.utf8)))
+    }
+
     /// A transient transport blip (e.g. the connection drops mid-request) must be RETRIED with backoff,
     /// not surfaced immediately — so a momentary mobile-network hiccup recovers silently.
     @Test func retriesTransientTransportErrorThenSucceeds() async throws {

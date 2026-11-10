@@ -7,6 +7,8 @@
 
 import Domain   // NB: no `import Foundation` — it would make `Expression` ambiguous with Foundation.Expression (Predicate).
 import struct Foundation.Data   // just `Data` (for the translation cache) — avoids the `Expression` clash above.
+import struct Foundation.UUID   // card ids (MockReviewCardRepository)
+import struct Foundation.Date   // review-log times
 
 public actor MockExpressionRepository: ExpressionRepository {
     private var items: [Expression]
@@ -58,6 +60,24 @@ public actor MockExpressionRepository: ExpressionRepository {
                    synonyms: ["it's fine", "don't mention it"],
                    context: "Снять неловкость.", learned: true),
     ]
+}
+
+public actor MockReviewCardRepository: ReviewCardRepository {
+    private var cards: [UUID: ReviewCard]
+    private var log: [ReviewLog]
+
+    public init(seed: [ReviewCard] = [], logs: [ReviewLog] = []) {
+        self.cards = Dictionary(uniqueKeysWithValues: seed.map { ($0.id, $0) })
+        self.log = logs
+    }
+
+    public func all() async throws -> [ReviewCard] { Array(cards.values) }
+    public func save(_ card: ReviewCard) async throws { cards[card.id] = card }
+    public func delete(expressionID: UUID) async throws {
+        cards = cards.filter { $0.value.expressionID != expressionID }
+    }
+    public func appendLog(_ entry: ReviewLog) async throws { log.append(entry) }
+    public func logs(since date: Date) async throws -> [ReviewLog] { log.filter { $0.reviewedAt >= date } }
 }
 
 public actor MockHistoryRepository: HistoryRepository {

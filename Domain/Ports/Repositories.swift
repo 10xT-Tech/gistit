@@ -9,6 +9,8 @@ import Foundation
 public protocol ExpressionRepository: Sendable {
     func all() async throws -> [Expression]
     func add(_ expression: Expression) async throws
+    /// Many at once, stored in one go (a card-file import). Default: one by one.
+    func addAll(_ expressions: [Expression]) async throws
     func update(_ expression: Expression) async throws
     func delete(id: Expression.ID) async throws
     /// Toggle the staging "learned" flag.
@@ -18,7 +20,31 @@ public protocol ExpressionRepository: Sendable {
     func find(en: String) async throws -> Expression?
 }
 
+/// Flashcards (`ReviewCard`, two per expression moved to flashcards) and the log of answers.
+public protocol ReviewCardRepository: Sendable {
+    func all() async throws -> [ReviewCard]
+    /// Insert or update, matched by `id`.
+    func save(_ card: ReviewCard) async throws
+    /// Many at once, stored in one go (a card-file import). Default: one by one.
+    func saveAll(_ cards: [ReviewCard]) async throws
+    /// Remove an expression's cards (it left the study list). Its answers stay in the log.
+    func delete(expressionID: UUID) async throws
+    func appendLog(_ log: ReviewLog) async throws
+    /// Answers given at or after `date`.
+    func logs(since date: Date) async throws -> [ReviewLog]
+}
+
+public extension ReviewCardRepository {
+    func saveAll(_ cards: [ReviewCard]) async throws {
+        for card in cards { try await save(card) }
+    }
+}
+
 public extension ExpressionRepository {
+    func addAll(_ expressions: [Expression]) async throws {
+        for expression in expressions { try await add(expression) }
+    }
+
     /// Normalized key for content-level matching of an expression's `en`.
     static func normalizedKey(_ en: String) -> String {
         en.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -105,4 +131,19 @@ public enum TranslationCacheKey {
         // \u{1} (a control char) can't appear in user text, so fields can't collide.
         return [kind.rawValue, studiedLanguage, nativeLanguage, toneKey, tierKey, normalized].joined(separator: "\u{1}")
     }
+}
+
+/// Today's practice set (`PracticeDay`) — kept between sessions so a practice interrupted at any
+/// point continues from where it stopped when Start is pressed again the same day.
+public protocol PracticeDayStoring: Sendable {
+    func load() async -> PracticeDay?
+    func save(_ day: PracticeDay) async
+}
+
+/// In-memory default (tests, previews, the stub boot): forgets on relaunch.
+public actor InMemoryPracticeDayStore: PracticeDayStoring {
+    private var day: PracticeDay?
+    public init(_ day: PracticeDay? = nil) { self.day = day }
+    public func load() async -> PracticeDay? { day }
+    public func save(_ day: PracticeDay) async { self.day = day }
 }

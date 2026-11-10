@@ -41,6 +41,16 @@ public final class AppContainer: Sendable {
     public let photoExplain: any PhotoExplainUseCase
     public let enrich: any EnrichExpressionUseCase
     public let studyList: any StudyListUseCase
+    /// Flashcard practice over the study list (FSRS spaced repetition, on-device).
+    public let flashcards: any FlashcardsUseCase
+    /// Caught → From photos: photos → vocabulary cards.
+    public let catchFromPhotos: any CatchCardsFromPhotosUseCase
+    /// Card files: export flashcards with progress, import straight into flashcards.
+    public let cardTransfer: any CardTransferUseCase
+    /// In flashcards → Fix cards: capitals, grammar, verb markers / articles, missing fields.
+    public let fixCards: any FixCardsUseCase
+    /// Look-alike phrases in flashcards (and against them when moving from Caught): find, check, merge.
+    public let duplicates: any DuplicatesUseCase
     public let requestHistory: any RequestHistoryUseCase
     public let exportDeck: any ExportDeckUseCase        // AlgoApp .xml
     public let exportAnkiDeck: any ExportDeckUseCase    // Anki .txt
@@ -71,6 +81,12 @@ public final class AppContainer: Sendable {
         speechSynthesizer: any SpeechSynthesizing,
         textRecognizer: any TextRecognizing,
         expressions: any ExpressionRepository,
+        reviewCards: any ReviewCardRepository = MockReviewCardRepository(),
+        practiceDays: any PracticeDayStoring = InMemoryPracticeDayStore(),
+        cardFixProgress: any CardFixProgressStoring = InMemoryCardFixProgressStore(),
+        notDuplicates: any NotDuplicateMarking = InMemoryNotDuplicateMarks(),
+        duplicateDismissals: any DuplicateDismissalStoring = InMemoryDuplicateDismissalStore(),
+        lemmatizer: any Lemmatizing = NoLemmatizer(),
         history: any HistoryRepository,
         exporter: any DeckExporting,
         cache: (any TranslationCache)? = nil,
@@ -108,7 +124,17 @@ public final class AppContainer: Sendable {
         self.photoExplain = PhotoExplainInteractor(llm: llm, history: history,
                                                    analytics: analytics)              // "See it" Explain mode
         self.enrich = EnrichExpressionInteractor(llm: llm)
-        self.studyList = StudyListInteractor(repository: expressions)
+        self.studyList = StudyListInteractor(repository: expressions, cards: reviewCards)
+        self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards,
+                                               dailyGoal: { DailyGoal.current }, days: practiceDays,
+                                               analytics: analytics)
+        self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
+        self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards, marks: notDuplicates)
+        self.fixCards = FixCardsInteractor(llm: llm, expressions: expressions, cards: reviewCards,
+                                           progress: cardFixProgress)
+        self.duplicates = DuplicatesInteractor(llm: llm, expressions: expressions, cards: reviewCards,
+                                               lemmatizer: lemmatizer, marks: notDuplicates,
+                                               legacyDismissals: duplicateDismissals)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -168,6 +194,11 @@ public final class AppContainer: Sendable {
                 }
             }
         }
+        // Lemma assets for the duplicate check: asked for at launch, in the background, so they're on the
+        // device by the first search (nothing waits for them).
+        let lemmatizer = NaturalLanguageLemmatizer()
+        let studied = StudiedLanguage.current.promptName
+        Task { await lemmatizer.prepare(language: studied) }
         let claudeAuth: any RequestAuthorizing = backend ?? DirectAPIKeyAuthorizer(apiKey: config.claudeAPIKey ?? "")
         let sonioxCredential: SonioxCredential = backend.map { .temporaryKeys(from: $0) }
             ?? .apiKey(config.sonioxAPIKey ?? "")
@@ -195,6 +226,12 @@ public final class AppContainer: Sendable {
             // on-device OCR adapter is wired for the port contract / future use but NOT consumed today.
             textRecognizer: VisionTextRecognizer(),         // ← swap OCR engine here (when OCR is used)
             expressions: SwiftDataExpressionRepository(modelContainer: modelContainer),
+            reviewCards: SwiftDataReviewCardRepository(modelContainer: modelContainer),
+            practiceDays: UserDefaultsPracticeDayStore(),
+            cardFixProgress: UserDefaultsCardFixProgressStore(),
+            notDuplicates: SwiftDataNotDuplicateMarks(modelContainer: modelContainer),
+            duplicateDismissals: UserDefaultsDuplicateDismissalStore(),
+            lemmatizer: lemmatizer,
             history: SwiftDataHistoryRepository(modelContainer: modelContainer, recordings: recordings),
             exporter: AlgoAppXMLExporter(),
             // Persistent translation cache: repeat text translations skip the model (Say it + Get-it Translate).
@@ -248,7 +285,10 @@ public final class AppContainer: Sendable {
             textRecognizer: StubTextRecognizing(),
             expressions: MockExpressionRepository(),
             history: MockHistoryRepository(),
-            exporter: MockDeckExporting()
+            exporter: MockDeckExporting(),
+            // `-uiTestFreePlan`: the free plan's gates (paywall instead of Pro features).
+            subscriptions: ProcessInfo.processInfo.arguments.contains("-uiTestFreePlan")
+                ? StubSubscriptionManaging(tier: .free) : UnlimitedAccess()
         )
     }
 
@@ -312,16 +352,28 @@ public final class AppContainer: Sendable {
         )
     }
 
+    /// Caught (default) or In flashcards.
     @MainActor
-    public func makeStudyListViewModel() -> StudyListViewModel {
+    public func makeStudyListViewModel(scope: StudyListViewModel.Scope = .caught) -> StudyListViewModel {
         StudyListViewModel(
             studyList: studyList,
             saveExpression: saveExpression,
             exportAlgoApp: exportDeck,
             exportAnki: exportAnkiDeck,
             pronounce: pronounce,
-            isConfigured: config.isClaudeConfigured
+            isConfigured: config.isClaudeConfigured,
+            flashcards: flashcards,
+            catchFromPhotos: catchFromPhotos,
+            cardTransfer: cardTransfer,
+            fixCards: fixCards,
+            duplicates: duplicates,
+            scope: scope
         )
+    }
+
+    @MainActor
+    public func makeStudyDashboardViewModel() -> StudyDashboardViewModel {
+        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce)
     }
 
     @MainActor

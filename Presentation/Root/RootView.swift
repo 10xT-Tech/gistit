@@ -19,6 +19,8 @@ public struct RootView: View {
     @State private var inbound: InViewModel
     @State private var photo: PhotoTranslateViewModel
     @State private var library: StudyListViewModel
+    @State private var studying: StudyListViewModel
+    @State private var study: StudyDashboardViewModel
     @State private var history: HistoryViewModel
     @State private var settings: SettingsViewModel
     @State private var subscription: SubscriptionState
@@ -51,6 +53,8 @@ public struct RootView: View {
         inbound: InViewModel,
         photo: PhotoTranslateViewModel,
         library: StudyListViewModel,
+        studying: StudyListViewModel,
+        study: StudyDashboardViewModel,
         history: HistoryViewModel,
         settings: SettingsViewModel,
         subscription: SubscriptionState = SubscriptionState(),
@@ -63,6 +67,8 @@ public struct RootView: View {
         self.inbound = inbound
         self.photo = photo
         self.library = library
+        self.studying = studying
+        self.study = study
         self.history = history
         self.settings = settings
         self.subscription = subscription
@@ -110,6 +116,7 @@ public struct RootView: View {
         // Lists a swipe may uncover are filled before the first swipe, so the neighbour never shows a
         // loading state under the finger.
         .task {
+            await study.load()
             await library.load()
             await history.load()
         }
@@ -137,7 +144,7 @@ public struct RootView: View {
 
     @ViewBuilder private func screen(_ tab: String) -> some View {
         switch tab {
-        case "library": StudyListView(model: library)
+        case "library": StudyDashboardView(model: study, caught: library, studying: studying)
         case "camera": PhotoTranslateView(model: photo)
         case "out": VoiceView(model: out)
         case "in": InView(model: inbound)

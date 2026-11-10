@@ -4,8 +4,10 @@ Personal-use iOS app for living in a studied language (six languages, configurab
 pair; originally EN-from-RU). Five tabs: **Say it** (thought → 3 phrasings / situation → phrases),
 **Get it** (Translate / Explain / **Online** — a live interpreter that listens to surrounding speech
 and translates it in real time via Soniox), **See it** (photo → explain or translate), **Study**
-(flat list, exported to AlgoApp/Anki), **History** (every request; live sessions keep their audio;
-swipe-to-delete). Curated phrases go into the study list for the external SRS app.
+(a learning dashboard + in-app **flashcards** with FSRS spaced repetition (Pro); saved phrases — and
+cards generated from a phrase or caught from photos — wait in **Caught** until moved into flashcards;
+export to AlgoApp/Anki), **History** (every request;
+live sessions keep their audio; swipe-to-delete).
 
 - iOS 26 · Swift 6 · SwiftUI · Xcode 27 (iOS 27 SDK; deployment target stays iOS 26) · SwiftData (persistence) · async/await + actors.
 - Online-first; the LLM is Claude (Sonnet 5.5 / Haiku 5.5) via the Anthropic API; live speech translation is
@@ -42,14 +44,15 @@ Each layer is a **separate framework module**, so the compiler enforces the depe
 ### Ports (Domain) → adapters (Data)
 `LLMClient`, `SpeechRecognizing`, `SpeechSynthesizing`, `TextRecognizing`, `LiveTranslating`
 (live mic→cloud interpreter stream) + `SessionRecordingsManaging` (stored session audio),
-`TranscriptionServiceChecking` (Soniox health probe), `ExpressionRepository`, `HistoryRepository`
-(append/recent/delete), `TranslationCache`, `DeckExporting`, `AnalyticsTracking`. The media ports
+`TranscriptionServiceChecking` (Soniox health probe), `ExpressionRepository`, `ReviewCardRepository`
+(flashcard SRS state), `HistoryRepository` (append/recent/delete), `TranslationCache`, `DeckExporting`,
+`AnalyticsTracking`, `SubscriptionManaging`. The media ports
 are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 
 ### Prompt templates (Domain)
 `PromptTemplate` owns a system prompt + output JSON schema + typed decoder. Templates (all in
 `Domain/Prompts/Templates.swift`): `howToSay` (3 variants), `whatToSay`, `explainExpression`,
-`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `healthCheck`. Adding a use case = adding
+`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `fixCards`, `dedupeCards`, `healthCheck`. Adding a use case = adding
 a template; the LLM adapter never changes.
 
 ## Folder layout
@@ -100,8 +103,15 @@ with `#include?`). Two credential modes:
   `[config=Release]` overrides) — a Release build without `BACKEND_URL` has no live Claude/Soniox.
 **Subscription (App Store + TestFlight).** One monthly auto-renewable product
 (`AppConfig.subscriptionProductID`). Free plan, by SCENARIO not model: translations (Get it/See it →
-Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode.
-Subscribers and Xcode builds (`AppDistribution.local`): unlimited, no paywall. TestFlight shows the
+Translate, card enrichment) unlimited; explanations + Say it share 1 request / 5 min; no Online mode,
+everything ON THE DEVICE is free (the user's rule: only what calls a model is Pro) — flashcards with any
+goal and extra sets, lists, the duplicate search + exact merges, card files; Fix cards and cards from
+photos are within the free request limit like explanations (backend-metered: their prompts aren't free
+openings); only the duplicates Check → paywall (`AccessTier.canCheckDuplicates`, app-side).
+Subscribers and Xcode builds (`AppDistribution.local`): no paywall; the backend still caps every device
+at 20 model requests/min and per UTC day 500 (free) / 3000 (pro, beta) — a spent day is
+`LLMError.dailyLimitReached(retryAfter:)` (backend 429 `daily_limit`, never retried; the message says when
+it resets). TestFlight shows the
 REAL plan + paywall because App Review runs in the same sandbox and can't be told apart — 1.5.3 was
 rejected (2.1(b)) when the reviewer saw an unlocked "test build"; testers subscribe for free. The
 backend still treats sandbox as `beta`, so TestFlight explanations aren't metered (only the app's
@@ -123,6 +133,118 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 `SonioxCredential` (Soniox) — the adapters don't know which mode they're in.
 
 ## Current Status
+
+**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
+flashcards.** Saving (Say it / Get it / See it) stores an `Expression` = **Caught** (`StudyListView` +
+`StudyListViewModel`, scope `.caught`, pushed from the dashboard; swipe-left delete, swipe-right or the
+stack icon → `FlashcardsUseCase.enroll`, "Move all" → enroll every one, oldest first, list empties; share menu → "Delete all" → `ConfirmSheet` →
+`StudyListViewModel.deleteAll()`, optimistic, reload + error on a failed delete).
+"+" = Generate from a phrase (`EnrichCardTemplate`, now `.fast` = the translation model) or From
+photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
+photo — the backend allows one image — via `PhotoCardsTemplate`, skipping already-saved expressions;
+a bad photo is skipped, offline / plan limit / no key stop the batch; `CatchFromPhotosView` shows the
+progress — `ProgressLine`, then a green check + `DoneChime` (DesignSystem: our `Resources/done.caf` as a
+system sound — follows the silent switch, touches no audio session — plus the success haptic; not after Stop); DEBUG `-uiTestCatchPhotos` fakes two images for XCUI). `PhotoCardsTemplate`'s opening is NOT
+a backend free opening → metered like explanations on the free plan. Copy/Share on a card = 4-line
+`Expression.cardText`; "Copy all cards" = `cardsText` joined by `---`. Scope `.studying` = "In
+flashcards" (delete; per-card status tags = `ReviewCard.stage` + reps; card-file export/import).
+Card files: `CardFile` (Domain, JSON `"format": "gist-it-cards"` v1; text fields + optional per-direction
+FSRS `review`) via `CardTransferInteractor` — export = cards in flashcards with progress; import goes
+STRAIGHT into flashcards (new → stored + two cards, restored from `review` if present; on Caught →
+enrolled; already in flashcards → untouched; repeats/empty skipped), written with the batch
+`ExpressionRepository.addAll` / `ReviewCardRepository.saveAll` (10k cards ≈ 2 s on the simulator).
+`tools/algoapp_to_cards.py` converts an AlgoApp deck (.zip/.xml) into a card file.
+"Fix cards" (In flashcards menu, Pro): `FixCardsInteractor` goes through the phrases in flashcards —
+all, or `FixScope.incomplete` (empty example, synonyms or note: `isIncomplete`) — oldest-first in
+batches of 20 (`FixCardsTemplate`, `.standard` = the explanation model — the fast one left a third of
+the notes / synonyms empty on a 9.9k deck; metered on the free plan): grammar, verb marker / noun
+article, missing example / synonyms / note; a field the model returns empty keeps the card's text
+(`apply` never empties a field); letter case is applied locally
+(`lettercase`: everything lower case except the English "I"/I'm/I've/I'll/I'd — simple word
+boundaries, English text only, since Italian "i" is an article — and German left as is for its nouns);
+one retry per batch, then letter case only; offline / plan limit / no key stop the run.
+The "Fix cards" sheet (`FixCardsView`/`FixCardsViewModel`) does it all: `survey()` reads the
+phrases with progress and counts each mode, the modes are buttons there, and the run shows a two-part
+`ProgressLine` (DesignSystem: `sent` grey — breathing while it waits — `processed` green;
+`FixProgress.sent`); `ActivityLine` (a gliding segment) while the cards are read and the total is unknown.
+The position after each batch is kept per scope (`CardFixProgressStoring`, UserDefaults; the all-cards
+key predates scopes) — Stop and resume without sending a card twice; "start over" resets it; "Only
+incomplete" restarts by itself once its run went through them all. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
+studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
+lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
+(Domain/Scheduling — FSRS-5, default weights, learning steps 1m/10m, relearning 10m, 90% retention, no
+fuzz). Storage: `ReviewCardModel` (schema **V3**) + `ReviewLogModel` (every answer — daily counts,
+future FSRS fitting; schema **V4**), lightweight stages. NEVER change a schema version's models once a
+build has used it — a store matching no version fails with `unknownDataStoreSchema` and the app runs
+on the in-memory fallback ("Saved data is unavailable"); add the next version instead
+(`PersistenceMigrationTests` opens a store of every version, incl. the dev-build variants); cards link by `expressionID` and are deleted with
+their expression in `StudyListInteractor`. Sets are sized by the DAILY GOAL (Settings 25/50/75/100/150, `DailyGoal`
+→ `FlashcardsInteractor.dailyGoal`): a set = what's left of the goal (distinct cards answered today),
+"more" = an extra set of 25 (`DailyGoalOptions.extraSet`, whatever the goal; `DailyPlan.moreSize` labels it); `SetComposer.quotas` puts LEARNING cards first (up to the set size), then splits
+the room among young / mature / new proportionally to today's available counts (new counted at most
+the room); `compose` draws within a stage at random weighted by days overdue (Efraimidis–Spirakis;
+injected RNG → `SplitMix64` in tests), READY RECALL cards before recognition among the new ones, one
+direction per expression per set while others can fill it, then shuffles. Available today: learning
+cards, reviews due before end of day, new — recall only once its recognition card is in REVIEW and was
+last answered on an earlier day. A DAY is one practice: the first Start draws today's set and stores it (`PracticeDay`
+via `PracticeDayStoring` — UserDefaults JSON in the live boot, in-memory otherwise); Start/Continue
+later the same day returns the set's unanswered cards in order (+ learning cards coming back), tops up
+if the goal was raised, and `extra` appends an extra set of 25. A card is answered at most
+`PracticeDay.maxAnswersPerCard` (3) times a day (counted from the review log), across sessions. `stats(now:)` feeds
+`StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
+Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
+cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,
+green for learned (mature only), validated with the dataviz validator for both modes; "N of M
+learned". The dashboard layout is FIXED (the user asked): every block keeps its size in every state —
+GoalProgress and the status line always present (an empty status keeps its room), captions one line
+(`lineLimit(1)` + `minimumScaleFactor`, never wrapping), the stage legend always the 2 × 2 `Grid`. Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower case, accents,
+apostrophes, leading "to"/articles per language, glosses in brackets, punctuation; SLOTS ARE KEPT, only
+their spellings unified (sb/smb/somebody → someone, sth → something, one's → someone's, jdn → jemanden,
+qqn → quelqu'un; "(someone)" in brackets too; English "+ -ing" → "doing") — the user's rule: a slot
+changes the expression, "fuck about" ≠ "fuck somebody about"; then lemmas — for PHRASES of several words
+only: a single word keeps its form ("dashing" ≠ "a dash"; lemmas grouped such forms with pairs already
+marked "not duplicates", and they came back); a group that joins marked cards with a new look-alike shows
+the marked ones as one line of context (`DuplicatesView` `settledMembers`); a verb and a noun are
+never look-alikes — the leading marker gives the class (`PhraseKey.wordClass`: "to"/"zu"/"sich"/"se"/"s'"
+→ verb, an article → noun, none → either; `PhraseKey.alike`), so "to drain" / "a drain" make no group
+unless a bare "drain" joins them (verbs-only / nouns-only buckets are keyed `key|verb`, `key|noun`;
+`lookAlikesInFlashcards` and `exactMerges` follow it); lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
+(NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
+identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
+meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
+device (`exactMerges`: PhraseKey without lemmas + the same translation; a group of only those
+(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 5 groups, 3
+requests in flight — Sonnet answers take tens of seconds, small parallel batches keep the line moving)
+returns per group a list of merges (ids + duplicate / senses + `CardText`; a card in none stays apart;
+`merges(_:among:)` sanitises ids). The merged expression is in dictionary form: verbs and verb phrases with
+"to", nouns and noun phrases with the article (prompt), and `keepingMarker` restores a "to"/article one of
+the merged cards had if the card drops it (exact merges too). Senses = one card numbered "1) … 2) …" (plain text in the existing
+fields, no schema change); `merge`
+keeps the oldest phrase in flashcards with the merged texts (lettercase), per direction ONE card —
+duplicate: best known (review > learning, stability, reps), senses: least known among answered — card
+ids kept (today's answers still count), the rest deleted (and their links). "Don't merge" =
+`NotDuplicatePair` links between cards (`NotDuplicateMarking` → `SwiftDataNotDuplicateMarks`,
+`NotDuplicatePairModel`, schema **V5**; shown in `CardPreviewView`; card files carry them as
+`notDuplicateOf` expressions): a scan leaves out a group whose members are all linked and never
+proposes a linked pair (`DuplicateGroup.excluded`); `scan(full: true)` ("Full re-check") ignores the
+links, but the sheet doesn't put the all-linked groups to the user: they go to the model with Check
+and show up (`DuplicatesViewModel.shownGroups`) only if a merge is proposed in them (exact or the
+model's) — the rest are removed and counted (`confirmedApart`); the user saw 39 marked noun/verb pairs
+come back as a wall of "Not checked yet". The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
+Caught: moving a phrase checks `lookAlikesInFlashcards`
+→ dialog Merge (`proposals(for:)`: exact first, else the model; only the merge containing the caught
+phrase is made; none → `notADuplicate` dialog "move separately?") / Move separately; Move all offers
+"all but look-alikes". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
+progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
+two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
+"Merge all duplicates" (never a linked pair), "Full re-check"; after a merge a checked group with
+nothing left proposed is done and its rest linked as not duplicates. Today's goal line is green
+(`ProgressLine`, `Tokens.Chart.progressDone`).
+Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
+case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`. XCUI
+`FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
+sideways-only tab swipes from 1.5.3 (3) ship here too. Main screens put the large title in the
+gear's row (`.toolbarTitleDisplayMode(.inlineLarge)`, set in `SettingsTrigger`).
 
 **v1.5.1 (2026-10-12) — swipe between the main tabs.** NO system `TabView` any more: `RootView` mounts the
 SELECTED screen only, under `GlassTabBar` (DesignSystem — a STANDALONE system `UITabBar`, so the real iOS 26 Liquid Glass bar
@@ -205,6 +327,9 @@ real WebSocket; the Simulator run only proves UI/wiring).
 - **Speech recognition:** iOS 26 `SpeechAnalyzer`/`SpeechTranscriber` has NO on-device Russian model
   (`AssetInventory.status` = `.unsupported`), so `NativeSpeechRecognizer` uses `SFSpeechRecognizer`
   (server-backed, needs network). Engine swap = one line in `AppContainer.bootLive`.
+- **No pop-up dialogs:** the app asks with `ConfirmSheet` (DesignSystem — a content-sized sheet: icon,
+  title, message, optional details, full-width actions, Cancel; `EHButton.Kind.destructive` for deletes),
+  never `confirmationDialog` (iOS 26 shows it as a popover bubble — the user doesn't want those).
 - **Liquid Glass vs readability:** all glass goes through `glassPanel`, which swaps to a SOLID
   surface under Reduce Transparency; `MicButton` rings/`symbolEffect` disable under Reduce Motion.
 - **Iconography:** using SF Symbols (the design's icon names were SF-Symbol-style) for native

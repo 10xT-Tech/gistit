@@ -7,9 +7,9 @@ a language — as a traveller, an expat, or anyone studying in an immersion sett
 questions at you all day: *What is this sign telling me? Did I understand that correctly? How do I say
 this without sounding like a phrasebook?* Gist It turns your phone into a quiet assistant for
 exactly those moments. It **reads the world around you**, **explains what things really mean** (not
-just their dictionary gloss), and **hands you natural ways to say what you want** — then quietly
-remembers the phrases worth keeping, so the language you meet in the wild becomes the language you
-actually learn.
+just their dictionary gloss), and **hands you natural ways to say what you want** — then keeps the
+phrases worth learning and **drills them with flashcards right in the app**, so the language you meet
+in the wild becomes the language you actually learn.
 
 Built originally for learning **English from Russian**; the studied and native languages are now
 configurable, so it works between any pair of the six supported languages.
@@ -24,9 +24,9 @@ See `CLAUDE.md` for the full architecture map and `CHANGELOG.md` for release his
 
 ## Why it's more than a translator
 
-Living in a language is three problems, not one — and the app is built around exactly those three.
-Each is a tab, and each works whether you're online at a café or you just need a quick answer on the
-street:
+Living in a language is three problems, not one — and the app is built around exactly those three,
+plus a fourth tab that turns what you met into what you know. Each works whether you're online at a
+café or you just need a quick answer on the street:
 
 - 👁️ **See it — read the world.** You can *see* the words but not understand them. Point the camera
   (or pick a photo) at a **sign, menu, label, or page**; the text is recognised and the translation is
@@ -42,9 +42,14 @@ street:
   language and get **three natural phrasings** to choose from. Or describe the **situation** —
   "ordering coffee", "apologising for being late", "haggling at a market" — and get the handful of
   phrases that situation actually calls for. Pick a **tone** (Polite / Casual / Slang) to match the room.
+- 📚 **Study — keep what you met.** Every phrase you save lands in **Caught**, already a full card
+  (translation, example, synonyms, a note on when it's said). Add more by typing a phrase, or by
+  **photographing** a page with the phrases you highlighted or a language-learning post — each becomes a
+  card. Move them into **flashcards** and practise both ways — understand it, then say it — on a
+  modern spaced-repetition schedule (FSRS, as in Anki) with a daily goal.
 
 Every result can be **spoken aloud** in the language you're studying — so you can hear it before you
-say it — and any phrase worth keeping is **one tap** from your personal study list.
+say it — and any phrase worth keeping is **one tap** from your flashcards.
 
 ---
 
@@ -59,7 +64,7 @@ changeable later in Settings. Then the app opens on five tabs:
 | **Сказать / Say it** *(center, default)* | Speak or type a thought in your native language → get **3** natural phrasings ("How to say"), or describe a **situation** → get the 3–10 most useful phrases for it ("What to say"). Pick a tone (Polite / Casual / Slang); tap a card to hear it; bookmark to save. |
 | **Понять / Get it** | Type or dictate an expression in the studied language. **Translate** gives a faithful meaning; **Explain** breaks down what it means, how formal or blunt it sounds, where it's used, and a familiar comparison. **Online** turns the phone into a live interpreter: tap **Listen** and surrounding speech is recognized and translated in real time — recognized text in a small pane, the running translation in a big one, both auto-scrolling (scroll up to re-read; grab the bottom to re-engage) and copyable. **Pause** mutes the session instantly; the **direction switch** (EN | RU) flips who is being translated — mid-session it draws a divider and continues. Every session is saved to History with its audio. |
 | **Смотреть / See it** | Point the camera (or pick a photo) at a sign, menu, or page → on-device text recognition → translation drawn over the image. Explain or save any phrase from the result. |
-| **Изучаю / Study** | Your flat study list. Add manually, mark learned, swipe to delete, and **export to AlgoApp** (your SRS app) via the system share sheet. |
+| **Изучаю / Study** | A learning dashboard: today's cards against your **daily goal** (25–150), what's due, reviews this week, and your cards from new to well known. **Caught** holds what you saved or added — from a phrase, or **from photos** (up to ten at once: a featured phrase, or the ones you highlighted, underlined or circled on a page) — until you move it into **flashcards**; a look-alike of a card you already learn is offered to merge. **Flashcards**: both directions (recognise, then recall), Again / Hard / Good / Easy, FSRS scheduling, the day as one practice you can stop and continue, "25 more" past the goal. **In flashcards** lists every phrase with its progress; **Fix cards** tidies them with the model (grammar, "to" / articles, missing examples, synonyms, notes), **Find duplicates** finds look-alikes and merges the real duplicates (several meanings become one numbered card). Search in every field, card files to back up or move your progress, export to AlgoApp / Anki, Copy all. |
 | **История / History** | A chronological log of every request; tap an entry to see the full result, replay it, copy, or explain. Live-translation sessions keep their **original audio** for playback. Swipe left to delete an entry (a session's recording is deleted with it). |
 
 A **Settings** sheet (gear, top-right of every screen) covers a live Claude connection check, the
@@ -68,7 +73,10 @@ three language pickers, the appearance theme, and app/model info.
 ### Little things that make it feel like an assistant
 
 - **Hear it before you say it.** Every phrase plays back in the studied language with one tap.
-- **Save the keepers.** Bookmark any card; it lands in **Study** and exports to your SRS app.
+- **Save the keepers.** Bookmark any card; it lands in **Caught**, a full card ready for flashcards.
+- **Cards from your camera roll.** Screenshot a language post or mark phrases on a page, pick the
+  photos — the phrases become cards, and the sheet tells you which were already in your cards. A
+  green check and a chime when it's done.
 - **Walk away during a long request.** Leave the app mid-recognition or mid-explanation and get a
   **notification** the moment the result is ready.
 - **Instant, offline repeats.** Ask for the same translation or phrasing again and it comes straight
@@ -79,6 +87,21 @@ three language pickers, the appearance theme, and app/model info.
   **live-translation session already running** (Get it · Online).
 - **Share a photo straight in.** Send an image to Gist It from Photos or any app to translate it.
 - **Light / dark / system** theme, and a live check that Claude is reachable.
+
+### Free and Gist It Pro
+
+Everything that runs **on your device** is free: flashcards (any daily goal, extra sets), the lists,
+search, the duplicate search with its exact merges, card files and exports, History. Translation is
+free and unlimited too — Get it and See it → Translate, and the card filled in when you save a phrase.
+
+| Calls the model | Free | Gist It Pro |
+|---|---|---|
+| Translate, saving a card | unlimited | unlimited |
+| Explain, Say it, cards from photos, Fix cards | one request every 5 minutes, shared | unlimited |
+| Find duplicates → Check, Get it → Online | — | yes |
+
+Gist It Pro is one monthly subscription. A fair-use cap applies to everyone (20 model requests a minute;
+a day's allowance of 500 free / 3,000 Pro); if it's ever reached, the app says when it resets.
 
 ### Supported languages
 
@@ -143,9 +166,9 @@ open EnglishHelper.xcodeproj                     # or ⌘R in Xcode
 Build / test from the CLI:
 
 ```sh
-xcodebuild -scheme EnglishHelper -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
-xcodebuild test  -scheme EnglishHelper        -destination 'platform=iOS Simulator,name=iPhone 17 Pro'  # unit tests (fast)
-xcodebuild test  -scheme EnglishHelperUITests -destination 'platform=iOS Simulator,name=iPhone 17 Pro'  # XCUI suite (slow; drives the real app on stubs)
+xcodebuild -scheme EnglishHelper -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' build
+xcodebuild test  -scheme EnglishHelper        -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'  # unit tests (fast)
+xcodebuild test  -scheme EnglishHelperUITests -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'  # XCUI suite (slow; drives the real app on stubs)
 ```
 
 > The live mic→speech path and the camera capture path are **device-only** (no mic/camera on the
@@ -197,7 +220,7 @@ etc.
 Domain/          Entities · Ports · Prompts · UseCases · DomainErrors
 Data/            Adapters (live) + Mocks/ + Stubs/   (compiled as the `Adapters` module)
 DesignSystem/    Tokens.swift · Loc.swift · LocCatalog.swift · Components/
-Presentation/    Root · Onboarding · Voice (Say it) · In (Get it) · Photo (See it) · Library (Study) · History · Settings · Support
+Presentation/    Root · Onboarding · Voice (Say it) · In (Get it) · Photo (See it) · Library (Study, Caught, duplicates, Fix cards) · Flashcards · Subscription · History · Settings · Support
 App/             EnglishHelperApp · AppContainer (DI) · AppConfig · Info.plist · Assets
 Tests/           ForbiddenImportTests · DIBootTests · use-case / view-model / adapter tests
 Config/          Base.xcconfig · Secrets.example.xcconfig
@@ -208,6 +231,16 @@ CHANGELOG.md     user-facing release notes
 ---
 
 ## Status
+
+**v2.0.0 (in development)** — **Study becomes a place to learn.** A dashboard with a daily goal;
+**Caught** (saved, typed or photographed phrases, each a full card); in-app **flashcards** with FSRS
+(both directions, a day as one practice, a fixed-layout dashboard); **cards from photos** (featured or
+marked phrases only, a usage note on every card); **Fix cards** and **Find duplicates** (look-alikes by
+`PhraseKey`, exact merges on the device, the model's check, "not duplicates" links kept with the cards);
+card files with progress; questions asked in sheets, never pop-up dialogs. Everything on the device is
+free; what calls a model is metered or Pro (above). See `CHANGELOG.md`.
+
+Previously:
 
 **v1.5.3 (build 1)** — **Share next to Copy on every card** (`ShareButton` in DesignSystem, system share sheet via `ShareSheetPresenter` so it also works as a VoiceOver action; Study cards get Copy + Share). Previously, in **v1.5.1** — Amplitude analytics actually on (the client key was missing from every earlier build; it lives in the gitignored `Secrets.xcconfig`). Also: **Swipe between the main screens.** `TabSwipeGesture` (Presentation/Root): a
 UIKit pan via `UIGestureRecognizerRepresentable` on the selected screen, under a custom Liquid Glass

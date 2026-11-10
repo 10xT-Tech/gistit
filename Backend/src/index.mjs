@@ -10,10 +10,13 @@
 //
 // The Anthropic and Soniox keys never leave this function: they live in Secrets Manager.
 //
-// Access tiers (src/storekit.mjs): beta (Xcode / TestFlight — unlimited), pro (App Store build with an
-// active subscription — unlimited), free (translations unlimited; explanations and Say it share one
-// request per 5 minutes; no live translation) — by scenario, whatever the model. A tier-gated refusal
-// is HTTP 402 { error: { type: "subscription_required", retry_after? } }.
+// Access tiers (src/storekit.mjs): beta (Xcode / TestFlight), pro (App Store build with an active
+// subscription), free (translations; explanations and Say it share one request per 5 minutes; no live
+// translation) — by scenario, whatever the model. A tier-gated refusal is HTTP 402 { error: { type:
+// "subscription_required", retry_after? } }. Every tier has per-device model limits: LLM_PER_MINUTE,
+// and a day's allowance — LLM_PER_DAY on the free plan, LLM_PER_DAY_PAID for pro and beta (bulk tools
+// like Fix cards send hundreds of requests). A spent day is HTTP 429 { error: { type: "daily_limit" } }
+// with retry-after = the seconds until the UTC day turns.
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -44,6 +47,7 @@ const config = {
   sessionTtl: intEnv('SESSION_TTL_SECONDS', 3600),
   llmPerMinute: intEnv('LLM_PER_MINUTE', 20),
   llmPerDay: intEnv('LLM_PER_DAY', 500),
+  llmPerDayPaid: intEnv('LLM_PER_DAY_PAID', 3000),
   sonioxKeysPerDay: intEnv('SONIOX_KEYS_PER_DAY', 200),
   sonioxMaxSession: intEnv('SONIOX_MAX_SESSION_SECONDS', 10800),
   challengesPerMinutePerIp: intEnv('CHALLENGES_PER_MINUTE_PER_IP', 30),
@@ -204,14 +208,23 @@ const subscriptionRequired = (message, retryAfter) => ({
   body: JSON.stringify({ error: { type: 'subscription_required', message, ...(retryAfter ? { retry_after: retryAfter } : {}) } }),
 });
 
+/** The day's model requests are spent: 429 that says so — the app shows when it turns, never retries. */
+const dailyLimitReached = (limit) => {
+  const retryAfter = 86400 - (Math.floor(Date.now() / 1000) % 86400);   // until 00:00 UTC
+  return {
+    status: 429,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'retry-after': String(retryAfter) },
+    body: JSON.stringify({ error: { type: 'daily_limit', message: `daily limit of ${limit} requests reached`, retry_after: retryAfter } }),
+  };
+};
+
 async function relayMessages(event) {
   const { kid, tier = 'free' } = await authorize(event);
   if (!(await store.hit(`llm-min#${kid}`, config.llmPerMinute, 60))) {
     throw new HttpError(429, 'rate_limited', 'too many requests this minute');
   }
-  if (!(await store.hit(`llm-day#${kid}`, config.llmPerDay, 86400))) {
-    throw new HttpError(429, 'rate_limited', 'daily request limit reached');
-  }
+  const perDay = tier === 'free' ? config.llmPerDay : config.llmPerDayPaid;
+  if (!(await store.hit(`llm-day#${kid}`, perDay, 86400))) return dailyLimitReached(perDay);
   const body = validateMessagesRequest(readJson(event), config);
 
   // Free tier: translations are free; everything else (explanations, Say it) once per cooldown.

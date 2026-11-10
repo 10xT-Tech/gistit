@@ -2,6 +2,120 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
+## 2.0.0 — in development
+
+**Flashcards.** Practise the words and phrases you've saved right in the app. Tap **Start** and go
+through your cards one by one: see the phrase, recall what it means, tap **Show answer** (or the card)
+and say how it went: **Again**, **Hard**, **Good** or **Easy**. Each button shows when you'll see the
+card again, and all four look the same — no answer is suggested, you rate every card yourself. Behind
+it is FSRS, the spaced-repetition method modern Anki uses: cards you know well come back rarely, cards
+you struggle with come back sooner. Every phrase is practised both ways: first you learn to understand
+it, and once you recognise it — from the next day — you're also asked to say it from its meaning.
+Flashcards are free — everything that runs on your device is.
+
+**A daily goal.** In Settings, choose how many cards a day you plan to study at least: 25, 50, 75, 100
+or 150. Cards you're still learning (and ones you got wrong) come first; the rest of the set mixes new
+and review cards in proportion to what's waiting, picked at random — overdue cards come up more often,
+so none waits forever — and never the same phrase both ways in one set. Phrases you already recognise
+get their reverse direction before brand-new phrases start. The whole day is one practice: stop
+whenever you like, and **Continue** picks up today's set exactly where you left it. A card you keep
+getting wrong is asked at most three times a day, then waits until tomorrow. Reached your goal? Keep
+going, 25 cards at a time. Raised the goal during the day? Today's set grows to match. Studied less,
+or skipped a day? Nothing is lost — what's due simply waits. A card you answered "Again" counts as
+done only once it won't come back that day: the green line shows what's finished, a grey part ahead of
+it the cards coming back later today.
+
+**A study dashboard.** Study now opens with your progress: today's cards against your goal (a green
+line), what's due, new cards in the set, how many phrases you're learning, your reviews today and over
+the last week, and how your cards are spread from new to well known — the learned part (cards you
+won't see again for 21 days or more) in green, with how many of all your cards you've learned.
+
+**Caught.** What you save from Say it, Get it and See it now goes to **Caught** — your study list from
+before, with everything already in it. Add cards two new ways with **+** — an empty Caught offers both
+right on the screen: **Generate from a phrase** (type a phrase in the language you're learning, with
+an optional context, on a roomy card; the translation, an example, synonyms and a note are filled in
+for you) or **From photos** (below). Swipe a phrase right (or tap its card icon) to move it into
+flashcards, or **Move all to flashcards** at once. If a phrase looks like one you already learn ("hit
+the roof!" and "to hit the roof"), the app asks first: **Merge** joins it with the card it really is —
+your progress stays, and several meanings are numbered on one card — or tells you it's another phrase
+after all; **Move separately** keeps them apart. **Move all** can leave such look-alikes in Caught, to
+be moved one by one. Swipe left to delete, or **Delete all** in the share menu to
+clear the list (it asks first; flashcards aren't touched). **Copy** copies the whole card as four lines (phrase,
+translation, example, synonyms), and **Copy all cards** in the share menu copies the list, ready to
+paste into another app.
+
+**Cards from photos.** Pick up to ten photos or screenshots, and the phrases worth learning become
+cards. A phrase set apart to be learned — like the caption of a language-learning post — becomes one
+card, whole, with the translation the picture shows; a post that lists several phrases gives a card
+for each. On a page of text, each phrase you highlighted, underlined or circled becomes a card, with
+its sentence from the page as the example; unmarked text and the app around it — names, song titles,
+comments — are left out. Every card comes with synonyms and a note on when and how it's said. A
+progress line shows the photos done in green and the one being read in grey; when it's all done, a
+green check, a short chime and a tap. Then the sheet tells you what happened: which phrases were
+already in your cards (they aren't added twice), which photos had nothing marked on them, and why a
+photo couldn't be read, if one couldn't. Each photo is one request to the model: without a
+subscription, one every 5 minutes (shared with explanations); with **Gist It Pro**, no limit.
+
+**In flashcards.** A list of the phrases you're learning, reached from the dashboard. Each phrase shows
+both of its cards — Recognize and Recall — with how well you know it (new, learning, young or mature,
+in the same tones as the dashboard) and how many times you've reviewed it. Tap a phrase to see its
+whole card — both sides, its example and synonyms, when each side comes next, and the cards it's
+marked as not a duplicate of — without it counting as practice. Swipe left to delete a phrase.
+
+**Search.** Caught and In flashcards have a search field; it looks in every part of a card — the
+phrase, its translation, the example, synonyms and the note.
+
+**Import and export cards.** In flashcards has an import / export menu. **Export cards** saves all your
+flashcards — with how well you know each one, and which ones you marked as not duplicates — to a file
+you can keep as a backup or move to another device. **Import cards** reads such a file straight into
+flashcards, without stopping in Caught: new phrases start as new cards, phrases you already learn keep
+their progress, and repeats are skipped. New cards are introduced as your daily goal allows, so even a
+deck of thousands arrives gradually.
+
+**Fix cards.** In flashcards' menu has **Fix cards**: it writes everything in lower case (except "I"),
+fixes grammar and spelling, gives a single verb its "to" (or the infinitive marker of the language
+you're learning) and a single noun its article, and fills in a missing example, synonyms and usage
+note — a field that's already filled in is never emptied. The sheet first counts your cards, then lets
+you pick: **only the incomplete ones** (missing an example, synonyms or a note) or **all cards**. It
+works in batches; its progress line shows what's been sent off (grey) and what's done (green, catching
+up). Stop whenever you like — next time it continues where it stopped. Your learning progress isn't
+touched. Without a subscription it shares the one-request-every-5-minutes limit with explanations
+(it stops and goes on later); with **Gist It Pro**, no limit.
+
+**Find duplicates.** In flashcards' menu has **Find duplicates**: it finds the phrases written alike
+once articles, "to", punctuation and word forms are set aside ("sb", "smb" and "someone" count as one
+word, but a phrase with "someone" is never the same as one without; a verb and a noun — "to drain"
+and "a drain" — are two words, not look-alikes). Alike isn't the same, so inside
+each group it proposes only the merges that make sense: exact duplicates (the same phrase with the
+same translation) right away, and — after **Check** — the model's: which cards are one phrase in one
+meaning, which are one phrase's several meanings (one card, the meanings numbered), and which are
+another phrase after all. The merged card is written in dictionary form — "to hit the roof", "a
+corkscrew". Each group has two buttons: **Merge** (a duplicate keeps your best-known card; several
+meanings keep the less-known one, since the card now asks for all of them) and **Don't merge** — the
+cards are then marked as not duplicates of each other, the card shows it, and the next search leaves
+them be. **Merge all duplicates** takes the clear cases at once, and **Full re-check** has the model
+look again at the groups you marked as not duplicates — after the search got smarter — and shows only
+those it now finds duplicates in. The search and exact duplicates are free; the model's **Check** is
+part of **Gist It Pro**.
+
+**A clear daily allowance.** Gist It Pro now allows up to 3,000 requests a day — enough to fix or
+check thousands of cards in one go. If you ever reach the day's allowance, the app says so plainly and
+tells you when it resets, instead of a vague "try again later".
+
+**Questions in a proper sheet.** Before moving everything to flashcards, merging a look-alike or
+clearing the translation cache, the app now asks in a clear sheet with full-width buttons — not a
+small pop-up bubble.
+
+**The system tab bar.** The bar at the bottom of the screen is now the real iOS Liquid Glass tab bar:
+press and drag across it to slide the selection to another screen, as in Apple's own apps.
+
+**More room on every screen.** The screen title now sits in the same row as the Settings button
+instead of a row of its own, so Study, See it, Say it, Get it and History all start higher and show
+more before the tab bar.
+
+**Steadier swipes between screens.** A swipe that drifts up or down no longer scrolls the screen
+while it slides sideways.
+
 ## 1.5.3 — 2026-10-15
 
 **Share to any app.** Every card you can copy now has a **Share** button next to **Copy**: the

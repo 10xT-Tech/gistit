@@ -1,0 +1,149 @@
+//
+//  ReviewCard.swift
+//  EnglishHelper — Domain
+//
+//  One flashcard: a saved expression asked in ONE direction, plus its spaced-repetition memory state
+//  (FSRS — see `FSRS`). An expression the user moved to flashcards has two, scheduled independently:
+//  recognition (studied language → meaning) and recall (meaning → studied language). Expressions
+//  without cards are the Caught list.
+//
+
+import Foundation
+
+public enum CardDirection: String, Codable, Sendable, CaseIterable {
+    /// Shows the studied-language expression; the user recalls what it means.
+    case recognition
+    /// Shows the meaning in the native language; the user recalls the studied-language expression.
+    case recall
+}
+
+/// Where a card is in the FSRS life cycle.
+public enum ReviewState: String, Codable, Sendable {
+    /// Never answered.
+    case new
+    /// Being introduced: short same-day steps (minutes) before its first interval in days.
+    case learning
+    /// Graduated: next shown after an interval in days.
+    case review
+    /// Forgotten (answered "Again" in review): short steps again before returning to review.
+    case relearning
+}
+
+/// The four answer buttons. Raw value = the FSRS grade.
+public enum ReviewRating: Int, Codable, Sendable, CaseIterable, Comparable {
+    case again = 1, hard, good, easy
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+public struct ReviewCard: Codable, Sendable, Equatable, Identifiable, Hashable {
+    public let id: UUID
+    public let expressionID: UUID
+    public let direction: CardDirection
+    public var state: ReviewState
+    /// When the card is next shown.
+    public var due: Date
+    /// FSRS memory stability in days — the interval at which recall probability falls to 90%.
+    /// 0 until the first answer.
+    public var stability: Double
+    /// FSRS difficulty, 1…10. 0 until the first answer.
+    public var difficulty: Double
+    /// Index into the (re)learning steps while `state` is `.learning` / `.relearning`.
+    public var step: Int
+    /// Answers given, and how many of them were a lapse (review → "Again").
+    public var reps: Int
+    public var lapses: Int
+    public var lastReview: Date?
+    /// When the card was first answered — counts it against the day's new-card limit.
+    public var firstReview: Date?
+
+    public init(
+        id: UUID = UUID(),
+        expressionID: UUID,
+        direction: CardDirection,
+        state: ReviewState = .new,
+        due: Date,
+        stability: Double = 0,
+        difficulty: Double = 0,
+        step: Int = 0,
+        reps: Int = 0,
+        lapses: Int = 0,
+        lastReview: Date? = nil,
+        firstReview: Date? = nil
+    ) {
+        self.id = id
+        self.expressionID = expressionID
+        self.direction = direction
+        self.state = state
+        self.due = due
+        self.stability = stability
+        self.difficulty = difficulty
+        self.step = step
+        self.reps = reps
+        self.lapses = lapses
+        self.lastReview = lastReview
+        self.firstReview = firstReview
+    }
+}
+
+/// How well a card is known — the dashboard's distribution and the In-flashcards status tags.
+public enum CardStage: Int, Sendable, CaseIterable, Comparable {
+    /// Never answered.
+    case new
+    /// In (re)learning steps.
+    case learning
+    /// In review with an interval under `CardStage.matureInterval` days.
+    case young
+    /// In review with an interval of `CardStage.matureInterval` days or more (Anki's "mature").
+    case mature
+
+    public static let matureInterval = 21
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+public extension ReviewCard {
+    var stage: CardStage {
+        switch state {
+        case .new: return .new
+        case .learning, .relearning: return .learning
+        case .review:
+            let interval = lastReview.map { due.timeIntervalSince($0) / 86_400 } ?? 0
+            return interval >= Double(CardStage.matureInterval) ? .mature : .young
+        }
+    }
+}
+
+/// One answer, kept for the daily review counts (and, later, for fitting FSRS to the user).
+public struct ReviewLog: Codable, Sendable, Equatable, Identifiable {
+    public let id: UUID
+    public let cardID: UUID
+    public let rating: ReviewRating
+    /// The card's state when it was answered.
+    public let state: ReviewState
+    public let reviewedAt: Date
+
+    public init(id: UUID = UUID(), cardID: UUID, rating: ReviewRating, state: ReviewState, reviewedAt: Date) {
+        self.id = id
+        self.cardID = cardID
+        self.rating = rating
+        self.state = state
+        self.reviewedAt = reviewedAt
+    }
+}
+
+/// One day's practice: the cards picked for it, in order (extra sets appended). The day is a single
+/// practice the user can interrupt and continue; a new day starts a new one.
+public struct PracticeDay: Codable, Sendable, Equatable {
+    /// Start of the day (local midnight).
+    public var day: Date
+    public var cardIDs: [UUID]
+
+    public init(day: Date, cardIDs: [UUID] = []) {
+        self.day = day
+        self.cardIDs = cardIDs
+    }
+
+    /// How many times one card may be answered in a day: a hard card can't loop the practice.
+    public static let maxAnswersPerCard = 3
+}

@@ -9,6 +9,9 @@
 import Foundation
 
 public enum LLMError: Error, Sendable, Equatable {
+    /// The `invalidOutput` detail of a safety refusal (stop_reason "refusal") — screens can say so.
+    public static let declinedDetail = "model declined the request"
+
     case notConfigured              // missing/invalid/revoked API key (401/403)
     case overloaded                 // 429/529 — rate-limited or server overloaded (after retries)
     case offline                    // no usable network path (DNS/host/data/roaming/not-connected)
@@ -20,6 +23,9 @@ public enum LLMError: Error, Sendable, Equatable {
     /// The free plan's allowance for this model is used up (App Store build without a subscription).
     /// `retryAfter`: seconds until the next free request, when the limit is time-based.
     case subscriptionRequired(retryAfter: Int?)
+    /// This device's model requests for the day are used up (our backend's daily allowance). Never
+    /// retried. `retryAfter`: seconds until it turns (00:00 UTC).
+    case dailyLimitReached(retryAfter: Int?)
 }
 
 public enum SpeechRecognitionError: Error, Sendable, Equatable {

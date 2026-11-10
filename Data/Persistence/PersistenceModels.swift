@@ -43,6 +43,101 @@ public final class ExpressionModel {
     }
 }
 
+/// A flashcard's spaced-repetition state (`Domain.ReviewCard`). Linked to its expression by id, not a
+/// relationship — so adding it left `ExpressionModel` untouched (a purely additive migration).
+@Model
+public final class ReviewCardModel {
+    @Attribute(.unique) public var id: UUID
+    public var expressionID: UUID
+    public var directionRaw: String
+    public var stateRaw: String
+    public var due: Date
+    public var stability: Double
+    public var difficulty: Double
+    public var step: Int
+    public var reps: Int
+    public var lapses: Int
+    public var lastReview: Date?
+    public var firstReview: Date?
+
+    public init(_ c: ReviewCard) {
+        self.id = c.id
+        self.expressionID = c.expressionID
+        self.directionRaw = c.direction.rawValue
+        self.stateRaw = c.state.rawValue
+        self.due = c.due
+        self.stability = c.stability
+        self.difficulty = c.difficulty
+        self.step = c.step
+        self.reps = c.reps
+        self.lapses = c.lapses
+        self.lastReview = c.lastReview
+        self.firstReview = c.firstReview
+    }
+
+    public func apply(_ c: ReviewCard) {
+        stateRaw = c.state.rawValue; due = c.due
+        stability = c.stability; difficulty = c.difficulty; step = c.step
+        reps = c.reps; lapses = c.lapses; lastReview = c.lastReview; firstReview = c.firstReview
+    }
+
+    /// Nil for a row whose direction / state this build doesn't know (written by a newer version).
+    public func toDomain() -> ReviewCard? {
+        guard let direction = CardDirection(rawValue: directionRaw),
+              let state = ReviewState(rawValue: stateRaw) else { return nil }
+        return ReviewCard(id: id, expressionID: expressionID, direction: direction, state: state, due: due,
+                          stability: stability, difficulty: difficulty, step: step, reps: reps,
+                          lapses: lapses, lastReview: lastReview, firstReview: firstReview)
+    }
+}
+
+/// One flashcard answer (`Domain.ReviewLog`) — feeds the dashboard's daily review counts.
+@Model
+public final class ReviewLogModel {
+    @Attribute(.unique) public var id: UUID
+    public var cardID: UUID
+    public var rating: Int
+    public var stateRaw: String
+    public var reviewedAt: Date
+
+    public init(_ log: ReviewLog) {
+        self.id = log.id
+        self.cardID = log.cardID
+        self.rating = log.rating.rawValue
+        self.stateRaw = log.state.rawValue
+        self.reviewedAt = log.reviewedAt
+    }
+
+    public func toDomain() -> ReviewLog? {
+        guard let rating = ReviewRating(rawValue: rating), let state = ReviewState(rawValue: stateRaw) else { return nil }
+        return ReviewLog(id: id, cardID: cardID, rating: rating, state: state, reviewedAt: reviewedAt)
+    }
+}
+
+/// Two phrases marked "not duplicates" (`Domain.NotDuplicatePair`): a link between two expressions by
+/// id — a new entity, so adding it left `ExpressionModel` untouched (a purely additive migration).
+@Model
+public final class NotDuplicatePairModel {
+    /// "first,second" — one row per pair.
+    @Attribute(.unique) public var key: String
+    public var first: UUID
+    public var second: UUID
+    public var markedAt: Date
+
+    public init(_ pair: NotDuplicatePair, markedAt: Date = Date()) {
+        self.key = Self.key(pair)
+        self.first = pair.first
+        self.second = pair.second
+        self.markedAt = markedAt
+    }
+
+    public static func key(_ pair: NotDuplicatePair) -> String {
+        "\(pair.first.uuidString),\(pair.second.uuidString)"
+    }
+
+    public func toDomain() -> NotDuplicatePair { NotDuplicatePair(first, second) }
+}
+
 /// A cached text-translation request: `key` is `Domain.TranslationCacheKey`, `value` is the JSON of the
 /// scenario's typed result. Lets repeat translations of the same input skip the model entirely.
 @Model

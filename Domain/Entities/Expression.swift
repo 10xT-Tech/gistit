@@ -7,8 +7,8 @@ import Foundation
 
 /// A curated study-list item.
 ///
-/// FLAT by design: no SRS, no intervals, no review state. This list is a staging area the user
-/// curates and then exports to an external spaced-repetition app (AlgoApp) via `DeckExporting`.
+/// Practised in-app as two flashcards (`ReviewCard` — their spaced-repetition state lives there, not
+/// here) and exportable to an external SRS app (AlgoApp / Anki) via `DeckExporting`.
 public struct Expression: Codable, Sendable, Equatable, Identifiable, Hashable {
     public let id: UUID
     /// The English expression.
@@ -21,7 +21,7 @@ public struct Expression: Codable, Sendable, Equatable, Identifiable, Hashable {
     public var synonyms: [String]
     /// Free-form usage context.
     public var context: String
-    /// User-marked "learned" (staging flag only — not a review state).
+    /// User-marked "learned": the expression is retired from flashcard practice (and can be cleaned up).
     public var learned: Bool
     public let createdAt: Date
 
@@ -43,5 +43,30 @@ public struct Expression: Codable, Sendable, Equatable, Identifiable, Hashable {
         self.context = context
         self.learned = learned
         self.createdAt = createdAt
+    }
+}
+
+public extension Expression {
+    /// The card as four plain lines — expression, translation, example, synonyms joined by " / " —
+    /// with real line breaks, so it pastes as a card into another app (AlgoApp, Anki, notes).
+    var cardText: String {
+        [en, ru, example, synonyms.joined(separator: " / ")]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    /// Several cards, separated by a line with "---".
+    static func cardsText(_ expressions: [Expression]) -> String {
+        expressions.map(\.cardText).joined(separator: "\n---\n")
+    }
+}
+
+public extension Expression {
+    /// Whether `query` occurs in any field — the phrase, translation, example, synonyms or note —
+    /// ignoring case and diacritics ("cafe" finds "café", "ЁЛКА" finds "ёлка").
+    func matches(_ query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return ([en, ru, example, context] + synonyms).contains { $0.localizedStandardContains(query) }
     }
 }

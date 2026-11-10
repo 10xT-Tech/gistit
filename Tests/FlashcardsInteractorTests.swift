@@ -1,0 +1,352 @@
+//
+//  FlashcardsInteractorTests.swift
+//  EnglishHelperTests
+//
+//  Moving saved expressions into flashcards, the daily goal and practice sets (proportional stages,
+//  random picks weighted by overdue days, no two directions of one expression in a set, recognition
+//  before recall), answering a card, the dashboard numbers, and cards leaving with their expression.
+//
+
+import Testing
+import Foundation
+import Domain
+import Adapters
+
+/// Reproducible randomness for the set tests.
+struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+@Suite struct FlashcardsInteractorTests {
+    private let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    private let day: TimeInterval = 86_400
+    private var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }
+
+    private func expression(_ en: String, ageDays: Double = 1) -> Domain.Expression {
+        Domain.Expression(en: en, ru: "ru " + en, createdAt: now.addingTimeInterval(-ageDays * day))
+    }
+
+    /// The two never-answered cards an expression gets when moved in at `movedAt`.
+    private func newCards(_ e: Domain.Expression, movedAt: Date) -> [ReviewCard] {
+        CardDirection.allCases.map { ReviewCard(expressionID: e.id, direction: $0, due: movedAt) }
+    }
+
+    /// A review card of `e` due `dueInDays` from now (negative = overdue), last seen `interval` days before due.
+    private func review(_ e: Domain.Expression, _ direction: CardDirection = .recognition, dueInDays: Double,
+                        interval: Double = 5) -> ReviewCard {
+        let due = now.addingTimeInterval(dueInDays * day)
+        return ReviewCard(expressionID: e.id, direction: direction, state: .review, due: due, stability: interval,
+                          difficulty: 5, reps: 3, lastReview: due.addingTimeInterval(-interval * day),
+                          firstReview: now.addingTimeInterval(-40 * day))
+    }
+
+    private func make(_ expressions: [Domain.Expression], cards: [ReviewCard] = [], logs: [ReviewLog] = [],
+                      goal: Int = 50, seed: UInt64 = 1,
+                      days: PracticeDayStoring = InMemoryPracticeDayStore()) -> (FlashcardsInteractor, MockReviewCardRepository) {
+        let repo = MockReviewCardRepository(seed: cards, logs: logs)
+        let interactor = FlashcardsInteractor(expressions: MockExpressionRepository(seed: expressions), cards: repo,
+                                              dailyGoal: { goal }, days: days, calendar: calendar,
+                                              makeRandom: { SplitMix64(seed: seed) })
+        return (interactor, repo)
+    }
+
+    // MARK: Moving in
+
+    @Test func caughtIsNotPractised() async throws {
+        let (sut, _) = make([expression("a"), expression("b")])
+        #expect(try await sut.queue(now: now).isEmpty)
+        #expect(try await sut.enrolledExpressionIDs().isEmpty)
+    }
+
+    /// Moving in creates both cards (once); the first day asks recognition only.
+    @Test func movingInCreatesBothCardsAndStartsWithRecognition() async throws {
+        let e = expression("break the ice")
+        let (sut, repo) = make([e])
+        try await sut.enroll(e.id, now: now)
+        try await sut.enroll(e.id, now: now)                       // idempotent
+        let cards = try await repo.all()
+        #expect(cards.count == 2)
+        #expect(Set(cards.map(\.direction)) == [.recognition, .recall])
+        #expect(cards.allSatisfy { $0.state == .new })
+        let queue = try await sut.queue(now: now)
+        #expect(queue.map(\.card.direction) == [.recognition])
+    }
+
+    /// Recall waits until the phrase is recognised: recognition graduated to review, on an earlier day.
+    @Test func recallWaitsForRecognitionToGraduate() async throws {
+        let e = expression("a", ageDays: 3)
+        let recall = ReviewCard(expressionID: e.id, direction: .recall, due: now.addingTimeInterval(-2 * day))
+
+        // Recognised (in review since a few days): recall is ready.
+        let recognised = review(e, dueInDays: 2)
+        #expect(try await make([e], cards: [recognised, recall]).0.queue(now: now).map(\.card.direction) == [.recall])
+
+        // Introduced yesterday but failed — still learning: recall waits.
+        let failing = ReviewCard(expressionID: e.id, direction: .recognition, state: .learning,
+                                 due: now.addingTimeInterval(-day), stability: 0.1, difficulty: 10, reps: 3,
+                                 lastReview: now.addingTimeInterval(-day), firstReview: now.addingTimeInterval(-day))
+        #expect(try await make([e], cards: [failing, recall]).0.queue(now: now).map(\.card.direction) == [.recognition])
+
+        // Forgotten again (relearning): recall waits too.
+        var lapsed = failing
+        lapsed.state = .relearning
+        #expect(!(try await make([e], cards: [lapsed, recall]).0.queue(now: now).contains { $0.card.direction == .recall }))
+
+        // Graduated today: recall comes tomorrow, not today.
+        var today = recognised
+        today.lastReview = now.addingTimeInterval(-60)
+        #expect(try await make([e], cards: [today, recall]).0.queue(now: now).isEmpty)
+    }
+
+    /// Among new cards, the reverse direction of phrases already recognised comes before fresh phrases.
+    @Test func readyRecallComesBeforeFreshPhrases() async throws {
+        let known = expression("known", ageDays: 10)
+        let fresh = (0..<30).map { expression("fresh\($0)") }
+        let cards = [review(known, dueInDays: 3),                  // last seen two days ago
+                     ReviewCard(expressionID: known.id, direction: .recall, due: now.addingTimeInterval(-9 * day))]
+            + fresh.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        for seed in UInt64(1)...20 {
+            let set = try await make([known] + fresh, cards: cards, goal: 2, seed: seed).0.queue(now: now)
+            #expect(set.contains { $0.expression.id == known.id && $0.card.direction == .recall })
+        }
+    }
+
+    /// Learning cards (mid-steps, forgotten ones) go in first; new cards only fill the room left.
+    @Test func learningCardsComeFirst() async throws {
+        let failing = (0..<3).map { expression("failing\($0)") }
+        let fresh = (0..<30).map { expression("fresh\($0)") }
+        let learning = failing.map {
+            ReviewCard(expressionID: $0.id, direction: .recognition, state: .learning, due: now.addingTimeInterval(-day),
+                       stability: 0.1, difficulty: 10, reps: 3, lastReview: now.addingTimeInterval(-day),
+                       firstReview: now.addingTimeInterval(-day))
+        }
+        let cards = learning + fresh.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        let set = try await make(failing + fresh, cards: cards, goal: 5).0.queue(now: now)
+        #expect(set.count == 5)
+        #expect(Set(set.filter { $0.card.state == .learning }.map(\.expression.id)) == Set(failing.map(\.id)))
+        // A backlog as big as the set: no new cards until it clears.
+        let (full, _) = make(failing + fresh, cards: cards, goal: 3)
+        #expect(try await full.queue(now: now).allSatisfy { $0.card.state == .learning })
+    }
+
+    // MARK: Proportions
+
+    @Test func quotasAreProportionalToWhatIsWaiting() {
+        // A fresh deck: everything new.
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_887)) == StageCounts(new: 50))
+        // A mix: learning first (5), the other 45 by numbers — new counting at most the room (45 of 9,000).
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, learning: 5, young: 60, mature: 40))
+                == StageCounts(new: 14, learning: 5, young: 19, mature: 12))
+        // A learning backlog fills the set: nothing new until it clears.
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, learning: 80)) == StageCounts(learning: 50))
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, learning: 48)) == StageCounts(new: 2, learning: 48))
+        // A backlog: the bigger it is, the smaller the new share.
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 9_000, young: 400))
+                == StageCounts(new: 6, young: 44))
+        // Fewer cards than the set: all of them.
+        #expect(SetComposer.quotas(size: 50, available: StageCounts(new: 10, young: 5)) == StageCounts(new: 10, young: 5))
+        #expect(SetComposer.quotas(size: 50, available: StageCounts()) == StageCounts())
+        // Shares always add up to the set.
+        for size in DailyGoalOptions.all {
+            #expect(SetComposer.quotas(size: size, available: StageCounts(new: 333, learning: 7, young: 91, mature: 12)).total == size)
+        }
+    }
+
+    // MARK: The day is one practice
+
+    /// Start draws today's set; stopping and starting again continues the SAME set where it stopped;
+    /// with the goal met, "more" adds an extra set of 25 — whatever the goal.
+    @Test func theDayIsOnePracticeThatContinues() async throws {
+        let phrases = (0..<40).map { expression("p\($0)") }
+        let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        let days = InMemoryPracticeDayStore()
+        let (sut, _) = make(phrases, cards: cards, goal: 10, seed: 3, days: days)
+
+        let first = try await sut.queue(now: now)
+        #expect(first.count == 10)
+        // Interrupted before answering anything: the same set, same order — even with another random draw.
+        let (otherSeed, _) = make(phrases, cards: cards, goal: 10, seed: 99, days: days)
+        #expect(try await otherSeed.queue(now: now).map(\.id) == first.map(\.id))
+
+        // Four answered (Easy graduates them), then a pause: the other six, in the same order.
+        for card in first.prefix(4) { _ = try await sut.rate(card.card, .easy, now: now) }
+        let resumed = try await sut.queue(now: now.addingTimeInterval(3_600))
+        #expect(resumed.map(\.id) == first.dropFirst(4).map(\.id))
+        var plan = try await sut.stats(now: now).today
+        #expect(plan.studied == 4 && plan.pending.total == 6 && !plan.goalReached)
+
+        // The rest answered: the goal (10) is met, nothing owed — "more" draws an extra 25.
+        for card in resumed { _ = try await sut.rate(card.card, .easy, now: now) }
+        #expect(try await sut.queue(now: now).isEmpty)
+        plan = try await sut.stats(now: now).today
+        #expect(plan.goalReached && plan.pending.total == 0 && plan.hasMore)
+        #expect(plan.moreSize == DailyGoalOptions.extraSet && plan.nextSet.total == DailyGoalOptions.extraSet)
+        let more = try await sut.queue(now: now, extra: true)
+        #expect(more.count == DailyGoalOptions.extraSet)
+        #expect(Set(more.map(\.id)).isDisjoint(with: first.map(\.id)))
+
+        // A new day: a new set.
+        let tomorrow = now.addingTimeInterval(day)
+        #expect(try await sut.queue(now: tomorrow).map(\.id) != more.map(\.id))
+    }
+
+    /// Raising the goal during the day tops today's set up.
+    @Test func raisingTheGoalTopsTheDayUp() async throws {
+        let phrases = (0..<40).map { expression("p\($0)") }
+        let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        let days = InMemoryPracticeDayStore()
+        let (small, _) = make(phrases, cards: cards, goal: 10, days: days)
+        let first = try await small.queue(now: now)
+        let (bigger, _) = make(phrases, cards: cards, goal: 25, days: days)
+        let topped = try await bigger.queue(now: now)
+        #expect(topped.count == 25)
+        #expect(Array(topped.prefix(10)).map(\.id) == first.map(\.id))     // the day's set first
+    }
+
+    /// Today's progress counts a card done only once it won't come back today: one answered "Again"
+    /// is answered (the goal's draws count it) but still learning — coming back, not finished.
+    @Test func aCardComingBackIsNotFinished() async throws {
+        let easy = expression("easy"), hard = expression("hard")
+        let cards = newCards(easy, movedAt: now.addingTimeInterval(-day)) + newCards(hard, movedAt: now.addingTimeInterval(-day))
+        let (sut, _) = make([easy, hard], cards: cards, goal: 2)
+        let set = try await sut.queue(now: now)
+        _ = try await sut.rate(try #require(set.first { $0.expression.id == easy.id }).card, .easy, now: now)
+        var card = try #require(set.first { $0.expression.id == hard.id }).card
+        card = try await sut.rate(card, .again, now: now)
+        var plan = try await sut.stats(now: now).today
+        #expect(plan.studied == 2 && plan.goalReached)                       // the day's draws: both answered
+        #expect(plan.comingBack == 1 && plan.finished == 1)                  // …but one comes back today
+        for minute in 1..<PracticeDay.maxAnswersPerCard {
+            card = try await sut.rate(card, .again, now: now.addingTimeInterval(Double(minute) * 60))
+        }
+        plan = try await sut.stats(now: now.addingTimeInterval(600)).today
+        #expect(plan.comingBack == 0 && plan.finished == 2)                  // done for today (the day's limit)
+    }
+
+    /// A card answered three times today is done for the day — restarting the practice can't bring
+    /// it back, and it isn't drawn again.
+    @Test func threeAnswersADayPerCard() async throws {
+        let hard = expression("hard"), easy = expression("easy")
+        let cards = newCards(hard, movedAt: now.addingTimeInterval(-day)) + newCards(easy, movedAt: now.addingTimeInterval(-day))
+        let (sut, _) = make([hard, easy], cards: cards, goal: 2)
+        let set = try await sut.queue(now: now)
+        var card = try #require(set.first { $0.expression.id == hard.id }).card
+        for minute in 0..<PracticeDay.maxAnswersPerCard {
+            card = try await sut.rate(card, .again, now: now.addingTimeInterval(Double(minute) * 60))
+        }
+        #expect(card.state == .learning)                                     // still not learned…
+        let later = try await sut.queue(now: now.addingTimeInterval(600))
+        #expect(!later.contains { $0.expression.id == hard.id })            // …but done for today
+        #expect(try await sut.queue(now: now.addingTimeInterval(600), extra: true)
+                    .allSatisfy { $0.expression.id != hard.id })
+        #expect(try await sut.answersToday(now: now)[card.id] == PracticeDay.maxAnswersPerCard)
+        // Tomorrow it's back.
+        #expect(try await sut.queue(now: now.addingTimeInterval(day)).contains { $0.id == card.id })
+    }
+
+    // MARK: Randomness
+
+    @Test func setsAreRandomButReproducible() async throws {
+        let phrases = (0..<40).map { expression("p\($0)") }
+        let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        func ids(_ seed: UInt64) async throws -> [UUID] {
+            try await make(phrases, cards: cards, goal: 10, seed: seed).0.queue(now: now).map(\.id)
+        }
+        #expect(try await ids(7) == ids(7))
+        #expect(try await ids(7) != ids(8))
+        // Different draws cover different cards — no fixed first ten.
+        var seen = Set<UUID>()
+        for seed in UInt64(1)...20 { seen.formUnion(try await ids(seed)) }
+        #expect(seen.count > 30)
+    }
+
+    /// Overdue cards are likelier, so none is postponed forever; a card due today still gets picked.
+    @Test func overdueCardsAreLikelier() async throws {
+        let late = expression("late"), onTime = expression("on time")
+        let cards = [review(late, dueInDays: -30), review(onTime, dueInDays: 0)]
+        var lateFirst = 0
+        for seed in UInt64(1)...200 {
+            let picked = try await make([late, onTime], cards: cards, goal: 1, seed: seed).0.queue(now: now)
+            if picked.first?.expression.id == late.id { lateFirst += 1 }
+        }
+        #expect(lateFirst > 150 && lateFirst < 200)
+    }
+
+    /// Both directions of one expression aren't put in one set while other cards can fill it.
+    @Test func oneDirectionPerExpressionPerSet() async throws {
+        let both = expression("both"), other = expression("other")
+        let cards = [review(both, .recognition, dueInDays: -1), review(both, .recall, dueInDays: -1),
+                     review(other, dueInDays: -1)]
+        for seed in UInt64(1)...30 {
+            let set = try await make([both, other], cards: cards, goal: 2, seed: seed).0.queue(now: now)
+            #expect(Set(set.map(\.expression.id)) == [both.id, other.id])
+        }
+        // …but when nothing else is waiting, the sibling still comes.
+        let alone = try await make([both], cards: Array(cards.prefix(2)), goal: 2).0.queue(now: now)
+        #expect(alone.count == 2)
+    }
+
+    // MARK: Answers and numbers
+
+    @Test func answeringStoresTheCardAndLogsIt() async throws {
+        let e = expression("a")
+        let (sut, repo) = make([e])
+        try await sut.enroll(e.id, now: now)
+        let card = try #require(try await sut.queue(now: now).first).card
+        let answered = try await sut.rate(card, .good, now: now)
+        #expect(answered.state == .learning)
+        #expect(try await repo.all().first { $0.id == card.id } == answered)
+        let logs = try await repo.logs(since: now.addingTimeInterval(-60))
+        #expect(logs.map(\.rating) == [.good])
+        #expect(logs.first?.state == .new)
+        // Still waiting today — it's mid-steps.
+        #expect(try await sut.queue(now: now.addingTimeInterval(60)).map(\.card.id) == [card.id])
+        #expect(sut.previews(for: answered, now: now)[.again] == 60)
+    }
+
+    /// The dashboard: the day against the goal, phrases in study vs caught, cards by stage (young vs
+    /// mature at 21 days), answers per day for the last week.
+    @Test func statsForTheDashboard() async throws {
+        let studied = expression("studied", ageDays: 40), caught = expression("caught")
+        let cards = [review(studied, .recognition, dueInDays: 30, interval: 31),
+                     review(studied, .recall, dueInDays: -0.001, interval: 4)]
+        let logs = [
+            ReviewLog(cardID: cards[0].id, rating: .good, state: .review, reviewedAt: now.addingTimeInterval(-60)),
+            ReviewLog(cardID: cards[1].id, rating: .again, state: .review, reviewedAt: now.addingTimeInterval(-120)),
+            ReviewLog(cardID: cards[1].id, rating: .good, state: .review, reviewedAt: now.addingTimeInterval(-2 * day)),
+            ReviewLog(cardID: cards[1].id, rating: .good, state: .review, reviewedAt: now.addingTimeInterval(-30 * day)),
+        ]
+        let (sut, _) = make([studied, caught], cards: cards, logs: logs, goal: 25)
+        let stats = try await sut.stats(now: now)
+        #expect(stats.today.goal == 25)
+        #expect(stats.today.available == StageCounts(young: 1))
+        #expect(stats.today.nextSet == StageCounts(young: 1))
+        #expect(stats.today.due == 1)
+        #expect(stats.inStudy == 1)
+        #expect(stats.caught == 1)
+        #expect(stats.distribution == CardDistribution(new: 0, learning: 0, young: 1, mature: 1))
+        #expect(stats.reviewsByDay.map(\.count) == [0, 0, 0, 0, 1, 0, 2])   // the 30-day-old answer is out
+        #expect(stats.reviewsByDay.last?.day == calendar.startOfDay(for: now))
+    }
+
+    @Test func deletingAnExpressionDeletesItsCards() async throws {
+        let e = expression("a")
+        let expressions = MockExpressionRepository(seed: [e])
+        let cards = MockReviewCardRepository(seed: newCards(e, movedAt: now)
+            + [ReviewCard(expressionID: UUID(), direction: .recognition, due: now)])
+        try await StudyListInteractor(repository: expressions, cards: cards).delete(id: e.id)
+        #expect(try await cards.all().count == 1)
+    }
+}

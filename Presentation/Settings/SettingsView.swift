@@ -54,6 +54,7 @@ public struct SettingsView: View {
                         languageCard(language: $language.language)
                         studiedCard(studied: $studied.language)
                         targetCard(target: $target.language)
+                        goalCard
                         themeCard(theme: $theme.preference)
                         cacheCard
                         storageCard
@@ -111,8 +112,8 @@ public struct SettingsView: View {
                 restoreButton
             case .free:
                 infoRow(Loc.t("План", "Plan"), Loc.t("Бесплатный", "Free"))
-                Text(Loc.t("Перевод — бесплатно. Объяснения и «Сказать» — один запрос в 5 минут, с подпиской без ограничений. Онлайн-перевод — по подписке.",
-                           "Translation: free. Explanations and Say it: one request every 5 minutes, unlimited with a subscription. Online translation: with a subscription."))
+                Text(Loc.t("Перевод — бесплатно. Объяснения и «Сказать» — один запрос в 5 минут, с подпиской без ограничений. Онлайн-перевод и флеш-карты — по подписке.",
+                           "Translation: free. Explanations and Say it: one request every 5 minutes, unlimited with a subscription. Online translation and flashcards: with a subscription."))
                     .textStyle(Tokens.Text.footnote)
                     .foregroundStyle(Tokens.Content.tertiary)
                 Button { showPaywall = true } label: {
@@ -333,6 +334,31 @@ public struct SettingsView: View {
         .glassPanel(cornerRadius: Tokens.Radius.card)
     }
 
+    // MARK: Flashcards goal
+
+    @AppStorage(DailyGoal.storageKey, store: Prefs.store) private var dailyGoal = DailyGoalOptions.default
+
+    private var goalCard: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s12) {
+            sectionTitle(Loc.t("Флеш-карты: цель на день", "Flashcards: daily goal"))
+            Picker(Loc.t("Карточек в день", "Cards a day"), selection: $dailyGoal) {
+                ForEach(DailyGoalOptions.all, id: \.self) { goal in
+                    Text("\(goal)").tag(goal)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("settings.dailyGoal")
+            Text(Loc.t("Минимум карточек в день. Сначала идут карточки, которые вы ещё учите, остальное делится между новыми и повторяемыми пропорционально, карточки выбираются случайно. Можно заниматься больше — или пропустить день: ничего не теряется.",
+                       "At least this many cards a day. Cards you're still learning come first; the rest is shared out between new and review cards in proportion, drawn at random. Study more if you like — or skip a day: nothing is lost."))
+                .textStyle(Tokens.Text.footnote)
+                .foregroundStyle(Tokens.Content.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Tokens.Space.s16)
+        .glassPanel(cornerRadius: Tokens.Radius.card)
+    }
+
     // MARK: Theme
 
     private func themeCard(theme: Binding<ThemePreference>) -> some View {
@@ -375,12 +401,14 @@ public struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
-        .confirmationDialog(
-            Loc.t("Очистить кэш переводов?", "Clear the translation cache?"),
-            isPresented: $showClearCacheConfirm, titleVisibility: .visible
-        ) {
-            Button(Loc.t("Очистить", "Clear"), role: .destructive) { Task { await model.clearCache() } }
-            Button(Loc.t("Отмена", "Cancel"), role: .cancel) {}
+        .sheet(isPresented: $showClearCacheConfirm) {
+            ConfirmSheet(icon: "trash",
+                         title: Loc.t("Очистить кэш переводов?", "Clear the translation cache?"),
+                         message: Loc.t("Повторные переводы снова пойдут через модель.",
+                                        "Repeat translations will go through the model again."),
+                         actions: [ConfirmAction(Loc.t("Очистить", "Clear"), role: .destructive) {
+                             Task { await model.clearCache() }
+                         }])
         }
     }
 

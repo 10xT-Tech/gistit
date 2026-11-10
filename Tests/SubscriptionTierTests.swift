@@ -36,6 +36,8 @@ import Domain
         for (studied, native) in [("English", "Russian"), ("German", "French")] {
             #expect(!Self.isFree(ExplainExpressionTemplate(studiedLanguage: studied, nativeLanguage: native).systemPrompt))
             #expect(!Self.isFree(PhotoExplainTemplate(studiedLanguage: studied, nativeLanguage: native).systemPrompt))
+            // Caught → From photos: a vision request per photo, metered like explanations.
+            #expect(!Self.isFree(PhotoCardsTemplate(studiedLanguage: studied, nativeLanguage: native).systemPrompt))
             for tone in [Register.formal, .casual, .slang] {
                 #expect(!Self.isFree(HowToSayTemplate(tone: tone, studiedLanguage: studied, nativeLanguage: native).systemPrompt))
                 #expect(!Self.isFree(WhatToSayTemplate(tone: tone, studiedLanguage: studied, nativeLanguage: native).systemPrompt))

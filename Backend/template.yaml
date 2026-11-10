@@ -26,6 +26,13 @@ Parameters:
   LlmPerDay:
     Type: Number
     Default: 500
+    Description: Model requests per device per UTC day on the free plan.
+  LlmPerDayPaid:
+    Type: Number
+    Default: 3000
+    Description: >
+      Model requests per device per UTC day with a subscription (pro) or on an Xcode / TestFlight build
+      (beta) — bulk tools like Fix cards send hundreds.
   SonioxKeysPerDay:
     Type: Number
     Default: 200
@@ -97,6 +104,7 @@ Resources:
           ALLOWED_MODELS: !Ref AllowedModels
           LLM_PER_MINUTE: !Ref LlmPerMinute
           LLM_PER_DAY: !Ref LlmPerDay
+          LLM_PER_DAY_PAID: !Ref LlmPerDayPaid
           SONIOX_KEYS_PER_DAY: !Ref SonioxKeysPerDay
           PRO_PRODUCT_IDS: !Ref ProProductIds
           FREE_LIMIT_COOLDOWN_SECONDS: !Ref FreeLimitCooldownSeconds

@@ -592,6 +592,9 @@ public struct EnrichCardTemplate: PromptTemplate {
     public let id = "enrichCard"
     public init() {}
 
+    /// The translation model: filling in a card is a translation-sized task.
+    public var modelTier: ModelTier { .fast }
+
     public var systemPrompt: String {
         """
         Enrich an English expression for a study card. Return:
@@ -630,6 +633,407 @@ public struct EnrichCardTemplate: PromptTemplate {
             example: PlainText.clean(raw.example),
             synonyms: Array(synonyms)
         )
+    }
+}
+
+// MARK: - photoCards (multimodal: photo / screenshot → vocabulary cards)
+
+/// One card the model drafted from a photo.
+public struct CardDraft: Codable, Sendable, Equatable {
+    public let expression: String
+    public let translation: String
+    public let example: String
+    public let synonyms: [String]
+    /// A short usage note in the native language (register, tone, typical situation).
+    public let context: String
+
+    public init(expression: String, translation: String, example: String, synonyms: [String], context: String = "") {
+        self.expression = expression
+        self.translation = translation
+        self.example = example
+        self.synonyms = synonyms
+        self.context = context
+    }
+
+    /// An answer without a note (older shape) still decodes.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        expression = try container.decode(String.self, forKey: .expression)
+        translation = try container.decode(String.self, forKey: .translation)
+        example = try container.decode(String.self, forKey: .example)
+        synonyms = try container.decode([String].self, forKey: .synonyms)
+        context = try container.decodeIfPresent(String.self, forKey: .context) ?? ""
+    }
+}
+
+/// `{ "cards": [ { expression, translation, example, synonyms, context } ] }`.
+public struct PhotoCardsResult: Codable, Sendable, Equatable {
+    public let cards: [CardDraft]
+}
+
+/// A photo or screenshot → vocabulary cards (Caught → "From photos") for what's meant to be learned
+/// only: ONE card for a featured phrase — a phrase set apart to be learned, as on language-learning
+/// posts, kept whole, with the translation the image shows (one per phrase when a post lists several)
+/// — or, on a page of text, a card for each
+/// phrase the reader MARKED (highlighted, underlined, circled…), in dictionary form with its sentence
+/// as the example. Unmarked running text and the screen around the content (app interface, names, song
+/// titles, captions, comments, other posts) give no cards. Metered like explanations on the free plan:
+/// its opening isn't one of the backend's free translation openings.
+public struct PhotoCardsTemplate: PromptTemplate {
+    public typealias Input = RecognizableImage
+    public typealias Output = PhotoCardsResult
+
+    public let id = "photoCards"
+    public let studiedLanguage: String
+    public let nativeLanguage: String
+    public init(studiedLanguage: String = "English", nativeLanguage: String = "Russian") {
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
+    }
+
+    // A dense screenshot can yield dozens of cards; vision + extraction favours accuracy over speed.
+    public var maxOutputTokens: Int { 16384 }
+    public var prefersFastResponse: Bool { false }
+
+    public var systemPrompt: String {
+        """
+        You are a \(studiedLanguage) vocabulary card generator for a \(nativeLanguage) speaker. The image is
+        a photo or a screenshot with \(studiedLanguage) text. Make cards ONLY for what is meant to be learned:
+        - A FEATURED PHRASE: the image sets a phrase or sentence apart to be learned — a caption on a card or
+          a panel, large or highlighted text in the middle, often with its \(nativeLanguage) translation next to
+          it (posts of language-learning accounts look like this). Then make ONE card for that phrase, whole
+          and as written — never split it into words or parts — with the translation the image shows, if it
+          shows one. Make no other cards. When the image sets several phrases apart — a list of phrases, each
+          with its translation — make one such card for each of them. A short text standing on its own — a
+          sign, a label, a slogan — counts as a featured phrase too.
+        - MARKED PHRASES on a page of text (a book, an article, notes, a chat): only the words and phrases the
+          reader marked — highlighted with a marker, underlined, circled, boxed, bracketed or otherwise marked
+          by hand. One card per marked phrase, whole: never split it, never add the words around it.
+        - Nothing else: unmarked running text gives no cards. A page with nothing marked, or an image with no
+          \(studiedLanguage) text to learn, gives an empty "cards" array.
+        Never card the screen around the content: app interface (buttons, tabs, counters, menus, "more"),
+        user names and handles, song and music titles, the caption and comments under a post, ads, other
+        posts, watermarks, the status bar. Ignore text in other languages.
+
+        For each card:
+        - "expression": a featured phrase as written; a marked phrase in its dictionary form, as
+          \(studiedLanguage) vocabulary lists write it ("jumped the gun" → "to jump the gun"; a single noun with
+          its article).
+        - "translation": its \(nativeLanguage) translation — the one in the image for a featured phrase,
+          otherwise one or two variants separated by " / ".
+        - "example": for a marked phrase, the sentence it stands in on the page; otherwise one example
+          sentence in \(studiedLanguage) that uses it.
+        - "context" (\(nativeLanguage)): one short note on when and how it is said — register and tone (polite,
+          irritated, ironic, rude…) and the typical situation. Never leave it empty.
+        - "synonyms": 2 to 3 \(studiedLanguage) synonyms.
+        Use lowercase letters everywhere — except the English pronoun "I" (I'm, I've, I'll, I'd) and German
+        nouns. No commentary.
+        \(plainTextRule)
+        """
+    }
+
+    public var outputJSONSchema: String {
+        """
+        {"type":"object","properties":{"cards":{"type":"array","items":{"type":"object",
+        "properties":{"expression":{"type":"string"},"translation":{"type":"string"},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
+        "context":{"type":"string"}},
+        "required":["expression","translation","example","synonyms","context"],"additionalProperties":false}}},
+        "required":["cards"],"additionalProperties":false}
+        """
+    }
+
+    public func userMessage(for input: RecognizableImage) -> String {
+        "Make the \(studiedLanguage) vocabulary cards for this image — only its featured phrase or the phrases marked on it."
+    }
+
+    public func image(for input: RecognizableImage) -> Data? { input.data }
+
+    public func decode(_ rawJSON: String) throws -> PhotoCardsResult {
+        let raw = try decodeJSON(PhotoCardsResult.self, from: rawJSON)
+        let cards = raw.cards.map { card in
+            CardDraft(expression: PlainText.clean(card.expression),
+                      translation: PlainText.clean(card.translation),
+                      example: PlainText.clean(card.example),
+                      synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)),
+                      context: PlainText.clean(card.context))
+        }
+        return PhotoCardsResult(cards: cards.filter { !$0.expression.isEmpty })
+    }
+}
+
+// MARK: - fixCards (batch: tidy up flashcards already in study)
+
+/// One card as sent to / returned by `FixCardsTemplate` — `id` ties the answer to the card.
+public struct FixCardItem: Codable, Sendable, Equatable {
+    public let id: String
+    public var expression: String
+    public var translation: String
+    public var example: String
+    public var synonyms: [String]
+    public var context: String
+
+    public init(id: String, expression: String, translation: String, example: String, synonyms: [String],
+                context: String) {
+        self.id = id
+        self.expression = expression
+        self.translation = translation
+        self.example = example
+        self.synonyms = synonyms
+        self.context = context
+    }
+}
+
+/// `{ "cards": [ FixCardItem ] }`.
+public struct FixCardsResult: Codable, Sendable, Equatable {
+    public let cards: [FixCardItem]
+    public init(cards: [FixCardItem]) { self.cards = cards }
+}
+
+/// A batch of flashcards → the same cards corrected and completed: grammar and spelling fixed, a
+/// single verb given its infinitive marker and a single noun its article (as the studied language's
+/// vocabulary lists do), missing example / synonyms / usage note filled in. Correct text is kept.
+/// Letter case (all lower case but "I") is applied by the app as well. Metered on the free plan.
+public struct FixCardsTemplate: PromptTemplate {
+    public typealias Input = [FixCardItem]
+    public typealias Output = FixCardsResult
+
+    public let id = "fixCards"
+    public let studiedLanguage: String
+    public let nativeLanguage: String
+    public init(studiedLanguage: String = "English", nativeLanguage: String = "Russian") {
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
+    }
+
+    /// The explanation model: the translation model left a third of the notes and synonyms empty.
+    public var modelTier: ModelTier { .standard }
+    /// Twenty cards with filled-in examples, synonyms and notes.
+    public var maxOutputTokens: Int { 12_000 }
+
+    public var systemPrompt: String {
+        """
+        You tidy up vocabulary flashcards of a \(nativeLanguage) speaker who is learning \(studiedLanguage). You
+        get a JSON list of cards; return EVERY card, with the same "id", corrected and completed:
+        - "expression" (\(studiedLanguage)): fix grammar and spelling mistakes. Keep the meaning, the register and
+          any wording that is already correct — never paraphrase a correct expression. If it is a single
+          verb, give its dictionary form with the infinitive marker \(studiedLanguage) vocabulary lists use
+          (English: "to abandon"). If it is a single noun, add the article \(studiedLanguage) vocabulary lists use
+          (English "a"/"an" for countable nouns; German "der"/"die"/"das"; French "le"/"la"/"l'"; Spanish
+          "el"/"la"; Italian "il"/"lo"/"la"/"l'"); a language without articles gets none. Leave multi-word
+          phrases and idioms as they are apart from fixing mistakes.
+        - "translation" (\(nativeLanguage)): fix mistakes; keep it if it is right; one or two variants separated by
+          " / ".
+        - "example" (\(studiedLanguage)): fix mistakes; if empty, write ONE natural sentence that uses the
+          expression. Never leave it empty.
+        - "synonyms" (\(studiedLanguage)): keep the correct ones; if empty, give 2 to 3 near-equivalents — fewer
+          only if none fit, never invented.
+        - "context" (\(nativeLanguage)): keep a usage note; if empty — or if it holds something else, such as a list of
+          synonyms (move them to "synonyms") or an example — write one short note on when and how the expression
+          is used (register, typical situation). Never leave it empty.
+        Write every field in lowercase letters — except the English pronoun "I" (I'm, I've, I'll, I'd) and
+        German nouns.
+        \(plainTextRule)
+        """
+    }
+
+    public var outputJSONSchema: String {
+        """
+        {"type":"object","properties":{"cards":{"type":"array","items":{"type":"object",
+        "properties":{"id":{"type":"string"},"expression":{"type":"string"},"translation":{"type":"string"},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
+        "context":{"type":"string"}},
+        "required":["id","expression","translation","example","synonyms","context"],
+        "additionalProperties":false}}},
+        "required":["cards"],"additionalProperties":false}
+        """
+    }
+
+    public func userMessage(for input: [FixCardItem]) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = (try? encoder.encode(FixCardsResult(cards: input))) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public func decode(_ rawJSON: String) throws -> FixCardsResult {
+        let raw = try decodeJSON(FixCardsResult.self, from: rawJSON)
+        let cards = raw.cards.map { card in
+            FixCardItem(id: card.id,
+                        expression: PlainText.clean(card.expression),
+                        translation: PlainText.clean(card.translation),
+                        example: PlainText.clean(card.example),
+                        synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)),
+                        context: PlainText.clean(card.context))
+        }
+        return FixCardsResult(cards: cards.filter { !$0.expression.isEmpty && !$0.translation.isEmpty })
+    }
+}
+
+// MARK: - dedupeCards (groups of look-alike flashcards → which of them to merge, and into what)
+
+/// A group of flashcards whose expressions look alike (`PhraseKey`), as sent to `DuplicatesTemplate`.
+public struct DuplicateGroupItem: Codable, Sendable, Equatable {
+    public let id: String
+    public let cards: [FixCardItem]
+
+    public init(id: String, cards: [FixCardItem]) {
+        self.id = id
+        self.cards = cards
+    }
+}
+
+/// What the cards of a merge are to each other.
+public enum DuplicateKind: String, Codable, Sendable, CaseIterable {
+    /// The same expression in the same meaning — one card is enough.
+    case duplicate
+    /// The very same expression in different meanings — one card with every meaning numbered.
+    case senses
+}
+
+/// A card's texts.
+public struct CardText: Codable, Sendable, Equatable {
+    public var expression: String
+    public var translation: String
+    public var example: String
+    public var synonyms: [String]
+    public var context: String
+
+    public init(expression: String, translation: String, example: String, synonyms: [String], context: String) {
+        self.expression = expression
+        self.translation = translation
+        self.example = example
+        self.synonyms = synonyms
+        self.context = context
+    }
+}
+
+/// One merge the model proposes: two or more of the group's cards (by id), what they are, the card
+/// they'd make.
+public struct DuplicateMergeAnswer: Codable, Sendable, Equatable {
+    public let ids: [String]
+    public let verdict: DuplicateKind
+    public let card: CardText
+
+    public init(ids: [String], verdict: DuplicateKind, card: CardText) {
+        self.ids = ids
+        self.verdict = verdict
+        self.card = card
+    }
+}
+
+/// The model's answer for one group: the merges to make — cards in none of them stay apart.
+public struct DuplicateVerdict: Codable, Sendable, Equatable {
+    public let id: String
+    public let merges: [DuplicateMergeAnswer]
+
+    public init(id: String, merges: [DuplicateMergeAnswer]) {
+        self.id = id
+        self.merges = merges
+    }
+}
+
+/// `{ "groups": [ DuplicateVerdict ] }`.
+public struct DuplicatesResult: Codable, Sendable, Equatable {
+    public let groups: [DuplicateVerdict]
+    public init(groups: [DuplicateVerdict]) { self.groups = groups }
+}
+
+/// Groups of look-alike flashcards → for each, the merges to make: cards that teach one expression in
+/// one meaning (a duplicate), or the very same expression in several meanings (one card, the meanings
+/// numbered "1) … 2) …" with an example each); a card that is another expression after all — another
+/// construction, word or idiom — stays out. Metered on the free plan.
+public struct DuplicatesTemplate: PromptTemplate {
+    public typealias Input = [DuplicateGroupItem]
+    public typealias Output = DuplicatesResult
+
+    public let id = "dedupeCards"
+    public let studiedLanguage: String
+    public let nativeLanguage: String
+    public init(studiedLanguage: String = "English", nativeLanguage: String = "Russian") {
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
+    }
+
+    /// The explanation model: telling meanings apart and merging them is judgement, not a lookup.
+    public var modelTier: ModelTier { .standard }
+    /// A batch of groups (`DuplicatesInteractor.batchSize`), each with merged cards that may number several meanings.
+    public var maxOutputTokens: Int { 8_000 }
+
+    public var systemPrompt: String {
+        """
+        You check vocabulary flashcards of a \(nativeLanguage) speaker who is learning \(studiedLanguage). You get groups
+        of cards whose \(studiedLanguage) expressions look alike — the same words apart from articles, infinitive
+        markers, the spelling of a slot ("sb", "smb" or "someone"), punctuation or word forms. Look-alike is not the
+        same: for EVERY group return its "id" and the "merges" to make. A merge joins two or more of the group's cards, by their
+        "id", into one card:
+        - "verdict": "duplicate" when those cards teach the same expression in the same meaning (translations
+          worded differently still count); "senses" when they are the very same expression with different meanings.
+        - Leave a card out of every merge when it is another expression after all: another construction (an extra
+          object or slot — "fuck about" and "fuck somebody about" are two expressions), another word or part of
+          speech ("crooked" and "a crook", "bangs" and "banging"), another idiom, or a word spelled alike but
+          pronounced differently (English "lead" /liːd/ and "lead" /led/). Never put a card into two merges. A group
+          may need one merge, several, or none ("merges": []).
+        - "card": the one card the merge makes, keeping everything worth learning from its cards:
+          - "expression" (\(studiedLanguage)): the best-written form among them, fixed if wrong, in the dictionary form
+            \(studiedLanguage) vocabulary lists use: a verb, or a phrase that starts with a verb in its base form, gets
+            the infinitive marker (English "to": "to abandon", "to hit the roof", "to pick on someone"); a noun, or a
+            phrase built on a noun, gets the article ("a corkscrew", "a lame excuse"; German "der Tisch"); a whole
+            sentence or any other phrase ("I'm in a pickle", "the more…, the more…") stays as it is. If one of the
+            cards already has the marker or the article, keep it.
+          - "translation" (\(nativeLanguage)): for "duplicate", one or two variants separated by " / "; for "senses",
+            every meaning numbered: "1) … 2) …".
+          - "example" (\(studiedLanguage)): one natural sentence; for "senses", one per meaning, numbered the same way.
+          - "synonyms" (\(studiedLanguage)): 2 to 4 near-equivalents — fewer only if none fit, never invented.
+          - "context" (\(nativeLanguage)): one short note on when and how the expression is used; for "senses", how the
+            meanings differ. Never leave it empty.
+        Write every field in lowercase letters — except the English pronoun "I" (I'm, I've, I'll, I'd) and
+        German nouns.
+        \(plainTextRule)
+        """
+    }
+
+    public var outputJSONSchema: String {
+        """
+        {"type":"object","properties":{"groups":{"type":"array","items":{"type":"object",
+        "properties":{"id":{"type":"string"},"merges":{"type":"array","items":{"type":"object",
+        "properties":{"ids":{"type":"array","items":{"type":"string"}},
+        "verdict":{"type":"string","enum":["duplicate","senses"]},
+        "card":{"type":"object","properties":{"expression":{"type":"string"},"translation":{"type":"string"},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
+        "context":{"type":"string"}},
+        "required":["expression","translation","example","synonyms","context"],"additionalProperties":false}},
+        "required":["ids","verdict","card"],"additionalProperties":false}}},
+        "required":["id","merges"],"additionalProperties":false}}},
+        "required":["groups"],"additionalProperties":false}
+        """
+    }
+
+    private struct Payload: Encodable { let groups: [DuplicateGroupItem] }
+
+    public func userMessage(for input: [DuplicateGroupItem]) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = (try? encoder.encode(Payload(groups: input))) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Cleans the texts; a merge of fewer than two cards, or without an expression or translation, is dropped.
+    public func decode(_ rawJSON: String) throws -> DuplicatesResult {
+        let raw = try decodeJSON(DuplicatesResult.self, from: rawJSON)
+        return DuplicatesResult(groups: raw.groups.map { group in
+            DuplicateVerdict(id: group.id, merges: group.merges.compactMap { merge in
+                let card = CardText(
+                    expression: PlainText.clean(merge.card.expression),
+                    translation: PlainText.clean(merge.card.translation),
+                    example: PlainText.clean(merge.card.example),
+                    synonyms: Array(merge.card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(4)),
+                    context: PlainText.clean(merge.card.context))
+                let ids = merge.ids.reduce(into: [String]()) { if !$1.isEmpty && !$0.contains($1) { $0.append($1) } }
+                guard ids.count > 1, !card.expression.isEmpty, !card.translation.isEmpty else { return nil }
+                return DuplicateMergeAnswer(ids: ids, verdict: merge.verdict, card: card)
+            })
+        })
     }
 }
 

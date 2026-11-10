@@ -27,6 +27,11 @@ public actor SwiftDataExpressionRepository: ExpressionRepository {
         try save()
     }
 
+    public func addAll(_ expressions: [Domain.Expression]) async throws {
+        for expression in expressions { modelContext.insert(ExpressionModel(expression)) }
+        try save()
+    }
+
     public func update(_ expression: Domain.Expression) async throws {
         guard let model = try fetchModel(id: expression.id) else { throw RepositoryError.notFound }
         model.apply(expression)
@@ -61,6 +66,88 @@ public actor SwiftDataExpressionRepository: ExpressionRepository {
         var descriptor = FetchDescriptor<ExpressionModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         return try modelContext.fetch(descriptor).first
+    }
+
+    private func save() throws {
+        do { try modelContext.save() }
+        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+    }
+}
+
+@ModelActor
+public actor SwiftDataReviewCardRepository: ReviewCardRepository {
+    public func all() async throws -> [ReviewCard] {
+        try modelContext.fetch(FetchDescriptor<ReviewCardModel>()).compactMap { $0.toDomain() }
+    }
+
+    public func save(_ card: ReviewCard) async throws {
+        let id = card.id
+        var descriptor = FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        if let model = try modelContext.fetch(descriptor).first {
+            model.apply(card)
+        } else {
+            modelContext.insert(ReviewCardModel(card))
+        }
+        try save()
+    }
+
+    public func saveAll(_ cards: [ReviewCard]) async throws {
+        // One read of the existing cards, matched in memory — an IN over thousands of ids would hit
+        // SQLite's parameter limit.
+        let existing = try modelContext.fetch(FetchDescriptor<ReviewCardModel>())
+        let byID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for card in cards {
+            if let model = byID[card.id] { model.apply(card) } else { modelContext.insert(ReviewCardModel(card)) }
+        }
+        try save()
+    }
+
+    public func delete(expressionID: UUID) async throws {
+        let descriptor = FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.expressionID == expressionID })
+        for model in try modelContext.fetch(descriptor) { modelContext.delete(model) }
+        try save()
+    }
+
+    public func appendLog(_ log: ReviewLog) async throws {
+        modelContext.insert(ReviewLogModel(log))
+        try save()
+    }
+
+    public func logs(since date: Date) async throws -> [ReviewLog] {
+        let descriptor = FetchDescriptor<ReviewLogModel>(predicate: #Predicate { $0.reviewedAt >= date })
+        return try modelContext.fetch(descriptor).compactMap { $0.toDomain() }
+    }
+
+    private func save() throws {
+        do { try modelContext.save() }
+        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+    }
+}
+
+/// The "not duplicates" links between cards, in the store with them.
+@ModelActor
+public actor SwiftDataNotDuplicateMarks: NotDuplicateMarking {
+    public func pairs() async throws -> Set<NotDuplicatePair> {
+        Set(try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>()).map { $0.toDomain() })
+    }
+
+    public func mark(_ pairs: Set<NotDuplicatePair>) async throws {
+        guard !pairs.isEmpty else { return }
+        let existing = Set(try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>()).map(\.key))
+        for pair in pairs where !existing.contains(NotDuplicatePairModel.key(pair)) {
+            modelContext.insert(NotDuplicatePairModel(pair))
+        }
+        try save()
+    }
+
+    public func unmark(involving ids: Set<UUID>) async throws {
+        guard !ids.isEmpty else { return }
+        for model in try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>())
+        where ids.contains(model.first) || ids.contains(model.second) {
+            modelContext.delete(model)
+        }
+        try save()
     }
 
     private func save() throws {
@@ -215,7 +302,7 @@ public actor SwiftDataTranslationCache: TranslationCache {
 public enum PersistenceSchema {
     /// The model types the app's ModelContainer must register (single source of truth — `bootLive`
     /// and migrations both read this rather than re-listing the @Model types).
-    public static let models: [any PersistentModel.Type] = AppSchemaV2.models
+    public static let models: [any PersistentModel.Type] = AppSchemaV5.models
     /// The current versioned schema, paired with `AppMigrationPlan` when opening the store.
-    public static let current = Schema(versionedSchema: AppSchemaV2.self)
+    public static let current = Schema(versionedSchema: AppSchemaV5.self)
 }
