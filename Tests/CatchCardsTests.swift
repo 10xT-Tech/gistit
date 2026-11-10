@@ -281,6 +281,25 @@ import Presentation
         #expect(!(try await repo.all().contains { $0.id == victim.id }))
     }
 
+    /// Delete all (Caught): the list empties at once and the phrases leave the store — the ones in
+    /// flashcards stay.
+    @Test func deleteAllEmptiesCaughtOnly() async throws {
+        let studied = Domain.Expression(en: "hit the roof", ru: "взбеситься")
+        let repo = MockExpressionRepository(seed: MockExpressionRepository.defaultSeed + [studied])
+        let cards = MockReviewCardRepository()
+        try await FlashcardsInteractor(expressions: repo, cards: cards).enroll(studied.id, now: Date())
+        let caught = makeList(repo, cards, scope: .caught)
+        await caught.load()
+        #expect(caught.expressions.count == 2)
+
+        caught.deleteAll()
+        #expect(caught.expressions.isEmpty && caught.phase == .empty)
+        var tries = 0
+        while try await repo.all().count > 1, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
+        #expect(try await repo.all().map(\.id) == [studied.id])
+        #expect(try await cards.all().count == 2)
+    }
+
     @Test func catchSessionOpensOnceAndReloadsOnClose() async throws {
         let repo = MockExpressionRepository(seed: [])
         let caught = makeList(repo, MockReviewCardRepository(), scope: .caught)

@@ -194,6 +194,29 @@ final class FlashcardsUITests: XCTestCase {
 
     /// An empty Caught offers both ways to add a card; "Generate from a phrase" opens the new-card
     /// sheet (phrase on two lines, focused), and the generated card lands on the list.
+    /// Caught → share menu → Delete all: a sheet asks, then the list is empty.
+    func testDeleteAllInCaught() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        app.buttons["study.caught"].tap()
+        let menu = app.buttons["Export list"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        menu.tap()
+        let deleteAll = app.buttons["caught.deleteAll"]
+        XCTAssertTrue(deleteAll.waitForExistence(timeout: 3))
+        deleteAll.tap()
+        let confirm = app.buttons["caught.deleteAll.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        attach(app, "delete-all-sheet")
+        confirm.tap()
+        XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 3), "Caught isn't empty")
+    }
+
     func testEmptyCaughtOffersBothWays() {
         let app = XCUIApplication()
         app.launchArguments += [

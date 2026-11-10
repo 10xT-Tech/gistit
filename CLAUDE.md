@@ -134,7 +134,8 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 **v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
 flashcards.** Saving (Say it / Get it / See it) stores an `Expression` = **Caught** (`StudyListView` +
 `StudyListViewModel`, scope `.caught`, pushed from the dashboard; swipe-left delete, swipe-right or the
-stack icon → `FlashcardsUseCase.enroll`, "Move all" → enroll every one, oldest first, list empties).
+stack icon → `FlashcardsUseCase.enroll`, "Move all" → enroll every one, oldest first, list empties; share menu → "Delete all" → `ConfirmSheet` →
+`StudyListViewModel.deleteAll()`, optimistic, reload + error on a failed delete).
 "+" = Generate from a phrase (`EnrichCardTemplate`, now `.fast` = the translation model) or From
 photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
 photo — the backend allows one image — via `PhotoCardsTemplate`, skipping already-saved expressions;

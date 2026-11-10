@@ -68,6 +68,8 @@ public final class StudyListViewModel {
 
     /// "Move all to flashcards" asks first.
     public var showMoveAllConfirmation = false
+    /// "Delete all" (Caught) asks first.
+    public var showDeleteAllConfirmation = false
     /// Caught phrases that look like phrases already in flashcards — "Move all" can leave them here.
     public private(set) var moveAllLookAlikes: Set<UUID> = []
     /// A caught phrase being moved that looks like one already in flashcards.
@@ -215,6 +217,27 @@ public final class StudyListViewModel {
                 self.phase = wasLoaded
                 self.actionError = Loc.t("Не удалось удалить. Попробуйте ещё раз.",
                                          "Couldn't delete. Try again.")
+            }
+        }
+    }
+
+    /// Caught → "Delete all": every phrase in the list goes (the list empties at once). If any delete
+    /// fails, the list is read again and says so.
+    public func deleteAll() {
+        guard scope == .caught, !expressions.isEmpty else { return }
+        let removing = expressions
+        expressions = []
+        phase = .empty
+        Task { [weak self] in
+            guard let self else { return }
+            var failed = false
+            for expression in removing {
+                do { try await self.studyList.delete(id: expression.id) } catch { failed = true }
+            }
+            if failed {
+                await self.load()
+                self.actionError = Loc.t("Не удалось удалить часть фраз. Попробуйте ещё раз.",
+                                         "Couldn't delete some phrases. Try again.")
             }
         }
     }

@@ -39,7 +39,8 @@ flashcards, or **Move all to flashcards** at once. If a phrase looks like one yo
 the roof!" and "to hit the roof"), the app asks first: **Merge** joins it with the card it really is —
 your progress stays, and several meanings are numbered on one card — or tells you it's another phrase
 after all; **Move separately** keeps them apart. **Move all** can leave such look-alikes in Caught, to
-be moved one by one. Swipe left to delete. **Copy** copies the whole card as four lines (phrase,
+be moved one by one. Swipe left to delete, or **Delete all** in the share menu to
+clear the list (it asks first; flashcards aren't touched). **Copy** copies the whole card as four lines (phrase,
 translation, example, synonyms), and **Copy all cards** in the share menu copies the list, ready to
 paste into another app.
 

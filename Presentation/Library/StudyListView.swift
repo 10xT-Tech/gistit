@@ -97,6 +97,13 @@ public struct StudyListView: View {
                             Label(Loc.t("Скопировать все карточки", "Copy all cards"), systemImage: "doc.on.doc")
                         }
                         .disabled(model.expressions.isEmpty)
+                        Divider()
+                        Button(role: .destructive) { model.showDeleteAllConfirmation = true } label: {
+                            Label(Loc.t("Удалить все", "Delete all", "Tout supprimer", "Eliminar todas",
+                                        "Alle löschen", "Elimina tutte"), systemImage: "trash")
+                        }
+                        .disabled(model.expressions.isEmpty)
+                        .accessibilityIdentifier("caught.deleteAll")
                     } label: {
                         Image(systemName: "square.and.arrow.up")
                     }
@@ -209,6 +216,20 @@ public struct StudyListView: View {
         .sheet(item: $model.catchSession, onDismiss: { model.endCatch() }) { session in
             CatchFromPhotosView(model: session) { model.catchSession = nil }
                 .environment(subscription)
+        }
+        .sheet(isPresented: $model.showDeleteAllConfirmation) {
+            let all = model.expressions.count
+            ConfirmSheet(icon: "trash",
+                         title: Loc.t("Удалить все из «Пойманных»?", "Delete everything in Caught?",
+                                      "Tout supprimer dans « Capturées » ?", "¿Eliminar todo en «Atrapadas»?",
+                                      "Alles in „Eingefangen“ löschen?", "Eliminare tutto in «Catturate»?"),
+                         message: Loc.t("Фраз: \(all). Их нельзя будет вернуть. Флеш-карты не затронутся.",
+                                        "Phrases: \(all). They can't be brought back. Your flashcards aren't touched."),
+                         actions: [ConfirmAction(Loc.t("Удалить (\(all))", "Delete (\(all))", "Supprimer (\(all))",
+                                                       "Eliminar (\(all))", "Löschen (\(all))", "Elimina (\(all))"),
+                                                 role: .destructive, accessibilityID: "caught.deleteAll.confirm") {
+                             model.deleteAll()
+                         }])
         }
         .sheet(isPresented: $model.showMoveAllConfirmation) {
             let all = model.expressions.count, alike = model.moveAllLookAlikes.count
