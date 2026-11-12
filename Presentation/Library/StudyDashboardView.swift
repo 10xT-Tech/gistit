@@ -38,7 +38,7 @@ public struct StudyDashboardView: View {
                 ScreenBackground()
                 if let stats = model.stats {
                     VerticalScrollView {
-                        VStack(spacing: Tokens.Space.s12) {
+                        VStack(spacing: Tokens.Space.s8) {
                             practiceCard(stats)
                             listRow(icon: "tray", title: Loc.t("Пойманные", "Caught"),
                                     subtitle: Loc.t("Сохранённые и распознанные фразы", "Saved and caught phrases"),
@@ -78,7 +78,7 @@ public struct StudyDashboardView: View {
 
     private func practiceCard(_ stats: StudyStats) -> some View {
         let plan = stats.today
-        return VStack(alignment: .leading, spacing: Tokens.Space.s16) {
+        return VStack(alignment: .leading, spacing: Tokens.Space.s12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(Loc.t("Флеш-карты", "Flashcards"))
                     .textStyle(Tokens.Text.headline)
@@ -206,14 +206,14 @@ private struct ReviewsCard: View {
     @Environment(\.locale) private var locale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.s12) {
+        VStack(alignment: .leading, spacing: Tokens.Space.s8) {
             Text(Loc.t("Повторения", "Reviews"))
                 .textStyle(Tokens.Text.headline)
                 .foregroundStyle(Tokens.Content.primary)
             HStack(alignment: .bottom, spacing: Tokens.Space.s16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(days.last?.count ?? 0)")
-                        .textStyle(Tokens.Text.largeTitle)
+                        .textStyle(Tokens.Text.title1)
                         .foregroundStyle(Tokens.Content.primary)
                         .monospacedDigit()
                     Text(Loc.t("сегодня", "today"))
@@ -232,7 +232,7 @@ private struct ReviewsCard: View {
 
     private var bars: some View {
         let peak = max(days.map(\.count).max() ?? 0, 1)
-        let height: CGFloat = 44
+        let height: CGFloat = 36
         return HStack(alignment: .bottom, spacing: Tokens.Space.s8) {
             ForEach(Array(days.enumerated()), id: \.offset) { index, day in
                 let isToday = index == days.count - 1
@@ -287,7 +287,7 @@ private struct DistributionCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.s12) {
+        VStack(alignment: .leading, spacing: Tokens.Space.s8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(Loc.t("Карточки", "Cards"))
                     .textStyle(Tokens.Text.headline)
