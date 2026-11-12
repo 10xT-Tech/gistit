@@ -134,6 +134,37 @@
   .live-note { font-size: 13.5px; color: var(--ink2); font-weight: 550; margin-top: auto; line-height: 1.5; }
   .live-note b { color: var(--ink); }
 
+  /* study · flashcards */
+  .study { margin-top: 54px; background: var(--card); border: 1px solid var(--hair); border-radius: 26px; padding: 34px;
+           display: grid; grid-template-columns: 1.1fr 1fr; gap: 34px; align-items: center;
+           box-shadow: 0 1px 2px rgba(17,17,20,.04); }
+  @media (max-width: 940px) { .study { grid-template-columns: 1fr; padding: 24px; gap: 24px; } }
+  .study h2 { font-size: clamp(24px, 3vw, 34px); font-weight: 800; letter-spacing: -0.5px; margin-top: 14px; line-height: 1.15; }
+  .study .lead { font-size: 16px; color: var(--ink2); line-height: 1.55; margin-top: 12px; }
+  .study ul { list-style: none; margin-top: 18px; display: flex; flex-direction: column; gap: 11px; }
+  .study li { font-size: 14.5px; color: var(--ink2); line-height: 1.5; padding-left: 20px; position: relative; }
+  .study li::before { content: "—"; position: absolute; left: 0; color: var(--green); font-weight: 800; }
+  .study li b { color: var(--ink); }
+  .study .free { margin-top: 18px; font-size: 13.5px; font-weight: 700; color: var(--ink); }
+  .study .free span { color: var(--green); }
+  .fc { background: var(--bg); border: 1px solid var(--hair); border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .fc .goal { display: flex; flex-direction: column; gap: 6px; }
+  .fc .line { height: 6px; border-radius: 3px; background: var(--hair); position: relative; overflow: hidden; }
+  .fc .line i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; display: block; }
+  .fc .line .pend { width: 70%; background: #B8B8BE; }
+  .fc .line .done { width: 64%; background: var(--green); }
+  .fc .goal span { font-size: 12.5px; color: var(--ink2); font-weight: 600; }
+  .fc .face { background: var(--card); border: 1px solid var(--hair); border-radius: 16px; padding: 18px; }
+  .fc .dir { font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; color: var(--ink3); text-transform: uppercase; }
+  .fc .q { font-size: 24px; font-weight: 800; letter-spacing: -0.3px; margin-top: 8px; }
+  .fc .a { font-size: 17px; font-weight: 700; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hair); }
+  .fc .ex { font-size: 13.5px; color: var(--ink2); margin-top: 6px; font-style: italic; }
+  .fc .syn { font-size: 12.5px; color: var(--ink3); margin-top: 6px; font-weight: 600; }
+  .fc .rate { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .fc .rate div { background: var(--card); border: 1px solid var(--hair); border-radius: 12px; padding: 9px 4px; text-align: center; }
+  .fc .rate b { display: block; font-size: 13.5px; }
+  .fc .rate span { display: block; font-size: 11.5px; color: var(--ink3); font-weight: 650; margin-top: 2px; }
+
   /* little things */
   .things { margin-top: 54px; }
   .things h2 { font-size: clamp(22px, 2.6vw, 30px); font-weight: 800; letter-spacing: -0.4px; }
@@ -218,7 +249,8 @@
       Gist It tells you what’s really going on.</h1>
     <div class="rule"></div>
     <p class="sub">Meaning in its <b>cultural context</b> — for signs you photograph, phrases you type,
-      and <b>live speech translated in real time</b>. With the tone you choose: <b>Polite · Casual · Slang</b>.</p>
+      and <b>live speech translated in real time</b>. With the tone you choose: <b>Polite · Casual · Slang</b>.
+      Then keep what you met as <b>flashcards</b> and make it yours.</p>
     <div class="cta-row">
       <a class="btn" href="https://apps.apple.com/app/gist-it/id6775965170">Download on the App Store <span class="arrow">→</span></a>
       <div class="cta-note">iPhone · iOS 26 · free to download<br>Want new features first? <a href="https://testflight.apple.com/join/yaRBFkRk">Join the beta</a></div>
@@ -284,13 +316,53 @@
   </div>
 </section>
 
+<section class="wrap">
+  <div class="study">
+    <div>
+      <div class="cap">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2.4"/><path d="M6.5 5h11M8.5 2.6h7"/></svg>
+        <span><b>Flashcards</b> · keep what you met</span>
+      </div>
+      <h2>What you meet in the wild becomes what you know.</h2>
+      <p class="lead">Save a phrase from a sign, a chat or a conversation, and it’s already a full card — translation, an example, synonyms and a note on when people say it. Then practise it right in the app.</p>
+      <ul>
+        <li><b>Spaced repetition that adapts to you.</b> The same method as modern Anki (FSRS): cards you know come back rarely, the tricky ones sooner.</li>
+        <li><b>Both ways.</b> First you learn to understand a phrase, then to say it from its meaning.</li>
+        <li><b>A daily goal.</b> Pick 25 to 150 cards a day; stop any time and pick up where you left off.</li>
+        <li><b>Cards from your photos.</b> Screenshot a language post or mark phrases on a page — each one becomes a card.</li>
+        <li><b>A tidy deck.</b> Duplicates are found and merged, cards are fixed up, and your progress moves with you in a card file.</li>
+      </ul>
+      <div class="free"><span>●</span> Flashcards are free — everything that runs on your iPhone is.</div>
+    </div>
+    <div class="fc" aria-hidden="true">
+      <div class="goal">
+        <div class="line"><i class="pend"></i><i class="done"></i></div>
+        <span>Today: 32 of 50 · 3 coming back today</span>
+      </div>
+      <div class="face">
+        <div class="dir">Recognize</div>
+        <div class="q">pas terrible</div>
+        <div class="a">not great · meh</div>
+        <div class="ex">“Le film ? Pas terrible.”</div>
+        <div class="syn">bof · moyen · pas génial</div>
+      </div>
+      <div class="rate">
+        <div><b>Again</b><span>1 min</span></div>
+        <div><b>Hard</b><span>6 min</span></div>
+        <div><b>Good</b><span>1 day</span></div>
+        <div><b>Easy</b><span>4 days</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="things">
   <div class="wrap">
     <h2>Little things that make it feel like an assistant</h2>
     <div class="grid">
       <div class="thing"><b><span class="tick">—</span>Hear it before you say it</b><p>Every phrase plays back in the language you’re learning, one tap.</p></div>
       <div class="thing"><b><span class="tick">—</span>Sessions you can replay</b><p>Live translations land in History with the original audio recording.</p></div>
-      <div class="thing"><b><span class="tick">—</span>Save the keepers</b><p>Bookmark any phrase into your study list and export it to your SRS app.</p></div>
+      <div class="thing"><b><span class="tick">—</span>Save the keepers</b><p>Bookmark any phrase — it’s a ready flashcard, and it exports to Anki or AlgoApp too.</p></div>
       <div class="thing"><b><span class="tick">—</span>One tap from the Lock Screen</b><p>Widgets open the camera, the mic, or a live session already listening.</p></div>
     </div>
   </div>
