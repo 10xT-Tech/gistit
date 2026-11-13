@@ -276,7 +276,26 @@ public final class AppContainer: Sendable {
     /// repositories — History then shows exactly one row per real LLM request, so a hidden
     /// regeneration can't slip past a test. No network, no permissions, no translation cache.
     public static func bootUITestStubs(config: AppConfig = .load()) -> AppContainer {
-        AppContainer(
+        #if DEBUG
+        // `-screenshotDeck`: a believable French deck for the App Store screenshots.
+        if ProcessInfo.processInfo.arguments.contains("-screenshotDeck") {
+            let deck = ScreenshotDeck.make()
+            return AppContainer(
+                config: config,
+                llm: StubLLMClient(latency: .milliseconds(800)),
+                speechRecognizer: StubSpeechRecognizing(),
+                speechRecognizerEN: StubSpeechRecognizing(),
+                speechSynthesizer: StubSpeechSynthesizing(),
+                textRecognizer: StubTextRecognizing(),
+                expressions: MockExpressionRepository(seed: deck.expressions),
+                reviewCards: MockReviewCardRepository(seed: deck.cards, logs: deck.logs),
+                history: MockHistoryRepository(),
+                exporter: MockDeckExporting(),
+                subscriptions: UnlimitedAccess()
+            )
+        }
+        #endif
+        return AppContainer(
             config: config,
             llm: StubLLMClient(latency: .milliseconds(800)),
             speechRecognizer: StubSpeechRecognizing(),
