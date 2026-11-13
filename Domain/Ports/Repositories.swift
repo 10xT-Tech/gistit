@@ -122,14 +122,18 @@ public protocol StorageUsageReading: Sendable {
 /// model must not serve results produced by the other one). Case is preserved — case can change
 /// meaning ("polish"/"Polish").
 public enum TranslationCacheKey {
+    static let version = "v2"
     public static func make(kind: RequestKind, input: String, tone: Register?,
                             studiedLanguage: String, nativeLanguage: String,
                             tier: ModelTier) -> String {
         let normalized = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let toneKey = tone?.rawValue ?? "-"
         let tierKey = tier == .fast ? "fast" : "standard"
-        // \u{1} (a control char) can't appear in user text, so fields can't collide.
-        return [kind.rawValue, studiedLanguage, nativeLanguage, toneKey, tierKey, normalized].joined(separator: "\u{1}")
+        // \u{1} (a control char) can't appear in user text, so fields can't collide. `version` changes when
+        // the prompts change what a cached answer would be — v2: the user's text is tagged, so a short
+        // phrase like "Gist it" is translated, not answered as a command (v1 cached such non-answers).
+        return [version, kind.rawValue, studiedLanguage, nativeLanguage, toneKey, tierKey, normalized]
+            .joined(separator: "\u{1}")
     }
 }
 
