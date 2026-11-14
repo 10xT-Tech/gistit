@@ -85,6 +85,22 @@
   .cta-note { font-size: 14px; color: var(--ink2); font-weight: 600; line-height: 1.5; }
   .cta-note a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 
+  /* what makes it different */
+  .diff { margin-top: 46px; }
+  .diff h2 { font-size: clamp(22px, 2.6vw, 30px); font-weight: 800; letter-spacing: -0.4px; }
+  .diff .lead { font-size: 16px; color: var(--ink2); margin-top: 8px; max-width: 720px; line-height: 1.55; }
+  .diff .list { margin-top: 22px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+  @media (max-width: 1100px) { .diff .list { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 760px) { .diff .list { grid-template-columns: 1fr; } }
+  .dif { background: var(--card); border: 1px solid var(--hair); border-radius: 18px; padding: 18px;
+         display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 2px rgba(17,17,20,.04); }
+  .dif .num { width: 28px; height: 28px; border-radius: 999px; background: var(--ink); color: #fff;
+              display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; }
+  .dif b { font-size: 16px; letter-spacing: -0.2px; line-height: 1.3; }
+  .dif p { font-size: 13.5px; color: var(--ink2); line-height: 1.5; }
+  .dif .vs { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12.5px; color: var(--ink3); font-weight: 650; line-height: 1.45; }
+  .dif .vs span { color: var(--green); font-weight: 800; white-space: nowrap; }
+
   /* cards */
   .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin: 46px 0 0; }
   @media (max-width: 940px) { .cards { grid-template-columns: 1fr; } }
@@ -254,6 +270,30 @@
     <div class="cta-row">
       <a class="btn" href="https://apps.apple.com/app/gist-it/id6775965170">Download on the App Store <span class="arrow">→</span></a>
       <div class="cta-note">iPhone · iOS 26 · free to download<br>Want new features first? <a href="https://testflight.apple.com/join/yaRBFkRk">Join the beta</a></div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="diff">
+    <h2>Not just a translator</h2>
+    <p class="lead">A translator swaps words. Gist It helps you live in the language — understand it, speak it, read it, and keep what you learn.</p>
+    <div class="list">
+      <div class="dif"><div class="num">1</div><b>Cultural context and nuance</b>
+        <p>What a phrase really means, how blunt or polite it sounds, where people say it — and a familiar comparison so it clicks.</p>
+        <div class="vs">Translator: the words. <span>Gist It:</span> the meaning behind them.</div></div>
+      <div class="dif"><div class="num">2</div><b>Phrases for your situation</b>
+        <p>Say the thought you want to get across, or describe the moment — “returning a jacket”, “a sore throat at the pharmacy” — and get natural phrases in the tone you choose.</p>
+        <div class="vs">Translator: your sentence, word for word. <span>Gist It:</span> what a local would say.</div></div>
+      <div class="dif"><div class="num">3</div><b>Live speech, in real time</b>
+        <p>A lecture, a tour, the counter at the café: your iPhone listens and translates the room as people speak. Pause, flip the direction, replay later.</p>
+        <div class="vs">Translator: type it in. <span>Gist It:</span> just listen.</div></div>
+      <div class="dif"><div class="num">4</div><b>Photos, menus and documents</b>
+        <p>Point the camera at a sign, a menu or a letter: the text is read, translated and explained — what the notice is about, what to order, what the letter asks of you.</p>
+        <div class="vs">Translator: the text. <span>Gist It:</span> the situation.</div></div>
+      <div class="dif"><div class="num">5</div><b>Flashcards that make it stick</b>
+        <p>Save any word or phrase as a ready card and practise it every day with spaced repetition — understand it first, then say it yourself.</p>
+        <div class="vs">Translator: forgotten tomorrow. <span>Gist It:</span> yours for good.</div></div>
     </div>
   </div>
 </section>
