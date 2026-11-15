@@ -555,6 +555,13 @@ public final class InViewModel {
                          "The speech service is unavailable. Try later.")
         case .subscriptionRequired:
             return Loc.t("Онлайн-перевод доступен по подписке.", "Online translation is part of the subscription.")
+        case .resumeFailed:
+            return Loc.t("Не удалось возобновить запись после паузы. Сессия сохранена в истории — начните новую.",
+                         "Couldn't resume listening after the pause. The session is saved in History — start a new one.",
+                         "Impossible de reprendre l'écoute après la pause. La session est enregistrée dans l'historique — lancez-en une nouvelle.",
+                         "No se pudo reanudar la escucha tras la pausa. La sesión está guardada en el historial: inicia una nueva.",
+                         "Das Zuhören konnte nach der Pause nicht fortgesetzt werden. Die Sitzung ist im Verlauf gespeichert – starte eine neue.",
+                         "Impossibile riprendere l'ascolto dopo la pausa. La sessione è salvata nella cronologia: avviane una nuova.")
         case .underlying(let detail):
             return Loc.t("Ошибка онлайн-перевода: \(detail)", "Online translation error: \(detail)",
                          "Erreur de traduction en direct : \(detail)", "Error de traducción en vivo: \(detail)",

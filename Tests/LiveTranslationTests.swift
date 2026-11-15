@@ -594,6 +594,20 @@ struct SessionRecordingsPlayerTests {
         #expect(!vm.isLiveListening)
     }
 
+    /// A resume that failed ends the session (the adapter throws `.resumeFailed` after the drain):
+    /// the screen stops showing a live session, takes the banner down and says what happened.
+    @Test func aFailedResumeEndsTheSessionAndSaysWhy() async throws {
+        let spy = SpyLiveActivity()
+        let vm = makeVM(live: MockLiveTranslating(script: .init(failure: .resumeFailed)), liveActivity: spy)
+        vm.routeMode(.online)
+        vm.toggleLive()
+        try await waitUntil { vm.liveErrorMessage != nil }
+        #expect(!vm.isLiveListening && !vm.isLivePaused)
+        #expect(vm.liveErrorMessage?.contains("resume") == true || vm.liveErrorMessage?.contains("возобновить") == true)
+        try await waitUntil { spy.events.last == "end" }
+        #expect(spy.events.last == "end")
+    }
+
     /// The Live Activity buttons: their intents post command notifications from the app process;
     /// the view model must act on them — pause toggles, stop ends (and stop while idle is a no-op).
     @Test func liveActivityCommandsControlTheSession() async throws {

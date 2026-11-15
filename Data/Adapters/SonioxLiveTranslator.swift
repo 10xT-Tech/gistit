@@ -124,6 +124,9 @@ private final class LiveSession: @unchecked Sendable {
     @MainActor private var stopped = false          // abort requested or session fully done
     @MainActor private var finishing = false        // graceful stop in progress (draining finals)
     @MainActor private var paused = false           // engine paused; socket kept warm on keepalives
+    /// Why a graceful stop is ending the session, when it isn't the user's doing (a failed resume):
+    /// the stream then finishes by throwing it — after the drain, so the session is still saved.
+    @MainActor private var endingError: LiveTranslationError?
     @MainActor private var rotationTimeoutTask: Task<Void, Never>?
     @MainActor private var captureBegan = false
     @MainActor private var didActivateSession = false
@@ -416,17 +419,31 @@ private final class LiveSession: @unchecked Sendable {
     /// Quick mute/unmute: `AVAudioEngine.pause()` stops the tap callbacks (no audio sent, nothing
     /// recorded, no levels) while the audio session AND the WebSocket stay warm — the sender keeps
     /// the connection alive with keepalives — so resuming is a near-instant `engine.start()`.
+    /// A resume that FAILS (the engine won't start — e.g. recording refused from the background, the
+    /// Lock Screen button) must not be swallowed: the screen would show a live session with no audio
+    /// behind it — and, no longer "paused", no keepalives either, so the socket would die of
+    /// inactivity with an unrelated service error. The session is ended cleanly instead (what was
+    /// heard is drained and saved) and the stream throws `.resumeFailed`, so the screen says why.
     func setPaused(_ newValue: Bool) async {
-        await MainActor.run {
-            guard captureBegan, !stopped, !finishing, paused != newValue else { return }
-            paused = newValue
+        let resumeFailed = await MainActor.run { () -> Bool in
+            guard captureBegan, !stopped, !finishing, paused != newValue else { return false }
             if newValue {
+                paused = true
                 engine.pause()
                 continuation?.yield(.level(0))   // flatten the on-button diagram immediately
-            } else {
-                try? engine.start()
+                return false
+            }
+            do {
+                try engine.start()
+                paused = false
+                return false
+            } catch {
+                liveLog.error("resume failed, ending the session: \(String(describing: error), privacy: .public)")
+                endingError = .resumeFailed     // still paused: keepalives hold the socket for the drain
+                return true
             }
         }
+        if resumeFailed { await stopGracefully() }
     }
 
     /// The direction toggle: finalize what the old direction heard, then ROTATE the socket — a new
@@ -547,6 +564,7 @@ private final class LiveSession: @unchecked Sendable {
         await MainActor.run {
             guard !stopped else { return }
             stopped = true
+            let error = error ?? endingError   // a graceful end that had a reason (a failed resume)
             stopCapture()   // no-op if the graceful path already did it
             teardownTasks()
             webSocket?.cancel(with: .goingAway, reason: nil)

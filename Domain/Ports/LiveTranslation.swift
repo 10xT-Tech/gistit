@@ -62,6 +62,7 @@ public enum LiveTranslationError: Error, Sendable, Equatable {
     case offline
     case serviceUnavailable    // server-side failure / overload / rate limit
     case subscriptionRequired  // live translation is a subscriber feature
+    case resumeFailed          // the microphone couldn't be started again after a pause; the session ended (and is saved)
     case underlying(String)
 }
 
