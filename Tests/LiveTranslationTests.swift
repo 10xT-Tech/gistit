@@ -93,6 +93,37 @@ struct SonioxTokenAccumulatorTests {
         #expect(early.translationFinal.isEmpty)
     }
 
+    /// Audio waiting for the socket: cut into whole chunks in order, the rest kept for the next call
+    /// (or taken with the remainder on a stop).
+    @Test func pendingAudioIsCutIntoChunksInOrder() {
+        var buffer = PendingAudioBuffer(capacity: 1_000)
+        buffer.append(Data((0..<10).map { UInt8($0) }))
+        #expect(buffer.take(chunkSize: 4) == [Data([0, 1, 2, 3]), Data([4, 5, 6, 7])])
+        #expect(buffer.count == 2)                                   // 8, 9 wait for more
+        buffer.append(Data([10, 11, 12]))
+        #expect(buffer.take(chunkSize: 4) == [Data([8, 9, 10, 11])])
+        #expect(buffer.take(chunkSize: 4).isEmpty)
+        #expect(buffer.take(chunkSize: 4, includeRemainder: true) == [Data([12])])
+        #expect(buffer.count == 0 && buffer.droppedBytes == 0)
+    }
+
+    /// A socket that isn't ready for too long: the buffer stays within its capacity, the OLDEST
+    /// audio goes (whole 16-bit samples), the newest stays.
+    @Test func pendingAudioIsBoundedAndKeepsTheNewest() {
+        var buffer = PendingAudioBuffer(capacity: 8)
+        buffer.append(Data([0, 1, 2, 3, 4, 5]))
+        buffer.append(Data([6, 7, 8, 9, 10]))                        // 11 bytes: 3 over → 4 dropped
+        #expect(buffer.count == 7 && buffer.droppedBytes == 4)
+        #expect(buffer.take(chunkSize: 100, includeRemainder: true) == [Data([4, 5, 6, 7, 8, 9, 10])])
+
+        // A long outage: a minute of audio into a 30-second buffer, in 100 ms pieces.
+        var long = PendingAudioBuffer(capacity: 30 * 32_000)
+        for _ in 0..<600 { long.append(Data(count: 3_200)) }
+        #expect(long.count == 30 * 32_000)
+        #expect(long.droppedBytes == 30 * 32_000)
+        #expect(long.take(chunkSize: 3_840).count == 250)            // one pass, every whole chunk
+    }
+
     @Test func markerTokensAreFiltered() {
         var acc = SonioxTokenAccumulator()
         acc.ingest([

@@ -675,7 +675,12 @@ private final class LiveSession: @unchecked Sendable {
 /// by `ingest`, and `closeFile` is called strictly after the engine stopped delivering callbacks).
 private final class TapState: @unchecked Sendable {
     private let lock = NSLock()
-    private var pending = Data()
+    /// Audio waiting for the socket (no key yet, a rotation under way): at most `pendingSeconds` of it.
+    private var pending = PendingAudioBuffer(capacity: TapState.pendingSeconds * 16_000 * MemoryLayout<Int16>.size)
+    private var droppedLogged = 0
+    /// How much unsent audio is kept while the socket isn't ready. Beyond it the OLDEST goes: a
+    /// connection that takes this long has lost the thread anyway, and the newest speech matters most.
+    private static let pendingSeconds = 30
     private var lastLoud = Date()
     private var framesWritten: Int64 = 0
     private var inputSampleRate: Double = 1
@@ -746,15 +751,14 @@ private final class TapState: @unchecked Sendable {
     /// Drain complete `chunkSize`-byte chunks; `includeRemainder` also drains the final partial
     /// chunk (used once, on graceful stop).
     func take(chunkSize: Int, includeRemainder: Bool = false) -> [Data] {
-        lock.lock(); defer { lock.unlock() }
-        var chunks: [Data] = []
-        while pending.count >= chunkSize {
-            chunks.append(Data(pending.prefix(chunkSize)))
-            pending.removeFirst(chunkSize)
+        let (chunks, dropped) = lock.withLock { () -> ([Data], Int) in
+            let chunks = pending.take(chunkSize: chunkSize, includeRemainder: includeRemainder)
+            let dropped = pending.droppedBytes - droppedLogged
+            droppedLogged = pending.droppedBytes
+            return (chunks, dropped)
         }
-        if includeRemainder, !pending.isEmpty {
-            chunks.append(pending)
-            pending = Data()
+        if dropped > 0 {
+            liveLog.info("the socket wasn't ready for over \(Self.pendingSeconds)s: dropped \(dropped) bytes of the oldest unsent audio")
         }
         return chunks
     }
@@ -860,6 +864,55 @@ public struct SonioxToken: Decodable, Sendable, Equatable {
 /// message REPLACES wholesale. `<end>`/`<fin>` are control markers (endpoint detection / manual
 /// finalize): each marks an UTTERANCE BOUNDARY — the next utterance starts a new PARAGRAPH in both
 /// transcripts, so a long session reads as speech-shaped paragraphs, not one wall of text.
+/// Converted audio (16 kHz s16 mono) waiting to be sent while the socket isn't ready — the session
+/// is starting (the key, the connection) or rotating its direction — so nothing said meanwhile is
+/// lost. Bounded: past `capacity` the OLDEST audio is dropped (whole 16-bit samples), so a
+/// connection that never comes can't grow it without limit. `take` cuts the chunks in ONE pass —
+/// it runs under the lock the audio tap waits on, and removing chunk by chunk from the front shifted
+/// the whole buffer every time. Pure, so both are unit-tested.
+public struct PendingAudioBuffer: Sendable {
+    private var data = Data()
+    public let capacity: Int
+    /// Bytes dropped so far to stay within `capacity`.
+    public private(set) var droppedBytes = 0
+
+    public init(capacity: Int) {
+        self.capacity = max(capacity, 2)
+    }
+
+    public var count: Int { data.count }
+
+    public mutating func append(_ audio: Data) {
+        data.append(audio)
+        let overflow = data.count - capacity
+        guard overflow > 0 else { return }
+        let drop = min(overflow + overflow % 2, data.count)      // never split a 16-bit sample
+        data = data.subdata(in: (data.startIndex + drop)..<data.endIndex)
+        droppedBytes += drop
+    }
+
+    /// Every complete `chunkSize`-byte chunk, in order; `includeRemainder` also takes the final
+    /// partial chunk (once, on a graceful stop). What isn't taken stays for the next call.
+    public mutating func take(chunkSize: Int, includeRemainder: Bool = false) -> [Data] {
+        guard chunkSize > 0 else { return [] }
+        var chunks: [Data] = []
+        chunks.reserveCapacity(data.count / chunkSize + 1)
+        var offset = data.startIndex
+        while data.endIndex - offset >= chunkSize {
+            chunks.append(data.subdata(in: offset..<(offset + chunkSize)))
+            offset += chunkSize
+        }
+        let rest = data.subdata(in: offset..<data.endIndex)
+        if includeRemainder, !rest.isEmpty {
+            chunks.append(rest)
+            data = Data()
+        } else {
+            data = rest
+        }
+        return chunks
+    }
+}
+
 /// Which way a live session translates: the languages its socket runs in, the ones asked for LAST,
 /// and whether a rotation to them is under way. Pure, so the rule is unit-tested without a
 /// microphone: a request is never dropped — whatever is asked, and whenever, the session ends in the
