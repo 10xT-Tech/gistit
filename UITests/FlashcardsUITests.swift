@@ -108,7 +108,7 @@ final class FlashcardsUITests: XCTestCase {
         let moveAll = app.buttons["caught.moveAll"]
         XCTAssertTrue(moveAll.waitForExistence(timeout: 3))
         moveAll.tap()
-        let confirm = app.buttons["Move (2)"]
+        let confirm = app.buttons["caught.moveAll.confirm"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 3))
         attach(app, "move-all-sheet")
         confirm.tap()
@@ -170,7 +170,9 @@ final class FlashcardsUITests: XCTestCase {
         app.buttons["study.caught"].tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
-        app.buttons["Move (2)"].tap()
+        app.buttons["caught.moveAll.confirm"].tap()
+        // Phrases leave Caught as they move (not at once): go on when the move is done.
+        XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
         app.buttons["study.studying"].tap()
 
@@ -179,7 +181,7 @@ final class FlashcardsUITests: XCTestCase {
         menu.tap()
         app.buttons["Fix cards"].tap()
         let start = app.buttons["fix.all"]
-        XCTAssertTrue(start.waitForExistence(timeout: 5), "no choice of mode before overwriting the cards")
+        XCTAssertTrue(start.waitForExistence(timeout: 10), "no choice of mode before overwriting the cards")
         XCTAssertEqual(start.label, "All cards (2)")
         XCTAssertFalse(app.buttons["fix.incomplete"].exists, "the stub cards are complete")
         attach(app, "fix-modes")
@@ -228,7 +230,7 @@ final class FlashcardsUITests: XCTestCase {
         app.buttons["study.caught"].tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
-        app.buttons["Move (2)"].tap()
+        app.buttons["caught.moveAll.confirm"].tap()
 
         let phrase = app.buttons["caught.empty.phrase"]
         XCTAssertTrue(phrase.waitForExistence(timeout: 3), "the empty list doesn't offer a phrase")
@@ -257,6 +259,31 @@ final class FlashcardsUITests: XCTestCase {
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["study.studying"].waitForExistence(timeout: 3))
         XCTAssertEqual(app.buttons["study.studying"].label, "In flashcards: 1")
+    }
+
+    /// A phrase a move found to look like a card stays on the list, marked; "Move all" then offers
+    /// "Move new" (the rest) and "Move all", and "Move new" leaves the marked one in Caught.
+    func testLookAlikeIsMarkedAndMoveNewLeavesIt() {
+        let app = openCaughtWithALookAlike()
+        let cancel = app.buttons["confirm.cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "moving a look-alike didn't ask")
+        cancel.tap()
+        let mark = app.descendants(matching: .any)["caught.lookAlike"]
+        XCTAssertTrue(mark.waitForExistence(timeout: 3), "the look-alike's row isn't marked")
+        attach(app, "caught-look-alike-marked")
+
+        app.buttons["caught.moveAll"].tap()
+        let moveNew = app.buttons["caught.moveNew"]
+        XCTAssertTrue(moveNew.waitForExistence(timeout: 5))
+        XCTAssertEqual(moveNew.label, "Move new (1)")
+        XCTAssertEqual(app.buttons["caught.moveAll.confirm"].label, "Move all (2)")
+        attach(app, "move-all-sheet-new")
+        moveNew.tap()
+
+        let lookAlike = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
+        let moved = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'No worries at all'")).firstMatch
+        XCTAssertTrue(moved.waitForNonExistence(timeout: 3), "the new phrase is still listed")
+        XCTAssertTrue(lookAlike.exists, "the look-alike left Caught")
     }
 
     /// Moved separately, the look-alike is found by In flashcards → Find duplicates: the same phrase and
@@ -406,7 +433,9 @@ final class FlashcardsUITests: XCTestCase {
         app.buttons["study.caught"].tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
-        app.buttons["Move (2)"].tap()
+        app.buttons["caught.moveAll.confirm"].tap()
+        // Phrases leave Caught as they move (not at once): go on when the move is done.
+        XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
         let start = app.buttons["flashcards.start"]
         XCTAssertTrue(start.waitForExistence(timeout: 3))
@@ -424,6 +453,41 @@ final class FlashcardsUITests: XCTestCase {
         app.buttons["Fix cards"].tap()
         XCTAssertTrue(app.buttons["fix.all"].waitForExistence(timeout: 10), "Fix cards didn't open")
         XCTAssertFalse(app.staticTexts["Gist It Pro"].exists)
+    }
+
+    /// The free plan's limit is spent: moving a phrase that lacks a note (it needs the model) stops
+    /// with the limit message — and its "Subscribe" opens the paywall. The phrase stays in Caught.
+    func testLimitMessageOffersTheSubscription() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES", "-uiTestFreePlan",
+            "-uiTestLimitReached",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ]
+        app.launch()
+        app.tab("Study").tap()
+        let caught = app.buttons["study.caught"]
+        XCTAssertTrue(caught.waitForExistence(timeout: 5))
+        caught.tap()
+
+        app.buttons["caught.add"].tap()
+        app.buttons["Generate from a phrase"].tap()
+        let field = app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.tap()
+        field.typeText("to hit the roof")
+        app.buttons["Generate the card"].tap()                      // enriching a card is free
+        let row = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'to hit the roof'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "the generated card isn't in Caught")
+
+        swipeToLearn(row, in: app)                                  // no note yet → the model → the limit
+        let subscribe = app.buttons["limit.subscribe"]
+        XCTAssertTrue(subscribe.waitForExistence(timeout: 5), "the limit message doesn't offer the subscription")
+        XCTAssertTrue(app.staticTexts["Free plan limit"].exists)
+        attach(app, "limit-subscribe")
+        subscribe.tap()
+        XCTAssertTrue(app.staticTexts["Gist It Pro"].firstMatch.waitForExistence(timeout: 5), "the paywall didn't open")
+        attach(app, "limit-paywall")
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {

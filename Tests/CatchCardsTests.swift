@@ -261,9 +261,11 @@ import Presentation
         #expect(!studying.canMoveToFlashcards && !studying.canCatchFromPhotos)
 
         caught.moveAllToFlashcards()
+        var tries = 0
+        while !caught.expressions.isEmpty, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
         #expect(caught.expressions.isEmpty)
         #expect(caught.phase == .empty)
-        var tries = 0
+        tries = 0
         while try await cards.all().count < 4, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
         #expect(try await cards.all().count == 4)
 

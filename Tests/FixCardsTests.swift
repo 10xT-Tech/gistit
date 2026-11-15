@@ -103,6 +103,134 @@ import Presentation
         #expect(left0.left == 0 && left0.total == 45)
     }
 
+    // MARK: Completing phrases before they move from Caught
+
+    /// Only the phrases that lack something go to the model — in requests of 20 — and are stored
+    /// filled in; a complete one is returned as it is, with no request at all.
+    @Test func completeFillsOnlyWhatLacks() async throws {
+        let full = Domain.Expression(en: "jump the gun", ru: "поторопиться", example: "don't jump the gun.",
+                                     synonyms: ["rush"], context: "разговорное.")
+        let lacking = (0..<25).map { Domain.Expression(en: "phrase \($0)", ru: "фраза \($0)") }
+        let expressions = MockExpressionRepository(seed: [full] + lacking)
+        let spy = SpyFixLLM()
+        let sut = FixCardsInteractor(llm: spy, expressions: expressions, cards: MockReviewCardRepository())
+
+        let done = try await sut.complete([full] + lacking, studiedLanguage: "English", nativeLanguage: "Russian")
+        #expect(done.map(\.id) == ([full] + lacking).map(\.id))                     // all of them, in order
+        #expect(done[0] == full)
+        #expect(done.dropFirst().allSatisfy { !FixCardsInteractor.needsCompletion($0) })
+        #expect(spy.answeredIDs.count == 25 && !spy.answeredIDs.contains(full.id.uuidString))
+        #expect(try await expressions.all().filter(FixCardsInteractor.needsCompletion).isEmpty)   // stored
+
+        let none = SpyFixLLM()
+        let nothingToDo = FixCardsInteractor(llm: none, expressions: expressions, cards: MockReviewCardRepository())
+        _ = try await nothingToDo.complete([full], studiedLanguage: "English", nativeLanguage: "Russian")
+        #expect(none.answeredIDs.isEmpty)
+    }
+
+    /// The model can't be reached / the plan's limit: it throws and stores nothing — the move stops.
+    @Test func completeStopsOnTheLimit() async throws {
+        let lacking = [Domain.Expression(en: "phrase", ru: "фраза")]
+        let expressions = MockExpressionRepository(seed: lacking)
+        let sut = FixCardsInteractor(llm: SpyFixLLM(failing: [1: .subscriptionRequired(retryAfter: 300)]),
+                                     expressions: expressions, cards: MockReviewCardRepository())
+        await #expect(throws: LLMError.self) {
+            _ = try await sut.complete(lacking, studiedLanguage: "English", nativeLanguage: "Russian")
+        }
+        #expect(try await expressions.all() == lacking)
+    }
+
+    @MainActor
+    private func caughtList(_ expressions: MockExpressionRepository, _ cards: MockReviewCardRepository,
+                            llm: any LLMClient) -> StudyListViewModel {
+        StudyListViewModel(
+            studyList: StudyListInteractor(repository: expressions, cards: cards),
+            saveExpression: SaveExpressionInteractor(enrich: EnrichExpressionInteractor(llm: MockLLMClient()),
+                                                     repository: expressions),
+            exportAlgoApp: ExportDeckInteractor(repository: expressions, exporter: AlgoAppXMLExporter()),
+            exportAnki: ExportDeckInteractor(repository: expressions, exporter: AnkiExporter()),
+            pronounce: PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing()),
+            isConfigured: true,
+            flashcards: FlashcardsInteractor(expressions: expressions, cards: cards),
+            fixCards: FixCardsInteractor(llm: llm, expressions: expressions, cards: cards),
+            scope: .caught,
+            studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+    }
+
+    @MainActor
+    private func wait(_ condition: () -> Bool) async throws {
+        for _ in 0..<300 where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    /// Moving one phrase: it's completed, gets its cards, and only then leaves Caught.
+    @MainActor @Test func movingAPhraseCompletesItFirst() async throws {
+        let phrase = Domain.Expression(en: "phrase", ru: "фраза")
+        let expressions = MockExpressionRepository(seed: [phrase])
+        let cards = MockReviewCardRepository()
+        let vm = caughtList(expressions, cards, llm: MockLLMClient())
+        await vm.load()
+
+        vm.moveToFlashcards(phrase)
+        #expect(vm.expressions.map(\.id) == [phrase.id] && vm.isMoving(phrase))      // stays until moved
+        try await wait { vm.expressions.isEmpty }
+        #expect(vm.expressions.isEmpty && vm.actionError == nil)
+        #expect(try await cards.all().count == 2)
+        let stored = try #require(try await expressions.all().first)
+        #expect(!FixCardsInteractor.needsCompletion(stored))
+    }
+
+    /// The plan's limit while completing: nothing moves, the phrase stays on Caught, the user is told.
+    @MainActor @Test func theLimitStopsAMoveAndKeepsThePhrase() async throws {
+        let phrase = Domain.Expression(en: "phrase", ru: "фраза")
+        let expressions = MockExpressionRepository(seed: [phrase])
+        let cards = MockReviewCardRepository()
+        let vm = caughtList(expressions, cards, llm: SpyFixLLM(failing: [1: .subscriptionRequired(retryAfter: 300)]))
+        await vm.load()
+
+        vm.moveToFlashcards(phrase)
+        try await wait { vm.actionError != nil }
+        #expect(vm.actionError != nil && !vm.isMoving(phrase))
+        #expect(vm.actionNeedsSubscription)                                          // the message offers "Subscribe"
+        #expect(vm.expressions.map(\.id) == [phrase.id])
+        #expect(try await cards.all().isEmpty)
+        vm.clearActionError()
+        #expect(vm.actionError == nil && !vm.actionNeedsSubscription)
+    }
+
+    /// Any other failure (here: no connection) is a plain message — no subscription offered.
+    @MainActor @Test func anOfflineMoveOffersNoSubscription() async throws {
+        let phrase = Domain.Expression(en: "phrase", ru: "фраза")
+        let expressions = MockExpressionRepository(seed: [phrase])
+        let vm = caughtList(expressions, MockReviewCardRepository(), llm: SpyFixLLM(failing: [1: .offline]))
+        await vm.load()
+
+        vm.moveToFlashcards(phrase)
+        try await wait { vm.actionError != nil }
+        #expect(vm.actionError != nil && !vm.actionNeedsSubscription)
+        #expect(vm.expressions.map(\.id) == [phrase.id])
+    }
+
+    /// Move all: phrases leave the list one by one as they move; the limit on the second group stops
+    /// it — the first group is in flashcards, the rest is still on Caught, and the message says so.
+    @MainActor @Test func moveAllStopsAtTheLimitKeepingTheRest() async throws {
+        let phrases = (0..<30).map {
+            Domain.Expression(en: "phrase \($0)", ru: "фраза \($0)", createdAt: now.addingTimeInterval(Double($0)))
+        }
+        let expressions = MockExpressionRepository(seed: phrases)
+        let cards = MockReviewCardRepository()
+        let vm = caughtList(expressions, cards, llm: SpyFixLLM(failing: [2: .subscriptionRequired(retryAfter: 300)]))
+        await vm.load()
+
+        vm.moveAllToFlashcards()
+        #expect(vm.bulkMove?.total == 30 && vm.expressions.count == 30)               // nothing gone yet
+        try await wait { vm.bulkMove == nil }
+        #expect(vm.actionError?.contains("20") == true)                              // "20 of 30 moved"
+        #expect(vm.actionNeedsSubscription)
+        #expect(Set(vm.expressions.map(\.id)) == Set(phrases.suffix(10).map(\.id)))  // the oldest 20 moved
+        #expect(Set(try await cards.all().map(\.expressionID)) == Set(phrases.prefix(20).map(\.id)))
+        #expect(vm.movingIDs.isEmpty)
+    }
+
     /// Stopped after a batch (here: the connection drops on the second): the next run continues after
     /// it — no card is sent twice — and "start over" goes through all of them again.
     @Test func resumesWhereItStopped() async throws {

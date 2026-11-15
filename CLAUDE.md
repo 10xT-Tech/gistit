@@ -148,7 +148,16 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 **v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
 flashcards.** Saving (Say it / Get it / See it) stores an `Expression` = **Caught** (`StudyListView` +
 `StudyListViewModel`, scope `.caught`, pushed from the dashboard; swipe-left delete, swipe-right or the
-stack icon → `FlashcardsUseCase.enroll`, "Move all" → enroll every one, oldest first, list empties; share menu → "Delete all" → `ConfirmSheet` →
+stack icon → move: a phrase that lacks a translation / example / synonyms / note is COMPLETED by the model
+first (`FixCardsUseCase.complete` — `FixCardsTemplate`, groups of 20, metered on the free plan; complete
+phrases cost no request), then `FlashcardsUseCase.enroll`, and ONLY THEN its row leaves (`movingIDs`
+shows a spinner meanwhile — no optimistic removal); "Move all" → oldest first in groups of 20, each phrase
+leaving as it moves (`bulkMove` progress + Stop); the first failure (offline, the plan's limit, no answer)
+stops it: "The move stopped: X of Y moved" + the reason, and when it was the free plan's limit
+(`actionNeedsSubscription`) a `ConfirmSheet` with Subscribe → paywall instead of the plain alert (XCUI:
+`-uiTestLimitReached` = `LimitReachedLLMClient`). Every way into flashcards stores cards through
+`ReviewCardRepository.addMissing` (check + insert in one actor step: a phrase moved twice at once, or moved
+while a file with it is imported, keeps ONE card per direction); share menu → "Delete all" → `ConfirmSheet` →
 `StudyListViewModel.deleteAll()`, optimistic, reload + error on a failed delete).
 "+" = Generate from a phrase (`EnrichCardTemplate`, now `.fast` = the translation model) or From
 photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
@@ -242,10 +251,13 @@ links, but the sheet doesn't put the all-linked groups to the user: they go to t
 and show up (`DuplicatesViewModel.shownGroups`) only if a merge is proposed in them (exact or the
 model's) — the rest are removed and counted (`confirmedApart`); the user saw 39 marked noun/verb pairs
 come back as a wall of "Not checked yet". The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
-Caught: moving a phrase checks `lookAlikesInFlashcards`
-→ dialog Merge (`proposals(for:)`: exact first, else the model; only the merge containing the caught
-phrase is made; none → `notADuplicate` dialog "move separately?") / Move separately; Move all offers
-"all but look-alikes". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
+Caught: moving a phrase checks `lookAlikesInFlashcards` (on the device; a found one marks the row —
+`lookAlikeIDs`, "Looks like a card you learn") → sheet Merge / Move separately. Merge =
+`DuplicatesUseCase.mergeCaught` — the user's decision, so once the check ANSWERED the phrase is merged
+and leaves Caught: exact first, else the model's merge containing it, and if the model names none
+(another phrase, it thinks) `forcedMerge` into the oldest look-alike as one more numbered meaning; but if
+the model can't be reached / the limit is spent it THROWS — nothing merged, the phrase stays, the error
+shows. Move all checks the whole list first and offers "Move new" (all but look-alikes) / "Move all". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
 progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
 two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
 "Merge all duplicates" (never a linked pair), "Full re-check"; after a merge a checked group with

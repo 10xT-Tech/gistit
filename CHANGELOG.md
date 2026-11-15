@@ -35,11 +35,16 @@ before, with everything already in it. Add cards two new ways with **+** — an 
 right on the screen: **Generate from a phrase** (type a phrase in the language you're learning, with
 an optional context, on a roomy card; the translation, an example, synonyms and a note are filled in
 for you) or **From photos** (below). Swipe a phrase right (or tap its card icon) to move it into
-flashcards, or **Move all to flashcards** at once. If a phrase looks like one you already learn ("hit
-the roof!" and "to hit the roof"), the app asks first: **Merge** joins it with the card it really is —
-your progress stays, and several meanings are numbered on one card — or tells you it's another phrase
-after all; **Move separately** keeps them apart. **Move all** can leave such look-alikes in Caught, to
-be moved one by one. Swipe left to delete, or **Delete all** in the share menu to
+flashcards, or **Move all to flashcards** at once. A phrase that still lacks something — an example,
+synonyms or a note on when it's said — is completed first, so every flashcard is a full card; a phrase
+leaves Caught only once it really is in flashcards, one after another, with a progress line and
+**Stop** for a long list. If that can't be done — no connection, or the free plan's request limit —
+the move stops, says how far it got and why (with **Subscribe** when it was the limit), and the rest
+stays in Caught. If a phrase looks like one you already learn ("hit the roof!" and "to hit the
+roof"), it's marked in the list and the app asks first: **Merge** makes it one card with its
+look-alike — your progress stays, and a different meaning is added as a numbered one — and
+**Move separately** keeps them apart. **Move all** then offers **Move new** (everything but the
+look-alikes, which stay to be moved one by one) or **Move all**. Swipe left to delete, or **Delete all** in the share menu to
 clear the list (it asks first; flashcards aren't touched). **Copy** copies the whole card as four lines (phrase,
 translation, example, synonyms), and **Copy all cards** in the share menu copies the list, ready to
 paste into another app.

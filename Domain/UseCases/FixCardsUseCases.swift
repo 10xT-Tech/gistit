@@ -115,6 +115,14 @@ public protocol FixCardsUseCase: Sendable {
     /// offline, the plan's limit, no API key, cancellation — keeping what's done (and where it stopped).
     func callAsFunction(_ scope: FixScope, studiedLanguage: String, nativeLanguage: String, restart: Bool)
         -> AsyncThrowingStream<FixProgress, Error>
+    /// Before phrases move from Caught into flashcards: the ones that lack something (`needsCompletion`
+    /// — a translation, an example, synonyms or a note) are filled in by the model, in requests of
+    /// `batchSize`, and stored; the rest are returned as they are, with no request. Returns all of
+    /// them, in order. THROWS — and stores nothing more — when the model can't be reached, the plan's
+    /// limit is spent, there's no key, or it gives no usable answer twice: the move must stop there,
+    /// so a phrase never goes into flashcards half-filled.
+    func complete(_ expressions: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
+        -> [Expression]
 }
 
 public struct FixCardsInteractor: FixCardsUseCase {
@@ -223,6 +231,33 @@ public struct FixCardsInteractor: FixCardsUseCase {
         return try await expressions.all()
             .filter { enrolled.contains($0.id) && (scope == .all || Self.isIncomplete($0)) }
             .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+    }
+
+    public func complete(_ expressions: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
+        -> [Expression] {
+        let lacking = expressions.filter(Self.needsCompletion)
+        guard !lacking.isEmpty else { return expressions }
+        let template = FixCardsTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        var completed: [UUID: Expression] = [:]
+        for start in stride(from: 0, to: lacking.count, by: Self.batchSize) {
+            try Task.checkCancellation()
+            let batch = Array(lacking[start..<min(start + Self.batchSize, lacking.count)])
+            guard let fixes = try await Self.ask(llm, template, about: batch) else {
+                throw LLMError.invalidOutput("no usable answer for the phrases to complete")
+            }
+            for expression in batch {
+                let fixed = Self.apply(fixes[expression.id.uuidString], to: expression,
+                                       studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+                if fixed != expression { try await self.expressions.update(fixed) }
+                completed[expression.id] = fixed
+            }
+        }
+        return expressions.map { completed[$0.id] ?? $0 }
+    }
+
+    /// What a phrase needs before it becomes flashcards: a translation, an example, synonyms or a note.
+    public static func needsCompletion(_ expression: Expression) -> Bool {
+        expression.ru.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isIncomplete(expression)
     }
 
     /// An example, synonyms or a note is missing.

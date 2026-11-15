@@ -163,6 +163,22 @@ public final class StubTextRecognizing: TextRecognizing {
 
 /// A fixed plan — UI tests of the free-plan gates (`-uiTestFreePlan`), which StoreKit can't fake
 /// without a purchase flow.
+/// The free plan with its request limit already spent, as the backend answers it: translations and
+/// card enrichment go through, every metered request (explanations, Say it, cards from photos, Fix
+/// cards / completing a card, the duplicate check) is refused with `subscriptionRequired`.
+/// UI tests: `-uiTestLimitReached`.
+public struct LimitReachedLLMClient: LLMClient {
+    private let inner: any LLMClient
+    private static let free: Set<String> = ["understand", "photoBlocks", "enrichCard", "healthCheck"]
+
+    public init(_ inner: any LLMClient) { self.inner = inner }
+
+    public func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        guard Self.free.contains(template.id) else { throw LLMError.subscriptionRequired(retryAfter: 240) }
+        return try await inner.run(template, input: input)
+    }
+}
+
 public struct StubSubscriptionManaging: SubscriptionManaging {
     private let tier: AccessTier
     public init(tier: AccessTier) { self.tier = tier }

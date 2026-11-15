@@ -496,7 +496,7 @@ import Presentation
         #expect(vm.expressions.map(\.id) == [caught.id])
 
         vm.moveToFlashcards(caught)
-        #expect(vm.expressions.isEmpty)                                              // the row goes at once…
+        #expect(vm.isMoving(caught))                                                 // the row shows it's moving…
         try await wait { vm.lookAlike != nil }
         let lookAlike = try #require(vm.lookAlike)
         #expect(lookAlike.existing.map(\.id) == [existing.id])
@@ -512,7 +512,8 @@ import Presentation
         #expect(try await cards.all().count == 2)
     }
 
-    /// An exact duplicate merges on the device; a look-alike that's another phrase asks to move apart.
+    /// An exact duplicate merges on the device; a look-alike the model calls another phrase is merged
+    /// all the same — "Merge" is the user's decision — as one more meaning of the oldest look-alike.
     @Test func exactDuplicateAndAnotherPhrase() async throws {
         let existing = phrase("fuck about", "выпендриваться", 0), other = phrase("fuck about", "бездельничать", 1)
         let exact = phrase("Fuck about!", "Выпендриваться", 2), different = phrase("to fuck about", "валять дурака", 3)
@@ -535,11 +536,55 @@ import Presentation
         try await wait { vm.lookAlike != nil }
         #expect(vm.lookAlike?.existing.map(\.id) == [existing.id, other.id])
         vm.mergeIntoFlashcards(try #require(vm.lookAlike))
-        try await wait { vm.notADuplicate != nil }                                   // the model merged nothing
-        #expect(llm.calls == 1)
-        vm.moveSeparately(try #require(vm.notADuplicate))
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id, different.id])
+        try await wait { !vm.isMerging }
+        #expect(llm.calls == 1)                                                      // asked — it named no merge
+        #expect(vm.expressions.isEmpty && vm.actionError == nil)                     // merged, and gone from Caught
+        let left = try await expressions.all()
+        #expect(Set(left.map(\.id)) == [existing.id, other.id])
+        #expect(left.first { $0.id == existing.id }?.ru == "1) выпендриваться 2) валять дурака")
+        #expect(left.first { $0.id == existing.id }?.en == "to fuck about")          // the dictionary form is kept
+        #expect(left.first { $0.id == other.id }?.ru == "бездельничать")             // the other look-alike untouched
+        #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id])
+    }
+
+    /// The model can't be reached (offline, no answer, the plan's limit): nothing is merged — the
+    /// phrase stays on Caught, untouched, and the screen shows the error.
+    @Test func aFailedCheckStopsTheMerge() async throws {
+        let existing = Domain.Expression(en: "hit the roof", ru: "взбеситься", example: "dad hit the roof.",
+                                         createdAt: now)
+        let caught = Domain.Expression(en: "to hit the roof", ru: "разозлиться", example: "she hit the roof.",
+                                       createdAt: now.addingTimeInterval(60))
+        let expressions = MockExpressionRepository(seed: [existing, caught])
+        let cards = MockReviewCardRepository(seed: newCards(existing))
+        let sut = DuplicatesInteractor(llm: RejectingLLM(rejected: [DuplicateGroup.memberID(of: [existing.id, caught.id])]),
+                                       expressions: expressions, cards: cards)
+        await #expect(throws: LLMError.self) {
+            try await sut.mergeCaught(caught, into: [existing], studiedLanguage: "English", nativeLanguage: "Russian")
+        }
+        #expect(Set(try await expressions.all()) == [existing, caught])              // not a letter changed
+        #expect(try await cards.all().count == 2)
+
+        let vm = list(expressions, cards, duplicates: sut)
+        await vm.load()
+        vm.moveToFlashcards(caught)
+        try await wait { vm.lookAlike != nil }
+        vm.mergeIntoFlashcards(try #require(vm.lookAlike))
+        try await wait { !vm.isMerging }
+        #expect(vm.actionError != nil)
+        #expect(vm.expressions.map(\.id) == [caught.id] && vm.isLookAlike(caught))   // still on Caught, marked
+
+        // The card the device words when the model answered and named no merge: numbered meanings.
+        let forced = DuplicatesInteractor.forcedMerge(of: caught, into: existing, language: "English")
+        #expect(forced.kind == .senses && forced.card.expression == "to hit the roof")
+        #expect(forced.card.translation == "1) взбеситься 2) разозлиться")
+        #expect(forced.card.example == "1) dad hit the roof. 2) she hit the roof.")
+
+        // One more meaning onto a card that already numbers them; the same translation isn't repeated.
+        #expect(DuplicatesInteractor.numbered("1) взбеситься 2) разозлиться", adding: "вспылить")
+                == "1) взбеситься 2) разозлиться 3) вспылить")
+        let same = DuplicatesInteractor.forcedMerge(of: phrase("hit the roof!", "Взбеситься", 2), into: existing,
+                                                    language: "English")
+        #expect(same.kind == .duplicate && same.card.translation == "взбеситься")
     }
 
     /// Move separately; and Move all leaving the look-alikes on the list.
@@ -555,18 +600,36 @@ import Presentation
         #expect(vm.isCheckingLookAlikes)                                             // "Looking for look-alikes…"
         try await wait { vm.showMoveAllConfirmation }
         #expect(!vm.isCheckingLookAlikes)
-        #expect(vm.moveAllLookAlikes == [alike.id])
+        #expect(vm.lookAlikeIDs == [alike.id])
         vm.moveAllToFlashcards(skippingLookAlikes: true)
+        try await wait { vm.bulkMove == nil }
         #expect(vm.expressions.map(\.id) == [alike.id])
-        try await Task.sleep(for: .milliseconds(100))                                // let the move land
         #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id])
 
+        #expect(vm.isLookAlike(alike))                                               // its row stays marked
         vm.moveToFlashcards(alike)
         try await wait { vm.lookAlike != nil }
         vm.moveSeparately(try #require(vm.lookAlike))
+        try await wait { vm.expressions.isEmpty }
         #expect(vm.expressions.isEmpty)
-        try await Task.sleep(for: .milliseconds(100))
         #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id, alike.id])
+    }
+
+    /// A single move that comes back to ask marks the row — before any "Move all" check.
+    @Test func aMoveThatAsksMarksTheRow() async throws {
+        let existing = phrase("hit the roof", "взбеситься", 0)
+        let alike = phrase("to hit the roof", "разозлиться", 1), other = phrase("jump the gun", "поторопиться", 2)
+        let expressions = MockExpressionRepository(seed: [existing, alike, other])
+        let cards = MockReviewCardRepository(seed: newCards(existing))
+        let vm = list(expressions, cards, duplicates: DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions,
+                                                                           cards: cards))
+        await vm.load()
+        #expect(!vm.isLookAlike(alike))
+        vm.moveToFlashcards(alike)
+        try await wait { vm.lookAlike != nil }
+        vm.lookAlike = nil                                                           // Cancel
+        #expect(vm.isLookAlike(alike) && !vm.isLookAlike(other))
+        #expect(vm.expressions.contains { $0.id == alike.id })
     }
 
     /// The Find duplicates sheet: exact pairs merge without the model ("fuck about" twice — "fuck

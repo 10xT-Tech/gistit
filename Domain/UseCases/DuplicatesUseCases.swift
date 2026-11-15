@@ -156,6 +156,14 @@ public protocol DuplicatesUseCase: Sendable {
     /// Merge the phrases into one card (see the file header).
     func merge(_ expressions: [Expression], into card: CardText, as kind: DuplicateKind,
                studiedLanguage: String, nativeLanguage: String) async throws
+    /// The user chose "Merge" for a caught phrase and its look-alikes in flashcards: once the check
+    /// has answered, it IS merged — into the look-alike(s) the exact check or the model names, and if
+    /// the model names none (it sees another phrase) into the oldest look-alike, as one more meaning
+    /// of it, with a card put together on the device. But the model must have ANSWERED: if it can't
+    /// be reached, fails, or the plan's limit is spent, this throws and nothing is changed — the
+    /// phrase stays on Caught and the user is told.
+    func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
+                     studiedLanguage: String, nativeLanguage: String) async throws
     /// "Don't merge": these phrases are linked to each other as not duplicates — a search leaves them
     /// be (a full re-check aside).
     func markNotDuplicates(_ expressionIDs: [UUID]) async throws
@@ -495,6 +503,55 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         let gone = Set(ordered.map(\.id)).subtracting([keep.id])
         for id in gone { try await expressions.delete(id: id) }
         try? await marks.unmark(involving: gone)
+    }
+
+    public func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
+                            studiedLanguage: String, nativeLanguage: String) async throws {
+        guard !lookAlikes.isEmpty else { throw RepositoryError.notFound }
+        let group = lookAlikes + [caught]
+        // A failed check (offline, no answer, the plan's limit) stops here, before anything is written.
+        let proposed = try await proposals(for: group, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+            .first { $0.expressionIDs.contains(caught.id) }
+        if let proposed {
+            try await merge(group.filter { proposed.expressionIDs.contains($0.id) }, into: proposed.card, as: proposed.kind,
+                            studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+            return
+        }
+        let target = lookAlikes.min { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) } ?? lookAlikes[0]
+        let forced = Self.forcedMerge(of: caught, into: target, language: studiedLanguage)
+        try await merge([target, caught], into: forced.card, as: forced.kind,
+                        studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+
+    /// The card of a merge the model didn't word — it answered, and named none — (see `mergeCaught`), from the two phrases' own texts: the
+    /// look-alike's expression (with its "to" / article), the same translation once — or the caught one
+    /// added as one more numbered meaning ("1) … 2) …", continuing a card that already numbers its
+    /// meanings); the examples likewise; the synonyms of both; the look-alike's note, else the caught one's.
+    public static func forcedMerge(of caught: Expression, into target: Expression, language: String) -> DuplicateMerge {
+        let same = translationKey(target.ru) == translationKey(caught.ru) || caught.ru.isEmpty
+        var synonyms: [String] = []
+        for synonym in target.synonyms + caught.synonyms
+        where !synonyms.contains(where: { $0.lowercased() == synonym.lowercased() }) {
+            synonyms.append(synonym)
+        }
+        let card = CardText(
+            expression: keepingMarker(target.en, of: [target, caught], language: language),
+            translation: same ? target.ru : numbered(target.ru, adding: caught.ru),
+            example: same || caught.example.isEmpty || target.example.isEmpty
+                ? (target.example.isEmpty ? caught.example : target.example)
+                : numbered(target.example, adding: caught.example),
+            synonyms: Array(synonyms.prefix(4)),
+            context: target.context.isEmpty ? caught.context : target.context)
+        return DuplicateMerge(expressionIDs: [target.id, caught.id], kind: same ? .duplicate : .senses,
+                              card: card, isExact: false)
+    }
+
+    /// "a" + "b" → "1) a 2) b"; "1) a 2) b" + "c" → "1) a 2) b 3) c".
+    public static func numbered(_ text: String, adding more: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let numbers = trimmed.matches(of: /(?:^|\s)(\d+)\)\s/).compactMap { Int($0.output.1) }
+        guard trimmed.hasPrefix("1)"), let last = numbers.max() else { return "1) \(trimmed) 2) \(more)" }
+        return "\(trimmed) \(last + 1)) \(more)"
     }
 
     /// The phrase a merge of `group` keeps: the oldest one in flashcards (the oldest of all if none is).

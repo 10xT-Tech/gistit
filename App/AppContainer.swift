@@ -297,9 +297,13 @@ public final class AppContainer: Sendable {
             )
         }
         #endif
+        // `-uiTestLimitReached`: the free plan's request limit is spent (metered requests are refused).
+        let stub = StubLLMClient(latency: .milliseconds(800))
+        let llm: any LLMClient = ProcessInfo.processInfo.arguments.contains("-uiTestLimitReached")
+            ? LimitReachedLLMClient(stub) : stub
         return AppContainer(
             config: config,
-            llm: StubLLMClient(latency: .milliseconds(800)),
+            llm: llm,
             speechRecognizer: StubSpeechRecognizing(),
             speechRecognizerEN: StubSpeechRecognizing(),
             speechSynthesizer: StubSpeechSynthesizing(),

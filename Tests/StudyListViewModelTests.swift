@@ -88,7 +88,7 @@ import Presentation
         #expect(vm.canMoveToFlashcards)
         let first = try #require(vm.expressions.first)
         vm.moveToFlashcards(first)
-        #expect(!vm.expressions.contains { $0.id == first.id })
+        #expect(vm.expressions.contains { $0.id == first.id })    // stays until it IS in flashcards
         try await waitUntil { vm.expressions.count == 1 }
         try await Task.sleep(for: .milliseconds(100))
         #expect(try await cards.all().filter { $0.expressionID == first.id }.count == 2)
