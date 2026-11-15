@@ -122,6 +122,7 @@ private actor FlakyCards: ReviewCardRepository {
     func all() async throws -> [ReviewCard] { try await inner.all() }
     func save(_ card: ReviewCard) async throws { try await inner.save(card) }
     func delete(expressionID: UUID) async throws { try await inner.delete(expressionID: expressionID) }
+    func addMissing(_ cards: [ReviewCard]) async throws { try await inner.addMissing(cards) }
     func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws {
         if failures > 0 {
             failures -= 1

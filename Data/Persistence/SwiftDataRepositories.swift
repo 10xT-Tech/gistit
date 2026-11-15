@@ -117,6 +117,40 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
         try save()
     }
 
+    /// Check and insert inside one actor call with no suspension in between, and one save. A few
+    /// expressions (a move from Caught): only their cards are read; many (a file import): the deck is
+    /// read once — an IN over thousands of ids would hit SQLite's parameter limit.
+    public func addMissing(_ cards: [ReviewCard]) async throws {
+        guard !cards.isEmpty else { return }
+        let expressionIDs = Set(cards.map(\.expressionID))
+        var existing: [ReviewCardModel] = []
+        if expressionIDs.count <= Self.narrowReadLimit {
+            for expressionID in expressionIDs {
+                existing += try modelContext.fetch(
+                    FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.expressionID == expressionID }))
+            }
+        } else {
+            existing = try modelContext.fetch(FetchDescriptor<ReviewCardModel>())
+        }
+        var taken = Set(existing.map { Slot(expressionID: $0.expressionID, direction: $0.directionRaw) })
+        var inserted = false
+        for card in cards
+        where taken.insert(Slot(expressionID: card.expressionID, direction: card.direction.rawValue)).inserted {
+            modelContext.insert(ReviewCardModel(card))
+            inserted = true
+        }
+        if inserted { try save() }
+    }
+
+    /// Up to this many expressions, `addMissing` reads their cards one expression at a time.
+    private static let narrowReadLimit = 20
+
+    /// One card per expression and direction.
+    private struct Slot: Hashable {
+        let expressionID: UUID
+        let direction: String
+    }
+
     public func delete(expressionID: UUID) async throws {
         let descriptor = FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.expressionID == expressionID })
         for model in try modelContext.fetch(descriptor) { modelContext.delete(model) }

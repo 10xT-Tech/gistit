@@ -9,6 +9,7 @@
 
 import Testing
 import Foundation
+import SwiftData
 import Domain
 import Adapters
 
@@ -85,6 +86,28 @@ struct SplitMix64: RandomNumberGenerator {
     }
 
     /// Recall waits until the phrase is recognised: recognition graduated to review, on an earlier day.
+    /// Moving the same phrase in many times at once leaves it two cards — one per direction — and a
+    /// later move adds nothing. In memory and in the SwiftData store.
+    @Test func parallelMovesOfOnePhraseLeaveTwoCards() async throws {
+        let phrase = expression("jump the gun")
+        let container = try ModelContainer(for: ReviewCardModel.self, ReviewLogModel.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let stores: [any ReviewCardRepository] = [MockReviewCardRepository(),
+                                                  SwiftDataReviewCardRepository(modelContainer: container)]
+        for store in stores {
+            let sut = FlashcardsInteractor(expressions: MockExpressionRepository(seed: [phrase]), cards: store)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0..<20 { group.addTask { try await sut.enroll(phrase.id, now: now) } }
+                try await group.waitForAll()
+            }
+            try await sut.enroll(phrase.id, now: now)
+            let cards = try await store.all()
+            #expect(cards.count == 2)
+            #expect(Set(cards.map(\.direction)) == Set(CardDirection.allCases))
+            #expect(cards.allSatisfy { $0.expressionID == phrase.id && $0.state == .new })
+        }
+    }
+
     @Test func recallWaitsForRecognitionToGraduate() async throws {
         let e = expression("a", ageDays: 3)
         let recall = ReviewCard(expressionID: e.id, direction: .recall, due: now.addingTimeInterval(-2 * day))

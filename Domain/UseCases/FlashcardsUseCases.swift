@@ -284,10 +284,12 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
     }
 
     public func enroll(_ expressionID: UUID, now: Date) async throws {
-        let existing = Set(try await cards.all().filter { $0.expressionID == expressionID }.map(\.direction))
-        for direction in CardDirection.allCases where !existing.contains(direction) {
-            try await cards.save(ReviewCard(expressionID: expressionID, direction: direction, due: now))
-        }
+        // One step in the store — not "read every card, then save the missing ones", which two
+        // enrolls of the same phrase could interleave (four cards) and which read the whole deck
+        // for every phrase moved.
+        try await cards.addMissing(CardDirection.allCases.map {
+            ReviewCard(expressionID: expressionID, direction: $0, due: now)
+        })
     }
 
     public func enrolledExpressionIDs() async throws -> Set<UUID> {

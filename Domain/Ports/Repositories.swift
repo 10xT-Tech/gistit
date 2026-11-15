@@ -29,6 +29,14 @@ public protocol ReviewCardRepository: Sendable {
     func save(_ card: ReviewCard) async throws
     /// Many at once, stored in one go (a card-file import). Default: one by one.
     func saveAll(_ cards: [ReviewCard]) async throws
+    /// Store each of `cards` UNLESS its expression already has a card of that direction — in ONE
+    /// step: the check and the insert can't be interleaved with another call. Every way a phrase
+    /// enters flashcards goes through here (a move from Caught, a card-file import), so two of them at
+    /// once — the same phrase moved twice, or moved while a file with it is being imported — still
+    /// leave it one card per direction, not two. (A read of the cards followed by separate saves let
+    /// two callers both see "none".) A card that is skipped is dropped: the one already there stays as
+    /// it is, with its progress.
+    func addMissing(_ cards: [ReviewCard]) async throws
     /// Remove an expression's cards (it left the study list). Its answers stay in the log.
     func delete(expressionID: UUID) async throws
     /// The cards of `expressionIDs` become exactly `cards` (matched by `id`: kept ones are updated —

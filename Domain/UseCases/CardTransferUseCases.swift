@@ -130,9 +130,12 @@ public struct CardTransferInteractor: CardTransferUseCase {
         // back — otherwise the whole file would sit on Caught, where "Move all" would enrol it as NEW
         // cards, without the file's progress. Should taking them back fail too, importing the file
         // again still completes it (they're found on Caught and get the file's cards).
+        // The cards go in through the same all-in-one-step insert a move from Caught uses: a phrase
+        // moved into flashcards while this import was running (after `enrolled` was read above) keeps
+        // the two cards it got — the file's are skipped — instead of ending up with four.
         try await expressions.addAll(newExpressions)
         do {
-            try await cards.saveAll(newCards)
+            try await cards.addMissing(newCards)
         } catch {
             try? await expressions.deleteAll(ids: Set(newExpressions.map(\.id)))
             throw error

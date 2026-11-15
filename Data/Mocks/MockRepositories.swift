@@ -76,6 +76,18 @@ public actor MockReviewCardRepository: ReviewCardRepository {
     public func delete(expressionID: UUID) async throws {
         cards = cards.filter { $0.value.expressionID != expressionID }
     }
+    public func addMissing(_ new: [ReviewCard]) async throws {
+        var taken = Set(cards.values.map { Slot(expressionID: $0.expressionID, direction: $0.direction) })
+        for card in new where taken.insert(Slot(expressionID: card.expressionID, direction: card.direction)).inserted {
+            cards[card.id] = card
+        }
+    }
+
+    /// One card per expression and direction.
+    private struct Slot: Hashable {
+        let expressionID: UUID
+        let direction: CardDirection
+    }
     public func replaceCards(of expressionIDs: Set<UUID>, with replacement: [ReviewCard]) async throws {
         cards = cards.filter { !expressionIDs.contains($0.value.expressionID) }
         for card in replacement { cards[card.id] = card }

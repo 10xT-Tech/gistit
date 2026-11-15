@@ -111,6 +111,63 @@ import Presentation
         #expect(try await cards.all().count == 6)
     }
 
+    /// A phrase on Caught is moved into flashcards WHILE a file holding it is being imported (after
+    /// the import looked at what's in flashcards, before it stored its cards): the phrase keeps the
+    /// two cards the move gave it — not four — and the file's other phrases come in as usual.
+    @Test func aMoveDuringAnImportLeavesTwoCards() async throws {
+        let caught = Domain.Expression(en: "Break the ice", ru: "растопить лёд")
+        let expressions = MockExpressionRepository(seed: [caught])
+        let cards = RacingCards(enrollingMeanwhile: caught.id, at: now)
+        let sut = CardTransferInteractor(expressions: expressions, cards: cards)
+        let review = ReviewCard(expressionID: UUID(), direction: .recognition, state: .review,
+                                due: now.addingTimeInterval(86_400), stability: 9, difficulty: 4, reps: 5, lastReview: now)
+        let file = CardFile(cards: [
+            CardFile.Card(expression: "break the ice", translation: "растопить лёд", review: [CardFile.Review(review)]),
+            card("new one"),
+        ])
+
+        let report = try await sut.importIntoFlashcards(file, now: now)
+        #expect(report.added == 1 && report.movedFromCaught == 1)
+        let stored = try await cards.all()
+        let ofCaught = stored.filter { $0.expressionID == caught.id }
+        #expect(ofCaught.count == 2 && Set(ofCaught.map(\.direction)) == Set(CardDirection.allCases))
+        #expect(ofCaught.allSatisfy { $0.state == .new })                 // the move's cards stay; the file's are skipped
+        #expect(stored.count == 4)                                         // + the new phrase's two
+    }
+
+    /// The store's all-in-one-step insert: a card is stored unless its expression already has one of
+    /// that direction (also inside one batch); what is there keeps its progress.
+    @Test func addMissingKeepsOneCardPerDirection() async throws {
+        let container = try ModelContainer(for: ReviewCardModel.self, ReviewLogModel.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let stores: [any ReviewCardRepository] = [MockReviewCardRepository(),
+                                                  SwiftDataReviewCardRepository(modelContainer: container)]
+        for store in stores {
+            let a = UUID(), b = UUID()
+            let known = ReviewCard(expressionID: a, direction: .recognition, state: .review, due: now, stability: 12,
+                                   difficulty: 4, reps: 7, lastReview: now)
+            try await store.save(known)
+            try await store.addMissing([
+                ReviewCard(expressionID: a, direction: .recognition, due: now),      // taken → skipped
+                ReviewCard(expressionID: a, direction: .recall, due: now),
+                ReviewCard(expressionID: b, direction: .recall, due: now),
+                ReviewCard(expressionID: b, direction: .recall, due: now),           // twice in one batch → once
+            ])
+            let stored = try await store.all()
+            #expect(stored.count == 3)
+            #expect(stored.first { $0.expressionID == a && $0.direction == .recognition } == known)
+            #expect(stored.filter { $0.expressionID == b }.map(\.direction) == [.recall])
+
+            // Many expressions at once (the import's path: one read of the deck).
+            let many = (0..<60).flatMap { _ -> [ReviewCard] in
+                let id = UUID()
+                return CardDirection.allCases.map { ReviewCard(expressionID: id, direction: $0, due: now) }
+            }
+            try await store.addMissing(many + [ReviewCard(expressionID: a, direction: .recall, due: now)])
+            #expect(try await store.all().count == 3 + 120)
+        }
+    }
+
     /// The "not duplicates" links fail to store: the cards are in, so the import succeeded.
     @Test func failedLinksDoNotFailTheImport() async throws {
         let expressions = MockExpressionRepository(seed: [])
@@ -231,7 +288,7 @@ import Presentation
     }
 }
 
-/// Cards whose batch save fails the first `failures` times, storing nothing.
+/// Cards whose batch insert fails the first `failures` times, storing nothing.
 private actor FailingSaveAllCards: ReviewCardRepository {
     private let inner = MockReviewCardRepository()
     private var failures: Int
@@ -239,14 +296,15 @@ private actor FailingSaveAllCards: ReviewCardRepository {
 
     func all() async throws -> [ReviewCard] { try await inner.all() }
     func save(_ card: ReviewCard) async throws { try await inner.save(card) }
-    func saveAll(_ cards: [ReviewCard]) async throws {
+    func saveAll(_ cards: [ReviewCard]) async throws { try await inner.saveAll(cards) }
+    func delete(expressionID: UUID) async throws { try await inner.delete(expressionID: expressionID) }
+    func addMissing(_ cards: [ReviewCard]) async throws {
         if failures > 0 {
             failures -= 1
             throw RepositoryError.persistenceFailed("disk full")
         }
-        try await inner.saveAll(cards)
+        try await inner.addMissing(cards)
     }
-    func delete(expressionID: UUID) async throws { try await inner.delete(expressionID: expressionID) }
     func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws {
         try await inner.replaceCards(of: expressionIDs, with: cards)
     }
@@ -259,4 +317,44 @@ private struct FailingMarks: NotDuplicateMarking {
     func pairs() async throws -> Set<NotDuplicatePair> { [] }
     func mark(_ pairs: Set<NotDuplicatePair>) async throws { throw RepositoryError.persistenceFailed("disk full") }
     func unmark(involving ids: Set<UUID>) async throws {}
+}
+
+/// Cards where a move from Caught lands in the middle of an import: right before the import's cards
+/// are stored, `enrollingMeanwhile` gets its two new cards — as `FlashcardsInteractor.enroll` gives them.
+private actor RacingCards: ReviewCardRepository {
+    private let inner = MockReviewCardRepository()
+    private let expressionID: UUID
+    private let date: Date
+    private var raced = false
+
+    init(enrollingMeanwhile expressionID: UUID, at date: Date) {
+        self.expressionID = expressionID
+        self.date = date
+    }
+
+    func all() async throws -> [ReviewCard] { try await inner.all() }
+    func save(_ card: ReviewCard) async throws { try await inner.save(card) }
+    func saveAll(_ cards: [ReviewCard]) async throws {
+        try await race()                                    // whichever way the import writes its cards
+        try await inner.saveAll(cards)
+    }
+    func delete(expressionID: UUID) async throws { try await inner.delete(expressionID: expressionID) }
+    func addMissing(_ cards: [ReviewCard]) async throws {
+        try await race()
+        try await inner.addMissing(cards)
+    }
+
+    /// The move from Caught lands now — once.
+    private func race() async throws {
+        guard !raced else { return }
+        raced = true
+        try await inner.addMissing(CardDirection.allCases.map {
+            ReviewCard(expressionID: expressionID, direction: $0, due: date)
+        })
+    }
+    func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws {
+        try await inner.replaceCards(of: expressionIDs, with: cards)
+    }
+    func appendLog(_ log: ReviewLog) async throws { try await inner.appendLog(log) }
+    func logs(since date: Date) async throws -> [ReviewLog] { try await inner.logs(since: date) }
 }
