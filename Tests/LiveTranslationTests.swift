@@ -50,7 +50,7 @@ struct SonioxTokenAccumulatorTests {
         #expect(acc.translationPending == " же")
     }
 
-    /// A language switch draws a divider line in BOTH transcripts and drops the flushed tails;
+    /// A language switch draws a divider line in BOTH transcripts (the finalize flushed the tails);
     /// the first tokens после разделителя lose their leading space.
     @Test func boundaryDrawsDividerInBothTranscripts() {
         var acc = SonioxTokenAccumulator()
@@ -65,6 +65,32 @@ struct SonioxTokenAccumulatorTests {
         ])
         #expect(acc.originalFinal == "Hello\(SonioxTokenAccumulator.boundary)Да")
         #expect(acc.translationFinal == "Привет\(SonioxTokenAccumulator.boundary)Yes")
+    }
+
+    /// The finalize marker never came (the rotation's 2 s safety net): the provisional tails are the
+    /// last words before the switch — kept before the divider, not dropped.
+    @Test func boundaryKeepsTailsThatWereNeverFinalized() {
+        var acc = SonioxTokenAccumulator()
+        acc.ingest([
+            SonioxToken(text: "Hello", isFinal: true, translationStatus: "original"),
+            SonioxToken(text: "Привет", isFinal: true, translationStatus: "translation"),
+            SonioxToken(text: " my friend", isFinal: false, translationStatus: "original"),
+            SonioxToken(text: " мой друг", isFinal: false, translationStatus: "translation"),
+        ])
+        acc.insertBoundary()
+        #expect(acc.originalFinal == "Hello my friend\(SonioxTokenAccumulator.boundary)")
+        #expect(acc.translationFinal == "Привет мой друг\(SonioxTokenAccumulator.boundary)")
+        #expect(acc.originalPending.isEmpty && acc.translationPending.isEmpty)
+
+        acc.ingest([SonioxToken(text: " Да", isFinal: true, translationStatus: "original")])
+        #expect(acc.originalFinal == "Hello my friend\(SonioxTokenAccumulator.boundary)Да")
+
+        // Nothing final yet at all: the tail alone is kept, with the divider after it.
+        var early = SonioxTokenAccumulator()
+        early.ingest([SonioxToken(text: "Hello", isFinal: false, translationStatus: "original")])
+        early.insertBoundary()
+        #expect(early.originalFinal == "Hello\(SonioxTokenAccumulator.boundary)")
+        #expect(early.translationFinal.isEmpty)
     }
 
     @Test func markerTokensAreFiltered() {

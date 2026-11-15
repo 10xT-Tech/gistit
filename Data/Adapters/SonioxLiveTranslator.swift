@@ -931,8 +931,14 @@ public struct SonioxTokenAccumulator: Sendable, Equatable {
     public static let boundary = "\n\n⸻\n\n"
 
     /// Language direction switched mid-session: draw a DIVIDER LINE in both transcripts. The
-    /// switch is preceded by a finalize, so the pending tails are already flushed — drop them.
+    /// switch is preceded by a finalize, which normally turns the provisional tails into finals — then
+    /// they are empty here. If the finalize marker never came (the rotation's 2 s safety net: a dead
+    /// or slow socket), the tails are the last words before the switch and the old socket is gone, so
+    /// no final version will ever arrive: KEEP them as the best estimate (as a stop does) instead of
+    /// dropping what the user just saw on screen.
     public mutating func insertBoundary() {
+        originalFinal += originalPending
+        translationFinal += translationPending
         if !originalFinal.isEmpty {
             originalFinal += Self.boundary
             trimNextOriginalSpace = true
