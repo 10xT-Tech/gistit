@@ -241,15 +241,23 @@ public final class PhotoTranslateViewModel {
             do {
                 let image = RecognizableImage(data: data)
                 switch mode {
+                // A superseded run (a newer photo, a mode switch, a failed image load, a reset) may
+                // still come back with a SUCCESS — the answer was already in when it was cancelled.
+                // It must not write: the screen belongs to whatever cancelled it. Checked on the main
+                // actor, where every cancel() is called, so nothing can slip in between.
                 case .translate:
-                    self.blocks = try await withBackgroundCompletion(self.longTask, .photoTranslate) {
+                    let blocks = try await withBackgroundCompletion(self.longTask, .photoTranslate) {
                         try await self.photoTranslate(image, studiedLanguage: studied, nativeLanguage: native)
                     }
+                    guard !Task.isCancelled else { return }
+                    self.blocks = blocks
                     self.resultsGeneration += 1   // blocks replaced → stale in-flight save mappings
                 case .explain:
-                    self.explanation = try await withBackgroundCompletion(self.longTask, .photoExplain) {
+                    let explanation = try await withBackgroundCompletion(self.longTask, .photoExplain) {
                         try await self.photoExplain(image, studiedLanguage: studied, nativeLanguage: native)
                     }
+                    guard !Task.isCancelled else { return }
+                    self.explanation = explanation
                 }
                 self.phase = .result
             } catch is CancellationError {
@@ -258,6 +266,7 @@ public final class PhotoTranslateViewModel {
                 // superseded by a newer photo / a mode switch — the adapter maps task cancellation to
                 // LLMError.cancelled, so this (not CancellationError) is what surfaces. Never show it.
             } catch {
+                guard !Task.isCancelled else { return }   // a superseded run's failure isn't the screen's either
                 self.handle(error)
             }
         }
