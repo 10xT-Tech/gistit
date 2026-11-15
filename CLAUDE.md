@@ -14,6 +14,17 @@ live sessions keep their audio; swipe-to-delete).
   Soniox `stt-rt-v5` over WebSocket.
 - Monochrome "Liquid Glass" design system; system colors are functional signals only.
 
+## How to work here
+
+- **Finish the job.** Carry every task through to the end — code, tests, docs (`CLAUDE.md`,
+  `CHANGELOG.md`), a green test run, the commit — so that nothing is left undone when the task is
+  reported finished. Don't stop at "the main part works" and hand the rest back as next steps: if
+  something can be done now, do it; leave open only what truly needs the user (a decision, an
+  account, a device), and say so plainly.
+- **This codebase is yours — decide for yourself how to build it.** Refactor as you go: when the
+  task touches code that is awkward, duplicated or no longer fits, reshape it rather than working
+  around it, keeping the architecture below and the tests green.
+
 ## Architecture — Clean Architecture, dependency rule strictly inward
 
 Each layer is a **separate framework module**, so the compiler enforces the dependency rule
