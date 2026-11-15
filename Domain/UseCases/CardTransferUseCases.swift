@@ -125,8 +125,18 @@ public struct CardTransferInteractor: CardTransferUseCase {
                                 ?? ReviewCard(expressionID: expressionID, direction: direction, due: movedIn))
             }
         }
+        // Two stores, no shared transaction: the phrases first (cards without a phrase would be
+        // invisible leftovers), then their cards. If the cards fail, the phrases just added are taken
+        // back — otherwise the whole file would sit on Caught, where "Move all" would enrol it as NEW
+        // cards, without the file's progress. Should taking them back fail too, importing the file
+        // again still completes it (they're found on Caught and get the file's cards).
         try await expressions.addAll(newExpressions)
-        try await cards.saveAll(newCards)
+        do {
+            try await cards.saveAll(newCards)
+        } catch {
+            try? await expressions.deleteAll(ids: Set(newExpressions.map(\.id)))
+            throw error
+        }
         var pairs = Set<NotDuplicatePair>()
         for entry in file.cards {
             guard let id = idByKey[Self.key(entry.expression)] else { continue }
@@ -134,7 +144,9 @@ public struct CardTransferInteractor: CardTransferUseCase {
                 if let otherID = idByKey[Self.key(other)], otherID != id { pairs.insert(NotDuplicatePair(id, otherID)) }
             }
         }
-        if !pairs.isEmpty { try await marks?.mark(pairs) }
+        // Best-effort: the cards are in, and a failure here must not report the import as failed.
+        // Importing the file again writes the links (every phrase is then "already in flashcards").
+        if !pairs.isEmpty { try? await marks?.mark(pairs) }
         return CardImportReport(added: added, movedFromCaught: moved, alreadyInFlashcards: already, skipped: skipped)
     }
 

@@ -13,6 +13,8 @@ public protocol ExpressionRepository: Sendable {
     func addAll(_ expressions: [Expression]) async throws
     func update(_ expression: Expression) async throws
     func delete(id: Expression.ID) async throws
+    /// Many at once, removed in one go (undoing a card-file import). Default: one by one.
+    func deleteAll(ids: Set<Expression.ID>) async throws
     /// Toggle the staging "learned" flag.
     func setLearned(_ learned: Bool, id: Expression.ID) async throws
     /// First existing expression whose `en` matches (case-insensitive, trimmed), or nil. Drives
@@ -48,6 +50,10 @@ public extension ReviewCardRepository {
 public extension ExpressionRepository {
     func addAll(_ expressions: [Expression]) async throws {
         for expression in expressions { try await add(expression) }
+    }
+
+    func deleteAll(ids: Set<Expression.ID>) async throws {
+        for id in ids { try await delete(id: id) }
     }
 
     /// Normalized key for content-level matching of an expression's `en`.

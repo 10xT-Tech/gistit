@@ -92,6 +92,39 @@ import Presentation
         #expect(try await flashcards.stats(now: now).caught == 0)
     }
 
+    /// The cards fail to store after the phrases went in: the new phrases are taken back (the file
+    /// doesn't end up on Caught), what was there is untouched — and importing again completes it.
+    @Test func aFailedCardWriteTakesTheNewPhrasesBack() async throws {
+        let caught = Domain.Expression(en: "Break the ice", ru: "растопить лёд")
+        let expressions = MockExpressionRepository(seed: [caught])
+        let cards = FailingSaveAllCards(failures: 1)
+        let sut = CardTransferInteractor(expressions: expressions, cards: cards)
+        let file = CardFile(cards: [card("new one"), card("another"), card("break the ice")])
+
+        await #expect(throws: RepositoryError.self) { _ = try await sut.importIntoFlashcards(file, now: now) }
+        #expect(try await expressions.all().map(\.id) == [caught.id])
+        #expect(try await cards.all().isEmpty)
+
+        let report = try await sut.importIntoFlashcards(file, now: now)
+        #expect(report == CardImportReport(added: 2, movedFromCaught: 1, alreadyInFlashcards: 0, skipped: 0))
+        #expect(try await expressions.all().count == 3)
+        #expect(try await cards.all().count == 6)
+    }
+
+    /// The "not duplicates" links fail to store: the cards are in, so the import succeeded.
+    @Test func failedLinksDoNotFailTheImport() async throws {
+        let expressions = MockExpressionRepository(seed: [])
+        let cards = MockReviewCardRepository()
+        let sut = CardTransferInteractor(expressions: expressions, cards: cards, marks: FailingMarks())
+        let file = CardFile(cards: [
+            CardFile.Card(expression: "solid", translation: "надёжный", notDuplicateOf: ["a solid"]),
+            CardFile.Card(expression: "a solid", translation: "твёрдое тело", notDuplicateOf: ["solid"]),
+        ])
+        let report = try await sut.importIntoFlashcards(file, now: now)
+        #expect(report.added == 2)
+        #expect(try await cards.all().count == 4)
+    }
+
     /// Export → import on another (empty) app keeps every field and the learning progress.
     @Test func exportThenImportKeepsProgress() async throws {
         let e = Domain.Expression(en: "jump the gun", ru: "поторопиться", example: "Don't jump the gun.",
@@ -196,4 +229,34 @@ import Presentation
         #expect(deck.filename.hasSuffix(".json"))
         #expect(try CardFile.decode(deck.data).cards.count == 2)
     }
+}
+
+/// Cards whose batch save fails the first `failures` times, storing nothing.
+private actor FailingSaveAllCards: ReviewCardRepository {
+    private let inner = MockReviewCardRepository()
+    private var failures: Int
+    init(failures: Int) { self.failures = failures }
+
+    func all() async throws -> [ReviewCard] { try await inner.all() }
+    func save(_ card: ReviewCard) async throws { try await inner.save(card) }
+    func saveAll(_ cards: [ReviewCard]) async throws {
+        if failures > 0 {
+            failures -= 1
+            throw RepositoryError.persistenceFailed("disk full")
+        }
+        try await inner.saveAll(cards)
+    }
+    func delete(expressionID: UUID) async throws { try await inner.delete(expressionID: expressionID) }
+    func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws {
+        try await inner.replaceCards(of: expressionIDs, with: cards)
+    }
+    func appendLog(_ log: ReviewLog) async throws { try await inner.appendLog(log) }
+    func logs(since date: Date) async throws -> [ReviewLog] { try await inner.logs(since: date) }
+}
+
+/// "Not duplicates" links that can't be stored.
+private struct FailingMarks: NotDuplicateMarking {
+    func pairs() async throws -> Set<NotDuplicatePair> { [] }
+    func mark(_ pairs: Set<NotDuplicatePair>) async throws { throw RepositoryError.persistenceFailed("disk full") }
+    func unmark(involving ids: Set<UUID>) async throws {}
 }

@@ -44,6 +44,15 @@ public actor SwiftDataExpressionRepository: ExpressionRepository {
         try save()
     }
 
+    public func deleteAll(ids: Set<Domain.Expression.ID>) async throws {
+        guard !ids.isEmpty else { return }
+        // One read, matched in memory (an IN over thousands of ids would hit SQLite's parameter limit).
+        for model in try modelContext.fetch(FetchDescriptor<ExpressionModel>()) where ids.contains(model.id) {
+            modelContext.delete(model)
+        }
+        try save()
+    }
+
     public func setLearned(_ learned: Bool, id: Domain.Expression.ID) async throws {
         guard let model = try fetchModel(id: id) else { throw RepositoryError.notFound }
         model.learned = learned
