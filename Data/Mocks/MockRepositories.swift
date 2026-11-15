@@ -76,6 +76,10 @@ public actor MockReviewCardRepository: ReviewCardRepository {
     public func delete(expressionID: UUID) async throws {
         cards = cards.filter { $0.value.expressionID != expressionID }
     }
+    public func replaceCards(of expressionIDs: Set<UUID>, with replacement: [ReviewCard]) async throws {
+        cards = cards.filter { !expressionIDs.contains($0.value.expressionID) }
+        for card in replacement { cards[card.id] = card }
+    }
     public func appendLog(_ entry: ReviewLog) async throws { log.append(entry) }
     public func logs(since date: Date) async throws -> [ReviewLog] { log.filter { $0.reviewedAt >= date } }
 }

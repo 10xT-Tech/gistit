@@ -19,7 +19,8 @@
 //    once — an answer takes a while, and small batches keep the progress moving): the merges each group
 //    needs — a duplicate (one expression, one meaning) or senses (the very same expression, several
 //    meanings: one card, numbered "1) … 2) …") — with the card each makes; a card in none stays apart.
-//  - Merge: the oldest phrase in flashcards stays with the merged texts (in lower case except "I", as
+//  - Merge (never half-done: the cards change in one all-or-nothing write, `replaceCards`; a failed
+//    step leaves a state the next try completes): the oldest phrase in flashcards stays with the merged texts (in lower case except "I", as
 //    Fix cards writes them; a field left empty keeps its text); the others go. Each direction keeps
 //    ONE card: for a duplicate the best-known one (its knowledge is proven), for several meanings the
 //    least-known one (the card now asks for all of them). Answers stay in the log.
@@ -468,6 +469,9 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         let groupCards = try await cards.all().filter { ids.contains($0.expressionID) }
         let enrolled = Set(groupCards.map(\.expressionID))
         let ordered = group.sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+        // A merge is into flashcards: with no card in the group there's no progress to keep, and going
+        // on would only delete phrases (a group whose cards were lost must not lose its phrases too).
+        guard !enrolled.isEmpty else { throw RepositoryError.notFound }
         guard let keep = Self.kept(of: group, enrolled: enrolled) else { return }
 
         try await expressions.update(Self.texts(card, onto: keep, studiedLanguage: studiedLanguage,
@@ -484,8 +488,10 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                                        lastReview: chosen.lastReview, firstReview: chosen.firstReview))
             }
         }
-        for id in enrolled { try await cards.delete(expressionID: id) }
-        try await cards.saveAll(kept)
+        // Each step leaves a state a retry completes, and none loses progress: the texts first (the
+        // phrases and cards still as they were), then the cards in ONE all-or-nothing write (the other
+        // phrases are left without cards — on Caught — until the last step), then the other phrases.
+        try await cards.replaceCards(of: enrolled, with: kept)
         let gone = Set(ordered.map(\.id)).subtracting([keep.id])
         for id in gone { try await expressions.delete(id: id) }
         try? await marks.unmark(involving: gone)

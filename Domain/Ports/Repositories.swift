@@ -29,6 +29,11 @@ public protocol ReviewCardRepository: Sendable {
     func saveAll(_ cards: [ReviewCard]) async throws
     /// Remove an expression's cards (it left the study list). Its answers stay in the log.
     func delete(expressionID: UUID) async throws
+    /// The cards of `expressionIDs` become exactly `cards` (matched by `id`: kept ones are updated —
+    /// also to another expression —, the rest of those expressions' cards go) — ALL OR NOTHING: a
+    /// failure leaves every card as it was. A merge of duplicates must never be left half-done with
+    /// the learning progress deleted and its replacement unwritten.
+    func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws
     func appendLog(_ log: ReviewLog) async throws
     /// Answers given at or after `date`.
     func logs(since date: Date) async throws -> [ReviewLog]

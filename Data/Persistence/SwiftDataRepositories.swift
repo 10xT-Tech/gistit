@@ -68,9 +68,14 @@ public actor SwiftDataExpressionRepository: ExpressionRepository {
         return try modelContext.fetch(descriptor).first
     }
 
+    /// A failed save is rolled back: its changes must not stay pending in the context and ride along
+    /// with the NEXT save — applying, later and half, a write the caller was told had failed.
     private func save() throws {
         do { try modelContext.save() }
-        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+        catch {
+            modelContext.rollback()
+            throw RepositoryError.persistenceFailed(error.localizedDescription)
+        }
     }
 }
 
@@ -109,6 +114,26 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
         try save()
     }
 
+    /// One save for the whole replacement; a failed save is rolled back (`save()`), so the cards are
+    /// either all as before or all replaced.
+    public func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws {
+        let replacement = Dictionary(cards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var written: Set<UUID> = []
+        // One read, matched in memory (an IN over many ids would hit SQLite's parameter limit).
+        for model in try modelContext.fetch(FetchDescriptor<ReviewCardModel>()) {
+            if let card = replacement[model.id] {
+                model.expressionID = card.expressionID       // a kept card may move to the kept phrase
+                model.directionRaw = card.direction.rawValue
+                model.apply(card)
+                written.insert(model.id)
+            } else if expressionIDs.contains(model.expressionID) {
+                modelContext.delete(model)
+            }
+        }
+        for card in cards where !written.contains(card.id) { modelContext.insert(ReviewCardModel(card)) }
+        try save()
+    }
+
     public func appendLog(_ log: ReviewLog) async throws {
         modelContext.insert(ReviewLogModel(log))
         try save()
@@ -119,9 +144,14 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
         return try modelContext.fetch(descriptor).compactMap { $0.toDomain() }
     }
 
+    /// A failed save is rolled back: its changes must not stay pending in the context and ride along
+    /// with the NEXT save — applying, later and half, a write the caller was told had failed.
     private func save() throws {
         do { try modelContext.save() }
-        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+        catch {
+            modelContext.rollback()
+            throw RepositoryError.persistenceFailed(error.localizedDescription)
+        }
     }
 }
 
@@ -150,9 +180,14 @@ public actor SwiftDataNotDuplicateMarks: NotDuplicateMarking {
         try save()
     }
 
+    /// A failed save is rolled back: its changes must not stay pending in the context and ride along
+    /// with the NEXT save — applying, later and half, a write the caller was told had failed.
     private func save() throws {
         do { try modelContext.save() }
-        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+        catch {
+            modelContext.rollback()
+            throw RepositoryError.persistenceFailed(error.localizedDescription)
+        }
     }
 }
 
