@@ -416,22 +416,49 @@ public struct SettingsView: View {
 
     private var storageCard: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.s12) {
-            sectionTitle(Loc.t("Место на диске", "Disk usage"))
+            sectionTitle(Loc.t("Место на диске и в памяти", "Disk and memory usage", "Espace disque et mémoire",
+                               "Uso de disco y memoria", "Speicherplatz und Arbeitsspeicher", "Uso di disco e memoria"))
             infoRow(Loc.t("Кэш переводов", "Translation cache"), byteString(model.storage.cacheBytes))
             Divider().overlay(Tokens.Hairline.default)
             infoRow(Loc.t("История", "History"), byteString(model.storage.historyBytes))
             Divider().overlay(Tokens.Hairline.default)
             infoRow(Loc.t("Аудиозаписи сессий", "Session recordings"), byteString(model.storage.audioBytes))
             Divider().overlay(Tokens.Hairline.default)
+            VStack(alignment: .leading, spacing: Tokens.Space.s4) {
+                infoRow(Loc.t("Фразы и флеш-карты", "Phrases and flashcards", "Phrases et cartes", "Frases y tarjetas",
+                              "Phrasen und Lernkarten", "Frasi e schede"),
+                        byteString(model.storage.deckBytes))
+                Text(deckDetail)
+                    .textStyle(Tokens.Text.footnote)
+                    .foregroundStyle(Tokens.Content.tertiary)
+                    .monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings.deckUsage")
+            Divider().overlay(Tokens.Hairline.default)
             infoRow(Loc.t("Всего", "Total"), byteString(model.storage.totalBytes))
-            Text(Loc.t("Тексты — оценка по содержимому записей; аудио — фактический размер файлов.",
-                       "Text sizes are estimated from the stored content; audio is the actual file size."))
+            Text(Loc.t("Тексты — оценка по содержимому записей; аудио — фактический размер файлов. Память — оценка: фразы и карточки держатся в памяти, чтобы экраны открывались сразу.",
+                       "Text sizes are estimated from the stored content; audio is the actual file size. Memory is an estimate: phrases and cards are kept in memory so that screens open at once."))
                 .textStyle(Tokens.Text.footnote)
                 .foregroundStyle(Tokens.Content.tertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
+    }
+
+    /// "9,636 phrases · 19,272 cards · in memory ≈ 7.4 MB".
+    private var deckDetail: String {
+        let usage = model.storage
+        let phrases = usage.phraseCount.formatted(), cards = usage.cardCount.formatted()
+        let memory = byteString(usage.deckMemoryBytes)
+        return Loc.t("Фраз: \(phrases) · карточек: \(cards) · в памяти ≈ \(memory)",
+                     "\(phrases) phrases · \(cards) cards · in memory ≈ \(memory)",
+                     "\(phrases) phrases · \(cards) cartes · en mémoire ≈ \(memory)",
+                     "\(phrases) frases · \(cards) tarjetas · en memoria ≈ \(memory)",
+                     "\(phrases) Phrasen · \(cards) Karten · im Speicher ≈ \(memory)",
+                     "\(phrases) frasi · \(cards) schede · in memoria ≈ \(memory)")
     }
 
     /// Localized byte count ("1,2 МБ") in the APP's interface language — the system formatter alone

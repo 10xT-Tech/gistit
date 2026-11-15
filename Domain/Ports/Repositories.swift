@@ -118,7 +118,8 @@ public struct TranslationCacheStats: Sendable, Equatable {
     }
 }
 
-/// How much disk the app's stored data occupies, split by kind (Settings). The DB-backed numbers
+/// How much disk the app's stored data occupies, split by kind — and how much memory the deck takes
+/// while the app runs (Settings). The DB-backed numbers
 /// (cache, history) are CONTENT sums — SQLite's own overhead (indexes, WAL, free pages) can't be
 /// attributed per table — while audio is the actual size of the recording files on disk.
 public struct StorageUsage: Sendable, Equatable {
@@ -128,12 +129,25 @@ public struct StorageUsage: Sendable, Equatable {
     public let historyBytes: Int
     /// Session-recording audio files.
     public let audioBytes: Int
-    public var totalBytes: Int { cacheBytes + historyBytes + audioBytes }
+    /// The deck on disk: phrases (Caught and in flashcards), their flashcards and the review log.
+    public let deckBytes: Int
+    /// What the deck takes in MEMORY while the app runs (an estimate): it is kept there so the
+    /// dashboard, practice and the lists open at once instead of reading the store every time.
+    public let deckMemoryBytes: Int
+    public let phraseCount: Int
+    public let cardCount: Int
+    /// On disk.
+    public var totalBytes: Int { cacheBytes + historyBytes + audioBytes + deckBytes }
 
-    public init(cacheBytes: Int, historyBytes: Int, audioBytes: Int) {
+    public init(cacheBytes: Int, historyBytes: Int, audioBytes: Int, deckBytes: Int = 0,
+                deckMemoryBytes: Int = 0, phraseCount: Int = 0, cardCount: Int = 0) {
         self.cacheBytes = cacheBytes
         self.historyBytes = historyBytes
         self.audioBytes = audioBytes
+        self.deckBytes = deckBytes
+        self.deckMemoryBytes = deckMemoryBytes
+        self.phraseCount = phraseCount
+        self.cardCount = cardCount
     }
 
     public static let zero = StorageUsage(cacheBytes: 0, historyBytes: 0, audioBytes: 0)

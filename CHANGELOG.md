@@ -67,6 +67,12 @@ in the same tones as the dashboard) and how many times you've reviewed it. Tap a
 whole card — both sides, its example and synonyms, when each side comes next, and the cards it's
 marked as not a duplicate of — without it counting as practice. Swipe left to delete a phrase.
 
+**Faster with a big deck.** With thousands of cards, the Study screen, the start of a practice set and
+the lists used to take a second or two to appear, every time. The app now reads your deck once, when it
+starts, and keeps it at hand: the dashboard, Start and Continue, and the lists open at once. Settings →
+**Disk and memory usage** has a new line, **Phrases and flashcards**: how many phrases and cards you
+have, how much room they take on disk, and how much memory they take while the app is open.
+
 **Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap
 the **wand** next to the speaker — on the card in In flashcards, or in practice once the answer is
 shown — and that card goes through the model again: it's corrected and what's missing is filled in,

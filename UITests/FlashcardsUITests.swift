@@ -546,6 +546,20 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Gist It Pro"].firstMatch.waitForExistence(timeout: 5), "the paywall didn't open")
     }
 
+    /// Settings → Disk usage says what the deck holds: how many phrases and cards, on disk and in memory.
+    func testSettingsShowWhatTheDeckTakes() {
+        let app = moveAllToFlashcards(extraArguments: [])
+        let gear = app.buttons["Settings"].firstMatch
+        XCTAssertTrue(gear.waitForExistence(timeout: 5))
+        gear.tap()
+        let row = app.descendants(matching: .any)["settings.deckUsage"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3), "Settings has no deck row")
+        for _ in 0..<10 where !row.isHittable { app.swipeUp() }   // it's far down the sheet
+        XCTAssertTrue(row.label.contains("Phrases and flashcards"), row.label)
+        XCTAssertTrue(row.label.contains("2 phrases · 4 cards · in memory"), row.label)
+        attach(app, "settings-deck-usage")
+    }
+
     /// Launch on stubs, move both seed phrases (they're complete — no model) into flashcards, and
     /// come back to the Study dashboard.
     private func moveAllToFlashcards(extraArguments: [String]) -> XCUIApplication {

@@ -62,6 +62,14 @@ public actor MockExpressionRepository: ExpressionRepository {
     ]
 }
 
+extension MockExpressionRepository: DeckFootprintReporting {
+    public func footprint() async -> DeckFootprint { DeckFootprint(expressions: (try? await all()) ?? []) }
+}
+
+extension MockReviewCardRepository: DeckFootprintReporting {
+    public func footprint() async -> DeckFootprint { DeckFootprint(cardCount: ((try? await all()) ?? []).count) }
+}
+
 public actor MockReviewCardRepository: ReviewCardRepository {
     private var cards: [UUID: ReviewCard]
     private var log: [ReviewLog]

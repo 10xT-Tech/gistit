@@ -198,7 +198,16 @@ future FSRS fitting; schema **V4**), lightweight stages. NEVER change a schema v
 build has used it — a store matching no version fails with `unknownDataStoreSchema` and the app runs
 on the in-memory fallback ("Saved data is unavailable"); add the next version instead
 (`PersistenceMigrationTests` opens a store of every version, incl. the dev-build variants); cards link by `expressionID` and are deleted with
-their expression in `StudyListInteractor`. Sets are sized by the DAILY GOAL (Settings 25/50/75/100/150, `DailyGoal`
+their expression in `StudyListInteractor`. THE DECK IS KEPT IN MEMORY: `SwiftDataExpressionRepository` and
+`SwiftDataReviewCardRepository` read the store once and answer `all()` from memory, kept in step with every
+write they make (after the save succeeded) — reading 9.6k phrases + 19k cards out of SwiftData took ~1 s and
+happened on every dashboard appearance, practice start / end and list load (measured on a store that size:
+stats 940 → 126 ms, session start 1820 → 198 ms, list load 1180 → 28 ms; the first read is still ~0.9 s,
+done by RootView's launch preload). ONE instance of each per store (`bootLive` creates them once): a second
+instance or another process writing the table would leave the copy stale. `DeckCacheTests` compares the
+repository's answer with a FRESH instance's after every kind of write. Settings → "Disk and memory usage" →
+"Phrases and flashcards" shows the counts, the content on disk and the estimated memory
+(`DeckFootprintReporting` → `StorageUsageReader`; `DeckStorageUsageReader` in the stub boot). Sets are sized by the DAILY GOAL (Settings 25/50/75/100/150, `DailyGoal`
 → `FlashcardsInteractor.dailyGoal`): a set = what's left of the goal (distinct cards answered today),
 "more" = an extra set of 25 (`DailyGoalOptions.extraSet`, whatever the goal; `DailyPlan.moreSize` labels it); `SetComposer.quotas` puts LEARNING cards first (up to the set size), then splits
 the room among young / mature / new proportionally to today's available counts (new counted at most
