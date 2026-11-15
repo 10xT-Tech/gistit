@@ -398,7 +398,7 @@ public final class AppContainer: Sendable {
 
     @MainActor
     public func makeStudyDashboardViewModel() -> StudyDashboardViewModel {
-        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce)
+        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce, fixCards: fixCards)
     }
 
     @MainActor

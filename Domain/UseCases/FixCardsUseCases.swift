@@ -123,6 +123,12 @@ public protocol FixCardsUseCase: Sendable {
     /// so a phrase never goes into flashcards half-filled.
     func complete(_ expressions: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
         -> [Expression]
+    /// One card, on the user's request (the wand on a flashcard): it is ALWAYS sent to the model —
+    /// complete or not — which fixes it and fills in what's missing, as a Fix cards run would; the
+    /// result is stored and returned (equal to `expression` when the model changed nothing). Throws,
+    /// changing nothing, when the model can't be reached, the plan's limit is spent, or it gives no
+    /// usable answer for this card. The learning progress is never touched.
+    func fix(_ expression: Expression, studiedLanguage: String, nativeLanguage: String) async throws -> Expression
 }
 
 public struct FixCardsInteractor: FixCardsUseCase {
@@ -246,13 +252,28 @@ public struct FixCardsInteractor: FixCardsUseCase {
                 throw LLMError.invalidOutput("no usable answer for the phrases to complete")
             }
             for expression in batch {
-                let fixed = Self.apply(fixes[expression.id.uuidString], to: expression,
-                                       studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
-                if fixed != expression { try await self.expressions.update(fixed) }
-                completed[expression.id] = fixed
+                completed[expression.id] = try await store(fixes[expression.id.uuidString], onto: expression,
+                                                           studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
             }
         }
         return expressions.map { completed[$0.id] ?? $0 }
+    }
+
+    public func fix(_ expression: Expression, studiedLanguage: String, nativeLanguage: String) async throws -> Expression {
+        let template = FixCardsTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        // Asked for by hand, about one card: an answer without it is a failure, not "letter case only".
+        guard let fix = try await Self.ask(llm, template, about: [expression])?[expression.id.uuidString] else {
+            throw LLMError.invalidOutput("no usable answer for the card")
+        }
+        return try await store(fix, onto: expression, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+
+    /// The card with the model's fix applied (`apply`), stored if anything changed.
+    private func store(_ fix: FixCardItem?, onto expression: Expression, studiedLanguage: String,
+                       nativeLanguage: String) async throws -> Expression {
+        let fixed = Self.apply(fix, to: expression, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        if fixed != expression { try await expressions.update(fixed) }
+        return fixed
     }
 
     /// What a phrase needs before it becomes flashcards: a translation, an example, synonyms or a note.

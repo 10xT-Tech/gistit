@@ -264,7 +264,18 @@ two buttons per group — Merge (all its proposals; Check for an unchecked group
 nothing left proposed is done and its rest linked as not duplicates. Today's goal line is green
 (`ProgressLine`, `Tokens.Chart.progressDone`).
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
-case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`. XCUI
+case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`.
+Fix ONE card (`Presentation/Flashcards/CardFix.swift`): a wand next to the speaker — in `CardPreviewView`
+and in practice once the answer is shown (never before: the prompt mustn't change under a user recalling
+it) — sends that card to the model again, `FixCardsUseCase.fix` (ALWAYS sent, complete or not; fixed and
+filled in like a Fix cards batch, stored; throws and changes nothing on a failure or an answer without the
+card; review cards untouched). `CardFixModel` (owned by `StudyListViewModel` and
+`FlashcardSessionViewModel`) holds the status of one card at a time — fixing (set synchronously on the tap) /
+updated / unchanged / failed(+needsSubscription) — and `status(for:)` returns it for THAT card only;
+`FixCardButton` + `CardFixStatusLine` are the shared views. The session swaps the fixed texts into `current`
+and the rest of the queue; the card view reads the live row. Metered on the free plan → the line offers
+Subscribe; the paywall is presented from the card sheet / the session cover themselves (the root can't
+present over them). XCUI
 `FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
 sideways-only tab swipes from 1.5.3 (3) ship here too. Main screens put the large title in the
 gear's row (`.toolbarTitleDisplayMode(.inlineLarge)`, set in `SettingsTrigger`).

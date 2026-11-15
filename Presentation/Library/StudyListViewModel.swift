@@ -119,6 +119,9 @@ public final class StudyListViewModel {
     private var playTask: Task<Void, Never>?
     private var bulkMoveTask: Task<Void, Never>?
 
+    /// In flashcards → the card view's wand: fixing one card with the model (nil when Fix cards isn't wired).
+    public let cardFix: CardFixModel?
+
     /// Caught phrases being moved one by one right now (completed by the model if they lack fields,
     /// then given their cards): their rows show it, and leave the list once moved.
     public private(set) var movingIDs: Set<UUID> = []
@@ -156,6 +159,9 @@ public final class StudyListViewModel {
         self.catchFromPhotos = catchFromPhotos
         self.cardTransfer = cardTransfer
         self.fixCards = fixCards
+        self.cardFix = fixCards.map {
+            CardFixModel(fixCards: $0, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        }
         self.duplicates = duplicates
         self.scope = scope
         self.studiedLanguage = studiedLanguage
@@ -454,6 +460,14 @@ public final class StudyListViewModel {
 
     /// The whole list as cards — four lines each, separated by "---" (Copy all).
     public var allCardsText: String { Domain.Expression.cardsText(expressions) }
+
+    // MARK: Fix one card
+
+    /// The card view's wand: send the card to the model; the fixed texts replace its row (and the
+    /// open card view shows them — it reads the row).
+    public func fixCard(_ expression: Domain.Expression) {
+        cardFix?.start(expression) { [weak self] fixed in self?.replaceRow(with: fixed) }
+    }
 
     // MARK: Fix cards
 

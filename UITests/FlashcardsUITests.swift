@@ -490,6 +490,89 @@ final class FlashcardsUITests: XCTestCase {
         attach(app, "limit-paywall")
     }
 
+    /// The wand on a flashcard — in the In-flashcards card view and in practice (once the answer is
+    /// shown): the card goes to the model again and the result is said under its texts.
+    func testFixOneCardFromItsViewAndInPractice() {
+        let app = moveAllToFlashcards(extraArguments: [])
+
+        let studying = app.buttons["study.studying"]
+        XCTAssertTrue(studying.waitForExistence(timeout: 5))
+        studying.tap()
+        let row = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        let wand = app.buttons["card.fix"]
+        XCTAssertTrue(wand.waitForExistence(timeout: 3), "the card view has no Fix button")
+        wand.tap()
+        // The seed card's translation is capitalised: the fix puts it in lower case — "updated".
+        XCTAssertTrue(fixStatus(app, containing: "The card is updated").waitForExistence(timeout: 8),
+                      "the card view doesn't say what came of the fix")
+        attach(app, "card-view-fixed")
+        app.buttons["cardPreview.done"].tap()
+        app.navigationBars.firstMatch.buttons.element(boundBy: 0).tap()
+
+        let start = app.buttons["flashcards.start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.tap()
+        let reveal = app.buttons["flashcards.reveal"]
+        XCTAssertTrue(reveal.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["card.fix"].exists, "no fixing before the answer is shown")
+        reveal.tap()
+        XCTAssertTrue(app.buttons["card.fix"].waitForExistence(timeout: 3), "practice has no Fix button")
+        app.buttons["card.fix"].tap()
+        // Either card may come first: the one just fixed has nothing to change, the other is updated.
+        XCTAssertTrue(fixStatus(app, containing: "The card is").waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["flashcards.rate.good"].exists, "the card is still there to rate")
+        attach(app, "practice-card-fixed")
+    }
+
+    /// The free plan's limit is spent: the wand says so and its "Subscribe" opens the paywall — from
+    /// inside the card view.
+    func testFixOneCardAtTheLimitOffersTheSubscription() {
+        let app = moveAllToFlashcards(extraArguments: ["-uiTestFreePlan", "-uiTestLimitReached"])
+        let studying = app.buttons["study.studying"]
+        XCTAssertTrue(studying.waitForExistence(timeout: 5))
+        studying.tap()
+        let row = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        let wand = app.buttons["card.fix"]
+        XCTAssertTrue(wand.waitForExistence(timeout: 3))
+        wand.tap()
+        let subscribe = app.buttons["card.fix.subscribe"]
+        XCTAssertTrue(subscribe.waitForExistence(timeout: 8), "the limit doesn't offer the subscription")
+        attach(app, "card-view-limit")
+        subscribe.tap()
+        XCTAssertTrue(app.staticTexts["Gist It Pro"].firstMatch.waitForExistence(timeout: 5), "the paywall didn't open")
+    }
+
+    /// Launch on stubs, move both seed phrases (they're complete — no model) into flashcards, and
+    /// come back to the Study dashboard.
+    private func moveAllToFlashcards(extraArguments: [String]) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uiTestStubs", "-didCompleteOnboarding", "YES", "-didPrimeMic", "YES",
+            "-interfaceLanguage", "en", "-studiedLanguage", "english", "-targetLanguage", "russian",
+        ] + extraArguments
+        app.launch()
+        app.tab("Study").tap()
+        let caught = app.buttons["study.caught"]
+        XCTAssertTrue(caught.waitForExistence(timeout: 5))
+        caught.tap()
+        XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
+        app.buttons["caught.moveAll"].tap()
+        app.buttons["caught.moveAll.confirm"].tap()
+        XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
+        app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
+        return app
+    }
+
+    /// The line under a card's texts that says what came of fixing it.
+    private func fixStatus(_ app: XCUIApplication, containing text: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'card.fix.status' AND label CONTAINS %@", text)).firstMatch
+    }
+
     private func attach(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name

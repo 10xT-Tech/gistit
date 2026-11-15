@@ -7,7 +7,9 @@
 //  today's set where it stopped. A card that comes back within the learn-ahead window (a learning
 //  step, or a lapse) is queued again — while it has answers left today
 //  (`PracticeDay.maxAnswersPerCard`), so a hard card can't loop the day. When today's set is done,
-//  "more" adds an extra set of 25.
+//  "more" adds an extra set of 25. Once the answer is shown, the wand (`cardFix`) sends the card to the
+//  model to fix it and fill in what's missing — its texts change on screen and in the rest of the set;
+//  its progress and the rating stay the user's.
 //
 
 import Foundation
@@ -30,6 +32,8 @@ public final class FlashcardSessionViewModel: Identifiable {
     public private(set) var errorMessage: String?
     /// Today against the goal — refreshed at the start and the end of every set.
     public private(set) var plan: DailyPlan?
+    /// Fixing the card on screen with the model (the wand); nil when Fix cards isn't wired.
+    public let cardFix: CardFixModel?
 
     private var queue: [Flashcard] = []
     /// Answers per card today — this session's and earlier ones'.
@@ -43,11 +47,16 @@ public final class FlashcardSessionViewModel: Identifiable {
     private let startsExtra: Bool
 
     public init(flashcards: any FlashcardsUseCase, pronounce: any PlayPronunciationUseCase, extra: Bool = false,
-                now: @escaping () -> Date = Date.init) {
+                fixCards: (any FixCardsUseCase)? = nil, now: @escaping () -> Date = Date.init,
+                studiedLanguage: @escaping () -> String = { StudiedLanguage.current.promptName },
+                nativeLanguage: @escaping () -> String = { TargetLanguage.current.promptName }) {
         self.flashcards = flashcards
         self.pronounce = pronounce
         self.startsExtra = extra
         self.now = now
+        self.cardFix = fixCards.map {
+            CardFixModel(fixCards: $0, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        }
     }
 
     /// Cards left, including the one on screen.
@@ -98,7 +107,9 @@ public final class FlashcardSessionViewModel: Identifiable {
                 if next.state == .learning || next.state == .relearning,
                    next.due <= answeredAt.addingTimeInterval(self.flashcards.learnAhead),
                    self.answersToday[next.id, default: 0] < PracticeDay.maxAnswersPerCard {
-                    self.queue.append(Flashcard(card: next, expression: card.expression))
+                    // The texts as they are now: the card may have been fixed while it was on screen.
+                    let expression = self.current?.id == card.id ? self.current?.expression : nil
+                    self.queue.append(Flashcard(card: next, expression: expression ?? card.expression))
                 }
                 if self.queue.isEmpty {
                     self.plan = try? await self.flashcards.stats(now: self.now()).today
@@ -129,8 +140,24 @@ public final class FlashcardSessionViewModel: Identifiable {
 
     public func clearError() { errorMessage = nil }
 
+    /// The wand: fix the card on screen with the model — once its answer is shown (the prompt mustn't
+    /// change under a user still recalling it). The fixed texts replace the card's here and in the
+    /// rest of the set (its other direction, its return today).
+    public func fixCurrent() {
+        guard let cardFix, let card = current, isRevealed else { return }
+        cardFix.start(card.expression) { [weak self] fixed in self?.adopt(fixed) }
+    }
+
+    private func adopt(_ expression: Domain.Expression) {
+        if let card = current, card.expression.id == expression.id {
+            current = Flashcard(card: card.card, expression: expression)
+        }
+        queue = queue.map { $0.expression.id == expression.id ? Flashcard(card: $0.card, expression: expression) : $0 }
+    }
+
     private func advance() {
         stopPlayback()
+        cardFix?.clear()   // the next card starts without the last one's status
         isRevealed = false
         guard !queue.isEmpty else {
             current = nil

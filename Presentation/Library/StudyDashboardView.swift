@@ -70,6 +70,7 @@ public struct StudyDashboardView: View {
             .onChange(of: ui.showSettings) { _, shown in if !shown { Task { await model.load() } } }
             .fullScreenCover(item: $model.session, onDismiss: { model.endPractice() }) { session in
                 FlashcardSessionView(model: session) { model.session = nil }
+                    .environment(subscription)   // its paywall (the wand's limit) is presented from the cover
             }
         }
     }

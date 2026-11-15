@@ -153,10 +153,15 @@ public struct StudyListView: View {
                 PhraseList(phrases: lookAlike.existing.map { ($0.en, $0.ru) })
             }
         }
-        .sheet(item: $previewed) { expression in
+        .sheet(item: $previewed, onDismiss: { model.cardFix?.clear() }) { opened in
+            // The row as it is now: the wand may have fixed the card while its view is open.
+            let expression = model.expressions.first { $0.id == opened.id } ?? opened
             CardPreviewView(expression: expression, cards: model.cards(for: expression),
                             isPlaying: model.isPlaying(expression), onPlay: { model.play(expression) },
-                            notDuplicates: model.notDuplicates(of: expression))
+                            notDuplicates: model.notDuplicates(of: expression),
+                            fixStatus: model.cardFix?.status(for: expression),
+                            onFix: model.cardFix == nil ? nil : { model.fixCard(expression) })
+                .environment(subscription)
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }

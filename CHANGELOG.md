@@ -67,6 +67,14 @@ in the same tones as the dashboard) and how many times you've reviewed it. Tap a
 whole card — both sides, its example and synonyms, when each side comes next, and the cards it's
 marked as not a duplicate of — without it counting as practice. Swipe left to delete a phrase.
 
+**Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap
+the **wand** next to the speaker — on the card in In flashcards, or in practice once the answer is
+shown — and that card goes through the model again: it's corrected and what's missing is filled in,
+right there, and a line under the card says what happened ("The card is updated", or that it was fine
+as it is). Your progress on the card isn't touched, and in practice you still rate it yourself.
+Without a subscription it shares the free plan's one request every 5 minutes; when that's spent, the
+card says so and offers **Subscribe**.
+
 **Search.** Caught and In flashcards have a search field; it looks in every part of a card — the
 phrase, its translation, the example, synonyms and the note.
 
