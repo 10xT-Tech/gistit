@@ -48,11 +48,17 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
     }
     private var startLanguages: (studied: String, native: String)?
 
-    /// How many times the direction was switched mid-session.
+    /// How many times the direction really changed mid-session.
     public var switchCount: Int {
         lock.withLock { switches }
     }
     private var switches = 0
+
+    /// The languages the session runs in now (start, then every `setLanguages`).
+    public var currentLanguages: (studied: String, native: String)? {
+        lock.withLock { languages }
+    }
+    private var languages: (studied: String, native: String)?
 
     public init(script: Script = Script()) {
         self.script = script
@@ -63,6 +69,7 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
             lock.lock()
             self.continuation = continuation
             self.startLanguages = (studiedLanguage, nativeLanguage)
+            self.languages = (studiedLanguage, nativeLanguage)
             self.lastYielded = script.updates.last ?? .empty
             lock.unlock()
             continuation.onTermination = { @Sendable [weak self] _ in
@@ -92,9 +99,13 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
         lock.withLock { paused = newValue }
     }
 
-    /// Mirrors the live adapter's contract: mid-session a divider line lands in both transcripts.
-    public func switchLanguages() async {
-        let (continuation, updated) = lock.withLock { () -> (AsyncThrowingStream<LiveTranslationEvent, Error>.Continuation?, LiveTranslationText) in
+    /// Mirrors the live adapter's contract: a real change mid-session draws a divider line in both
+    /// transcripts; asking for the languages it already runs in does nothing.
+    public func setLanguages(studiedLanguage: String, nativeLanguage: String) async {
+        let (continuation, updated) = lock.withLock { () -> (AsyncThrowingStream<LiveTranslationEvent, Error>.Continuation?, LiveTranslationText?) in
+            guard self.continuation != nil, let current = languages,
+                  current != (studiedLanguage, nativeLanguage) else { return (nil, nil) }
+            languages = (studiedLanguage, nativeLanguage)
             switches += 1
             let boundary = SonioxTokenAccumulator.boundary
             lastYielded = LiveTranslationText(
@@ -105,7 +116,7 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
             )
             return (self.continuation, lastYielded)
         }
-        continuation?.yield(.text(updated))
+        if let updated { continuation?.yield(.text(updated)) }
     }
 
     public func stop() async {

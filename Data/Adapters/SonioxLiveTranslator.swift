@@ -80,9 +80,9 @@ public final class SonioxLiveTranslator: LiveTranslating, @unchecked Sendable {
         await session?.setPaused(paused)
     }
 
-    public func switchLanguages() async {
+    public func setLanguages(studiedLanguage: String, nativeLanguage: String) async {
         let session = await MainActor.run { current }
-        await session?.switchLanguages()
+        await session?.setLanguages(studied: studiedLanguage, native: nativeLanguage)
     }
 
     public func stop() async {
@@ -115,16 +115,15 @@ private final class LiveSession: @unchecked Sendable {
     private let credential: SonioxCredential
     private let model: String
     private let endpoint: URL
-    // `var`: the language-direction toggle swaps these mid-session (socket rotation).
-    @MainActor private var studied: String
-    @MainActor private var native: String
+    /// The languages the socket runs in, the ones asked for last, and whether a rotation is under way
+    /// (waiting for the old socket's <fin>) — see `LiveDirection`.
+    @MainActor private var direction: LiveDirection
 
     // MARK: control state (@MainActor)
     @MainActor private var continuation: AsyncThrowingStream<LiveTranslationEvent, Error>.Continuation?
     @MainActor private var stopped = false          // abort requested or session fully done
     @MainActor private var finishing = false        // graceful stop in progress (draining finals)
     @MainActor private var paused = false           // engine paused; socket kept warm on keepalives
-    @MainActor private var rotationPending = false  // language switch: waiting for the old socket's <fin>
     @MainActor private var rotationTimeoutTask: Task<Void, Never>?
     @MainActor private var captureBegan = false
     @MainActor private var didActivateSession = false
@@ -154,8 +153,7 @@ private final class LiveSession: @unchecked Sendable {
         self.credential = credential
         self.model = model
         self.endpoint = endpoint
-        self.studied = studied
-        self.native = native
+        self.direction = LiveDirection(studied: studied, native: native)
     }
 
     // MARK: start
@@ -272,7 +270,7 @@ private final class LiveSession: @unchecked Sendable {
         webSocket = socket
         socket.resume()
 
-        let (credential, model, studied, native) = (credential, model, studied, native)
+        let (credential, model, studied, native) = (credential, model, direction.studied, direction.native)
         receiveTask = Task { [weak self] in
             do {
                 // Fetched per socket: a backend temporary key is single-use and lives ~60 s, so a
@@ -313,7 +311,7 @@ private final class LiveSession: @unchecked Sendable {
                     // A language switch waits for the old socket's finalize marker: everything up
                     // to the switch is now final — rotate. This loop belongs to the OLD socket; end it.
                     if tokens.contains(where: { $0.text == "<fin>" }) {
-                        let rotating = await MainActor.run { rotationPending }
+                        let rotating = await MainActor.run { direction.isRotating }
                         if rotating {
                             await performRotation()
                             return
@@ -435,10 +433,13 @@ private final class LiveSession: @unchecked Sendable {
     /// connection with the languages swapped continues the SAME session (same recording, same
     /// transcripts + a divider line). Audio buffers in TapState during the hand-over, so nothing
     /// said in between is lost.
-    func switchLanguages() async {
+    /// The direction asked for — never dropped (`LiveDirection.ask`): before the microphone is up the
+    /// first socket opens with these languages; a rotation under way lands on them; otherwise one
+    /// starts here, unless the session already runs in them.
+    func setLanguages(studied: String, native: String) async {
         await MainActor.run {
-            guard captureBegan, !stopped, !finishing, !rotationPending else { return }
-            rotationPending = true
+            guard !stopped, !finishing,
+                  direction.ask(studied: studied, native: native, socketIsOpen: captureBegan) else { return }
             socketConfigured = false   // buffer audio until the NEW socket's config frame is out
             if let socket = webSocket {
                 // Flush the old direction's tail into finals; its <fin> marker triggers the rotation.
@@ -456,18 +457,20 @@ private final class LiveSession: @unchecked Sendable {
     /// Tear down the drained old socket, swap the languages, draw the divider, reconnect.
     private func performRotation() async {
         await MainActor.run {
-            guard rotationPending, !stopped, !finishing else { return }
-            rotationPending = false
+            guard direction.isRotating, !stopped, !finishing else { return }
             rotationTimeoutTask?.cancel()
             rotationTimeoutTask = nil
             receiveTask?.cancel()
             receiveTask = nil
             webSocket?.cancel(with: .goingAway, reason: nil)
             webSocket = nil
-            swap(&studied, &native)
-            accumulator.insertBoundary()
-            continuation?.yield(.text(accumulator.snapshot))
-            openSocket()   // new config frame carries the SWAPPED languages
+            // The pair asked for LAST. Asked back to where it was while this rotation waited (a double
+            // tap): the socket reopens in the same languages, and no divider is drawn.
+            if direction.finishRotation() {
+                accumulator.insertBoundary()
+                continuation?.yield(.text(accumulator.snapshot))
+            }
+            openSocket()   // new config frame carries the WANTED languages
         }
     }
 
@@ -839,6 +842,56 @@ public struct SonioxToken: Decodable, Sendable, Equatable {
 /// message REPLACES wholesale. `<end>`/`<fin>` are control markers (endpoint detection / manual
 /// finalize): each marks an UTTERANCE BOUNDARY — the next utterance starts a new PARAGRAPH in both
 /// transcripts, so a long session reads as speech-shaped paragraphs, not one wall of text.
+/// Which way a live session translates: the languages its socket runs in, the ones asked for LAST,
+/// and whether a rotation to them is under way. Pure, so the rule is unit-tested without a
+/// microphone: a request is never dropped — whatever is asked, and whenever, the session ends in the
+/// languages asked for last. (A "swap" command that was ignored during a rotation, or before the
+/// microphone was up, left the screen's direction and the session's opposite for the whole session.)
+public struct LiveDirection: Sendable, Equatable {
+    /// What the current socket was — or the first one will be — configured with.
+    public private(set) var studied: String
+    public private(set) var native: String
+    private var wantedStudied: String
+    private var wantedNative: String
+    /// The old socket is being drained; `finishRotation` reopens it in the wanted languages.
+    public private(set) var isRotating = false
+
+    public init(studied: String, native: String) {
+        self.studied = studied
+        self.native = native
+        self.wantedStudied = studied
+        self.wantedNative = native
+    }
+
+    /// Ask for these languages. True when a rotation must START now (the caller finalizes the old
+    /// socket and later calls `finishRotation`). False when there's nothing to start: no socket yet
+    /// (the first one opens with them), a rotation already under way (it lands on them), or the
+    /// session already runs in them.
+    public mutating func ask(studied: String, native: String, socketIsOpen: Bool) -> Bool {
+        wantedStudied = studied
+        wantedNative = native
+        guard socketIsOpen else {
+            self.studied = studied
+            self.native = native
+            return false
+        }
+        guard !isRotating, (studied, native) != (self.studied, self.native) else { return false }
+        isRotating = true
+        return true
+    }
+
+    /// The rotation lands on the languages asked for last. False when that is where it started (asked
+    /// there and back while it waited — a double tap): the socket reopens, but nothing changed and no
+    /// divider belongs in the transcripts.
+    public mutating func finishRotation() -> Bool {
+        isRotating = false
+        let changed = (wantedStudied, wantedNative) != (studied, native)
+        studied = wantedStudied
+        native = wantedNative
+        return changed
+    }
+}
+
 public struct SonioxTokenAccumulator: Sendable, Equatable {
     public private(set) var originalFinal = ""
     public private(set) var translationFinal = ""

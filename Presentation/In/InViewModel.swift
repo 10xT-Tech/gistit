@@ -429,11 +429,7 @@ public final class InViewModel {
         isLiveStopping = false
         isLivePaused = false
         liveClearPending = false
-        // The direction toggle decides which language is LISTENED TO and which is produced.
-        let studiedCode = StudiedLanguage.current.languageCode
-        let nativeCode = TargetLanguage.current.languageCode
-        let from = isLiveReversed ? nativeCode : studiedCode
-        let to = isLiveReversed ? studiedCode : nativeCode
+        let (from, to) = liveLanguages
         liveTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -489,14 +485,28 @@ public final class InViewModel {
     }
 
     /// The direction toggle: flip which language is recognized and which is produced. On a RUNNING
-    /// session (listening, translating, or paused) the adapter finalizes the current tail, draws a
+    /// session (starting, listening, translating, or paused) the adapter finalizes the current tail, draws a
     /// divider line in both transcripts, and continues in the opposite direction — same session,
     /// same recording. With no session running it changes only the setting for the next start.
     public func toggleLiveDirection() {
         isLiveReversed.toggle()
         guard isLiveListening, !isLiveStopping else { return }
         liveActivity?.directionChanged(liveDirectionLabel)
-        Task { [weak self] in await self?.liveTranslate.switchLanguages() }
+        // The session is told the direction the screen shows — a state, read when the request runs,
+        // not a "swap": however many taps, and however they interleave, the last request carries the
+        // screen's direction (a dropped swap used to leave the two opposite for the whole session).
+        Task { [weak self] in
+            guard let self else { return }
+            let (from, to) = self.liveLanguages
+            await self.liveTranslate.setLanguages(studiedLanguage: from, nativeLanguage: to)
+        }
+    }
+
+    /// The direction toggle decides which language is LISTENED TO (`from`) and which is produced.
+    private var liveLanguages: (from: String, to: String) {
+        let studiedCode = StudiedLanguage.current.languageCode
+        let nativeCode = TargetLanguage.current.languageCode
+        return isLiveReversed ? (nativeCode, studiedCode) : (studiedCode, nativeCode)
     }
 
     /// The New button: the current session is SAVED as usual (graceful stop → History, recording

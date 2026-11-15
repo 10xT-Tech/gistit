@@ -77,11 +77,15 @@ public protocol LiveTranslating: Sendable {
     /// session is running. The silence auto-stop keeps counting — a forgotten paused session still
     /// ends (and saves) itself.
     func setPaused(_ paused: Bool) async
-    /// Swap the recognition/translation direction MID-SESSION: the current tail is finalized, a
-    /// separator line is appended to both transcripts, and the stream continues with the languages
-    /// reversed — same session, same recording. No-op when no session is running (the next start
-    /// simply receives the languages the caller wants).
-    func switchLanguages() async
+    /// Set the recognition/translation direction of the running session to THESE languages (the
+    /// same codes as `start`). A state, not a "swap" command: asking twice, or while a change is
+    /// still under way, or before the microphone is up, always ends with the session in the
+    /// languages asked for LAST — a command that could be dropped left the screen's direction and
+    /// the session's pointing opposite ways for the rest of the session. A real change mid-session
+    /// finalizes the current tail, appends a separator line to both transcripts and continues —
+    /// same session, same recording. No-op when no session is running (the next start simply
+    /// receives the languages the caller wants).
+    func setLanguages(studiedLanguage: String, nativeLanguage: String) async
     /// Gracefully end the current session (no-op when none is running).
     func stop() async
 }

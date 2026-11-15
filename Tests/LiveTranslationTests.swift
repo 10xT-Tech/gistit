@@ -431,6 +431,79 @@ struct SessionRecordingsPlayerTests {
         #expect(live.lastStartLanguages?.native == "en")
     }
 
+    /// The rule behind the direction toggle: whatever is asked, and whenever, the session ends in the
+    /// languages asked for last.
+    @Test func theDirectionAlwaysLandsOnWhatWasAskedLast() {
+        // Before the microphone is up: no rotation — the first socket opens with them.
+        var early = LiveDirection(studied: "en", native: "ru")
+        let r1 = early.ask(studied: "ru", native: "en", socketIsOpen: false)
+        #expect(!r1)
+        #expect(early.studied == "ru" && early.native == "en" && !early.isRotating)
+
+        // Running: one tap starts a rotation, which lands on the new pair.
+        var one = LiveDirection(studied: "en", native: "ru")
+        let r2 = one.ask(studied: "ru", native: "en", socketIsOpen: true)
+        #expect(r2)
+        #expect(one.isRotating && one.studied == "en")                  // the old socket is still draining
+        let r3 = one.finishRotation()
+        #expect(r3)
+        #expect(one.studied == "ru" && one.native == "en" && !one.isRotating)
+
+        // A second tap while it rotates starts nothing — and is not lost: the rotation lands back
+        // where it began, unchanged (no divider).
+        var two = LiveDirection(studied: "en", native: "ru")
+        let r4 = two.ask(studied: "ru", native: "en", socketIsOpen: true)
+        #expect(r4)
+        let r5 = two.ask(studied: "en", native: "ru", socketIsOpen: true)
+        #expect(!r5)
+        let r6 = two.finishRotation()
+        #expect(!r6)
+        #expect(two.studied == "en" && two.native == "ru")
+
+        // Three taps while it rotates: lands reversed, once.
+        var three = LiveDirection(studied: "en", native: "ru")
+        let r7 = three.ask(studied: "ru", native: "en", socketIsOpen: true)
+        #expect(r7)
+        let r8 = three.ask(studied: "en", native: "ru", socketIsOpen: true)
+        #expect(!r8)
+        let r9 = three.ask(studied: "ru", native: "en", socketIsOpen: true)
+        #expect(!r9)
+        let r10 = three.finishRotation()
+        #expect(r10)
+        #expect(three.studied == "ru" && three.native == "en")
+
+        // Asked for what it already runs in: nothing.
+        var same = LiveDirection(studied: "en", native: "ru")
+        let r11 = same.ask(studied: "en", native: "ru", socketIsOpen: true)
+        #expect(!r11)
+        #expect(!same.isRotating)
+    }
+
+    /// However many taps, the session runs in the direction the screen shows — also a tap right
+    /// after Listen, before the session is up.
+    @Test func theSessionFollowsTheScreenThroughAnyNumberOfTaps() async throws {
+        UserDefaults.standard.set("english", forKey: "studiedLanguage")
+        UserDefaults.standard.set("russian", forKey: "targetLanguage")
+        let live = MockLiveTranslating()
+        let vm = makeVM(live: live)
+        vm.routeMode(.online)
+
+        vm.toggleLive()
+        vm.toggleLiveDirection()                                   // before the stream even started
+        try await waitUntil { live.currentLanguages?.studied == "ru" }
+        #expect(vm.isLiveReversed && live.currentLanguages?.native == "en")
+
+        vm.toggleLiveDirection()
+        vm.toggleLiveDirection()                                   // an even number: back where it was
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(vm.isLiveReversed)
+        #expect(live.currentLanguages?.studied == "ru" && live.currentLanguages?.native == "en")
+
+        vm.toggleLiveDirection()                                   // odd: forward again
+        try await waitUntil { live.currentLanguages?.studied == "en" }
+        #expect(!vm.isLiveReversed && live.currentLanguages?.native == "ru")
+    }
+
     /// Direction toggle on a RUNNING session: passed through to the port, which draws a divider
     /// line in both transcripts and continues — the session never stops.
     @Test func directionToggleWhileListeningDrawsDividerAndContinues() async throws {
