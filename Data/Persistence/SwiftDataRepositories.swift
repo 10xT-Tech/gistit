@@ -208,11 +208,7 @@ public actor SwiftDataHistoryRepository: HistoryRepository {
         let stale = try modelContext.fetch(descriptor)
         guard !stale.isEmpty else { return }
         // Collect referenced recordings BEFORE deleting the rows (the file name lives in the blob).
-        let orphanedAudio: [String] = stale.compactMap { model in
-            guard let entry = try? model.toDomain(),
-                  case .liveTranslation(_, _, let fileName?, _) = entry.result else { return nil }
-            return fileName
-        }
+        let orphanedAudio: [String] = stale.compactMap { (try? $0.toDomain())?.result.recordingFileName }
         for model in stale { modelContext.delete(model) }
         do {
             try modelContext.save()
@@ -223,6 +219,20 @@ public actor SwiftDataHistoryRepository: HistoryRepository {
             throw RepositoryError.persistenceFailed(error.localizedDescription)
         }
         for fileName in orphanedAudio { await recordings?.delete(fileName: fileName) }
+    }
+
+    /// Every row's recording — nil as soon as one row can't be decoded: its recording (if it has one)
+    /// is unknown, and the sweep must not take it for an orphan.
+    public func referencedRecordings() async throws -> Set<String>? {
+        var names: Set<String> = []
+        for model in try modelContext.fetch(FetchDescriptor<HistoryModel>()) {
+            guard let entry = try? model.toDomain() else {
+                persistenceLog.error("Undecodable history row kind=\(model.kindRaw, privacy: .public): the recordings sweep is skipped")
+                return nil
+            }
+            if let name = entry.result.recordingFileName { names.insert(name) }
+        }
+        return names
     }
 
     public func recent(limit: Int) async throws -> [HistoryEntry] {

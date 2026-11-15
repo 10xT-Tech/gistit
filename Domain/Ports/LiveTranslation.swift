@@ -109,7 +109,9 @@ public protocol SessionRecordingsManaging: Sendable {
     func exists(fileName: String) -> Bool
     /// Best-effort removal of the recording file (called when its history row is deleted).
     func delete(fileName: String) async
-    /// Remove every stored recording NOT in `keeping` — reconciles the store against history
-    /// (crashes mid-session, the in-memory fallback store, and skipped saves all orphan files).
-    func sweep(keeping: Set<String>) async
+    /// Remove every stored recording NOT in `keeping` that was created before `createdBefore` —
+    /// reconciles the store against history (crashes mid-session, the in-memory fallback store, and
+    /// skipped saves all orphan files). The date spares a session being recorded right now: its file
+    /// isn't in history until the session ends. A file whose date can't be read stays.
+    func sweep(keeping: Set<String>, createdBefore: Date) async
 }

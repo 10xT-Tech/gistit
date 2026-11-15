@@ -124,9 +124,12 @@ public final class MockSessionRecordings: SessionRecordingsManaging, @unchecked 
     private let lock = NSLock()
     private var existing: Set<String>
     private var deletedNames: [String] = []
+    /// When each recording was created; one without a date is as old as can be.
+    private let createdAt: [String: Date]
 
-    public init(existing: Set<String> = []) {
+    public init(existing: Set<String> = [], createdAt: [String: Date] = [:]) {
         self.existing = existing
+        self.createdAt = createdAt
     }
 
     /// Names passed to `delete` — assert on this in tests.
@@ -147,9 +150,10 @@ public final class MockSessionRecordings: SessionRecordingsManaging, @unchecked 
         }
     }
 
-    public func sweep(keeping: Set<String>) async {
+    public func sweep(keeping: Set<String>, createdBefore: Date) async {
         lock.withLock {
             let orphaned = existing.subtracting(keeping)
+                .filter { (createdAt[$0] ?? .distantPast) < createdBefore }
             existing.subtract(orphaned)
             deletedNames.append(contentsOf: orphaned.sorted())
         }

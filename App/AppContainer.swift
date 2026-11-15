@@ -19,6 +19,8 @@ public final class AppContainer: Sendable {
     /// True when the on-disk store could not be opened and the app is running on an in-memory store:
     /// real Claude still works, but study-list/history changes WON'T survive relaunch. Drives a banner.
     public let usingFallbackStore: Bool
+    /// When this graph was built: recordings created later belong to this launch's sessions.
+    private let bootedAt = Date()
 
     private static let log = Logger(subsystem: "com.englishhelper.app", category: "persistence")
 
@@ -405,15 +407,11 @@ public final class AppContainer: Sendable {
 
     /// Reconcile the recordings store against history: a crash mid-session, the in-memory fallback
     /// store, or a failed save can all leave audio files no history row references. Called once per
-    /// launch (best-effort). History is capped at `SwiftDataHistoryRepository.maxEntries`, so one
-    /// `recent` read sees every live row.
+    /// launch (best-effort). Never on the fallback store itself — its history is an empty stand-in,
+    /// and the sweep would delete every recording the rows on disk still point at — and never a file
+    /// of this launch (see `RequestHistoryUseCase.sweepOrphanedRecordings`).
     public func sweepOrphanedRecordings() async {
-        guard let entries = try? await requestHistory.recent(limit: SwiftDataHistoryRepository.maxEntries) else { return }
-        let referenced = Set(entries.compactMap { entry -> String? in
-            guard case .liveTranslation(_, _, let fileName?, _) = entry.result else { return nil }
-            return fileName
-        })
-        await recordings.sweep(keeping: referenced)
+        await requestHistory.sweepOrphanedRecordings(createdBefore: bootedAt, usingFallbackStore: usingFallbackStore)
     }
 
     @MainActor

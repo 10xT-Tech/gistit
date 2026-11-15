@@ -161,5 +161,5 @@ private struct BusyRecordings: SessionRecordingsManaging {
     }
     func exists(fileName: String) -> Bool { true }
     func delete(fileName: String) async {}
-    func sweep(keeping: Set<String>) async {}
+    func sweep(keeping: Set<String>, createdBefore: Date) async {}
 }

@@ -59,6 +59,16 @@ public protocol HistoryRepository: Sendable {
     func recent(limit: Int) async throws -> [HistoryEntry]
     /// Remove one entry. A missing id is a silent no-op (the row may already be pruned).
     func delete(id: HistoryEntry.ID) async throws
+    /// The session recordings the stored entries refer to — or nil when that can't be told for sure
+    /// (an entry couldn't be read): then no recording may be taken for an orphan.
+    func referencedRecordings() async throws -> Set<String>?
+}
+
+public extension HistoryRepository {
+    /// Every entry is readable here (in-memory doubles): the names of all of them.
+    func referencedRecordings() async throws -> Set<String>? {
+        Set(try await recent(limit: .max).compactMap(\.result.recordingFileName))
+    }
 }
 
 /// A persistent cache of completed TEXT-translation requests (Say it · How to say / What to say, and
