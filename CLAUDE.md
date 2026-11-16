@@ -264,8 +264,9 @@ unless a bare "drain" joins them (verbs-only / nouns-only buckets are keyed `key
 identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
 meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
 device (`exactMerges`: PhraseKey without lemmas + the same translation; a group of only those
-(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 5 groups, 3
-requests in flight — Sonnet answers take tens of seconds, small parallel batches keep the line moving)
+(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`; `DuplicatesUseCase.check`
+is ONE request for one batch — the SHEET keeps the line: batches of `batchSize` 5 groups, `inFlight` 3
+requests at once; Sonnet answers take tens of seconds, small parallel batches keep the line moving)
 returns per group a list of merges (ids + duplicate / senses + `CardText`; a card in none stays apart;
 `merges(_:among:)` sanitises ids). The merged expression is in dictionary form: verbs and verb phrases with
 "to", nouns and noun phrases with the article (prompt), and `keepingMarker` restores a "to"/article one of
@@ -296,10 +297,18 @@ two buttons per group — Merge (all its proposals; Check for an unchecked group
 the Check leaving a proposal that names a deleted phrase, a full re-check making it skip the rest, and
 the merging going on behind a closed sheet): "Merge all" is ONE tracked run (`mergeAll` progress shown in
 place of the button, Stop in the toolbar, ends on the first failed merge; its groups stay in `busy` until
-merged, so their own buttons, a second tap, a full re-check and a new Check wait — `isBusy` covers it); a
-group the running Check has asked about (`awaiting`) keeps Merge / Check off until its answer and is left
-out of `duplicateMerges`; `adopt` drops an answer about a group whose phrases changed since it was sent
-(it stays unchecked as it is now); closing the sheet goes through `StudyListViewModel.endDuplicates` on
+merged, so their own buttons, a second tap, a full re-check and a new Check wait — `isBusy` covers it; each
+merge runs in a task of its own, so Stop / closing never cut one in the middle). ONE LINE TO THE MODEL per
+sheet (`line` + `requests`): "Check" puts every unchecked group on it, a group's own Check puts that group
+at its head (after `gatherDelay`, 1 s, so the next taps ride in the same request) — sent 5 a request, 3
+requests at once, WHOEVER asked (each group's Check used to be its own request outside the ceiling: 12
+taps = 12 requests at once, a group could be asked about twice, Stop and closing didn't reach them); one
+progress (`check`: sent / answered / total / failed), one Stop (cancels the requests out), `RunFailure`'s
+rule (the service not answering ends the run; a batch without an answer stays unchecked — `notAsked`
+feeds "Check the rest"). A group put to the model (`awaiting`: on the line or out) keeps Merge / Check off
+until its answer and is left out of `duplicateMerges`; a group being merged isn't put on the line; `adopt`
+drops an answer about a group whose phrases changed since it was sent (it stays unchecked as it is now);
+closing the sheet goes through `StudyListViewModel.endDuplicates` on
 every path (a custom sheet binding — SwiftUI clears the item before `onDismiss`): `stop()`, then
 `settle()` waits for the merge under way BEFORE the list is reloaded. After a merge a checked group with
 nothing left proposed is done and its rest linked as not duplicates. Today's goal line is green

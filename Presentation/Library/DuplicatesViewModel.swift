@@ -17,14 +17,24 @@
 //  - "Merge all duplicates" is ONE run (`mergeAll`: progress, Stop): its groups are `busy` until their
 //    merges are made, so their own buttons wait; a second tap, a full re-check and a new Check wait
 //    for it; closing the sheet stops it after the merge under way (`settle`);
-//  - a group the running Check has asked the model about (`awaiting`) keeps its Merge until the answer
-//    comes — the answer is about the group AS SENT, and "Merge all" leaves such groups for later;
+//  - there is ONE LINE to the model for the sheet (`line`, `requests`): "Check" puts every unchecked
+//    group on it, a group's own Check puts that group at its head — and the line sends them
+//    `DuplicatesInteractor.batchSize` a request, at most `inFlight` requests at once, whoever asked.
+//    A tapped group waits a moment (`gatherDelay`) so the next taps ride in the same request. One
+//    progress, one Stop (it cancels the requests out), one rule for a failure (`RunFailure`: the
+//    service not answering ends the run, a batch without an answer just stays unchecked);
+//  - a group on the line or out with a request (`awaiting`) keeps its Merge until the answer comes —
+//    the answer is about the group AS SENT, and "Merge all" leaves such groups for later; a group
+//    being merged isn't put on the line;
 //  - an answer about a group that changed since it was sent is dropped (`adopt`): the group stays
 //    unchecked as it is now.
 //  The review found all three missing: two taps on "Merge all" made every merge twice ("Merged: 40" of
 //  20), a merge during the Check left a proposal naming a deleted phrase (a Merge button that did
 //  nothing), a full re-check made "Merge all" skip the rest silently, and closing the sheet left it
-//  merging behind a list that had already been reloaded.
+//  merging behind a list that had already been reloaded. And each group's Check used to be a request
+//  of its own, outside the Check's ceiling: twelve taps were twelve requests at once (three for the
+//  same groups through "Check"), a group could be asked about twice (its button, then "Check"), and
+//  neither Stop nor closing the sheet reached those requests.
 //
 
 import Foundation
@@ -42,6 +52,16 @@ public final class DuplicatesViewModel: Identifiable {
         public var fraction: Double { total == 0 ? 0 : Double(done) / Double(total) }
     }
 
+    /// The Check's progress in this run of the line: groups sent, groups whose request is over, of the
+    /// groups put to the model.
+    public struct CheckStep: Equatable, Sendable {
+        public fileprivate(set) var sent = 0
+        public fileprivate(set) var answered = 0
+        public fileprivate(set) var total = 0
+        /// Groups the model's answer was unusable for (they stay unchecked).
+        public fileprivate(set) var failed = 0
+    }
+
     public let id = UUID()
     public private(set) var phase: Phase = .scanning
     /// A full re-check: the groups marked "not duplicates" are checked again.
@@ -49,7 +69,7 @@ public final class DuplicatesViewModel: Identifiable {
     /// Marked groups a full re-check confirmed: the model proposed no merge in them.
     public private(set) var confirmedApart = 0
     public private(set) var scan = DuplicateScanStep(checked: 0, total: 0)
-    public private(set) var check = DuplicateCheckStep(sent: 0, answered: 0, total: 0)
+    public private(set) var check = CheckStep()
     /// Groups still to decide on, oldest first.
     public private(set) var groups: [DuplicateGroup] = []
     /// Proposed merges by group key: the exact duplicates at first, the model's once it checked the group.
@@ -58,11 +78,11 @@ public final class DuplicatesViewModel: Identifiable {
     public private(set) var checkedKeys: Set<String> = []
     /// Merges made in this sheet.
     public private(set) var merged = 0
-    /// Groups being merged or checked on their own right now, and the groups "Merge all" is still to
-    /// merge (by key) — their buttons wait.
+    /// Groups being merged right now, and the groups "Merge all" is still to merge (by key) — their
+    /// buttons wait.
     public private(set) var busy: Set<String> = []
-    /// Groups the running Check has asked the model about and has no answer for yet (by key): their
-    /// Merge waits for it.
+    /// Groups put to the model with no answer yet — waiting on the line or out with a request (by
+    /// key): their Merge and Check wait for it.
     public private(set) var awaiting: Set<String> = []
     /// "Merge all duplicates" is running.
     public private(set) var mergeAll: MergeAllStep?
@@ -73,23 +93,37 @@ public final class DuplicatesViewModel: Identifiable {
     private let duplicates: any DuplicatesUseCase
     private let studiedLanguage: () -> String
     private let nativeLanguage: () -> String
-    /// The scan or the Check.
-    private var task: Task<Void, Never>?
+    private var scanTask: Task<Void, Never>?
+    /// The line to the model: groups waiting to be sent, in order.
+    private var line: [DuplicateGroup] = []
+    /// How many at the head of the line were put there by their own Check, in the order tapped.
+    private var tappedAhead = 0
+    /// The Check's requests out now.
+    private var requests: [UUID: Task<Void, Never>] = [:]
+    /// The moment a tapped group waits for the next tap before it's sent.
+    private var gathering: Task<Void, Never>?
+    private let gatherDelay: Duration
     private var mergeAllTask: Task<Void, Never>?
     /// The groups' own merges under way, by key.
     private var groupMerges: [String: Task<Void, Never>] = [:]
 
     public init(duplicates: any DuplicatesUseCase,
                 studiedLanguage: @escaping () -> String = { StudiedLanguage.current.promptName },
-                nativeLanguage: @escaping () -> String = { TargetLanguage.current.promptName }) {
+                nativeLanguage: @escaping () -> String = { TargetLanguage.current.promptName },
+                gatherDelay: Duration = .seconds(1)) {
         self.duplicates = duplicates
         self.studiedLanguage = studiedLanguage
         self.nativeLanguage = nativeLanguage
+        self.gatherDelay = gatherDelay
     }
 
     /// Groups the model is still to check — not the ones made only of exact duplicates.
     public var unchecked: [DuplicateGroup] {
         groups.filter { !checkedKeys.contains($0.key) && !$0.isExactOnly }
+    }
+    /// The unchecked groups nobody has put to the model yet — what "Check the rest" would add.
+    public var notAsked: [DuplicateGroup] {
+        unchecked.filter { !awaiting.contains($0.key) }
     }
     /// The groups on screen: a group marked "not duplicates" (a full re-check) only once a merge is
     /// proposed in it — until then it's the model's question, not the user's.
@@ -121,21 +155,21 @@ public final class DuplicatesViewModel: Identifiable {
 
     /// Read the phrases and group the look-alikes — leaving out what's marked "not duplicates".
     public func start() {
-        guard task == nil, phase == .scanning, groups.isEmpty else { return }
+        guard scanTask == nil, phase == .scanning, groups.isEmpty else { return }
         runScan(full: false)
     }
 
     /// Search again from scratch, ignoring the "not duplicates" marks — after the matching changed, or
     /// to think again.
     public func rescanFully() {
-        // Not under a merge: it would clear the groups the merge is working through.
-        guard task == nil, mergeAllTask == nil, groupMerges.isEmpty else { return }
+        // Not under the Check or a merge: it would clear the groups they are working through.
+        guard scanTask == nil, phase != .checking, mergeAllTask == nil, groupMerges.isEmpty else { return }
         isFull = true
         confirmedApart = 0
         groups = []
         proposals = [:]
         checkedKeys = []
-        check = DuplicateCheckStep(sent: 0, answered: 0, total: 0)
+        check = CheckStep()
         errorMessage = nil
         needsSubscription = false
         phase = .scanning
@@ -144,7 +178,7 @@ public final class DuplicatesViewModel: Identifiable {
 
     private func runScan(full: Bool) {
         let language = studiedLanguage()
-        task = Task { [weak self] in
+        scanTask = Task { [weak self] in
             guard let self else { return }
             do {
                 for try await step in self.duplicates.scan(studiedLanguage: language, full: full) {
@@ -161,66 +195,131 @@ public final class DuplicatesViewModel: Identifiable {
                 self.errorMessage = presentableError(error).message
                 self.phase = .failed
             }
-            self.task = nil
+            self.scanTask = nil
         }
     }
 
-    /// Send the groups the model hasn't checked to it.
+    // MARK: The line to the model
+
+    /// Check: put every group the model hasn't checked on the line — behind the groups tapped one by
+    /// one — and send at once.
     public func startCheck() {
-        let pending = unchecked
         // Not under "Merge all": it changes the very groups the model would be asked about.
-        guard task == nil, mergeAllTask == nil, !pending.isEmpty else { return }
-        let asked = Self.members(of: pending)
-        awaiting = Set(asked.keys)
-        phase = .checking
-        errorMessage = nil
-        needsSubscription = false
-        let studied = studiedLanguage(), native = nativeLanguage()
-        task = Task { [weak self] in
-            guard let self else { return }
-            do {
-                for try await step in self.duplicates.check(pending, studiedLanguage: studied, nativeLanguage: native) {
-                    self.check = step
-                    self.adopt(step.proposals, asked: asked)
-                    self.awaiting.subtract(step.proposals.keys)
-                }
-                self.phase = .checked
-            } catch is CancellationError {
-                self.phase = .stopped
-            } catch LLMError.cancelled {
-                self.phase = .stopped
-            } catch {
-                self.fail(error)
-                self.phase = .failed
-            }
-            self.awaiting = []
-            self.task = nil
-        }
+        guard scanTask == nil, mergeAllTask == nil else { return }
+        put(unchecked, first: false)
+        send()
     }
 
-    /// Ask the model about one group only — unless the running Check is already asking about it.
+    /// A group's own Check: the group goes to the head of the SAME line — sent after a moment, so the
+    /// groups tapped right after it ride in one request. Nothing if it's already put to the model.
     public func checkGroup(_ group: DuplicateGroup) {
-        guard canDecide(group.key) else { return }
-        busy.insert(group.key)
-        let asked = Self.members(of: [group])
+        guard scanTask == nil, put([group], first: true), gathering == nil else { return }
+        gathering = Task { [weak self, gatherDelay] in
+            try? await Task.sleep(for: gatherDelay)
+            guard let self, !Task.isCancelled else { return }
+            self.send()
+        }
+    }
+
+    /// Puts groups on the line — not one already there or being merged. The first one starts a run:
+    /// its own progress, the last run's error gone. False when there was nothing to put.
+    @discardableResult
+    private func put(_ more: [DuplicateGroup], first: Bool) -> Bool {
+        let new = more.filter { canDecide($0.key) }
+        guard !new.isEmpty else { return false }
+        if phase != .checking {
+            check = CheckStep()
+            errorMessage = nil
+            needsSubscription = false
+            phase = .checking
+        }
+        check.total += new.count
+        awaiting.formUnion(new.map(\.key))
+        if first {
+            line.insert(contentsOf: new, at: tappedAhead)        // behind the ones tapped before it
+            tappedAhead += new.count
+        } else {
+            line.append(contentsOf: new)
+        }
+        return true
+    }
+
+    /// Sends what waits on the line, a batch a request, while fewer than `inFlight` requests are out —
+    /// the one place a Check's request starts. The run is over once nothing waits and nothing is out.
+    private func send() {
+        gathering?.cancel()
+        gathering = nil
         let studied = studiedLanguage(), native = nativeLanguage()
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.busy.remove(group.key) }
-            do {
-                for try await step in self.duplicates.check([group], studiedLanguage: studied, nativeLanguage: native) {
-                    self.adopt(step.proposals, asked: asked)
+        while requests.count < DuplicatesInteractor.inFlight, !line.isEmpty {
+            let batch = Array(line.prefix(DuplicatesInteractor.batchSize))
+            line.removeFirst(batch.count)
+            tappedAhead = max(0, tappedAhead - batch.count)
+            let id = UUID(), asked = Self.members(of: batch)
+            check.sent += batch.count
+            requests[id] = Task { [weak self, duplicates] in
+                let result: Result<[String: [DuplicateMerge]], any Error>
+                do {
+                    result = .success(try await duplicates.check(batch, studiedLanguage: studied, nativeLanguage: native))
+                } catch {
+                    result = .failure(error)
                 }
-            } catch {
-                self.fail(error)
+                guard let self, self.requests[id] != nil else { return }      // the run ended meanwhile
+                self.requests[id] = nil
+                self.received(result, about: asked)
+            }
+        }
+        finishCheckIfDrained()
+    }
+
+    /// A request is over. An answer is taken and the line moves on (a group the answer leaves out
+    /// stays unchecked, counted); a failure ends the run — `check` throws only when the service doesn't
+    /// answer or asking again can't help now, and the rest of the line would meet the same.
+    private func received(_ result: Result<[String: [DuplicateMerge]], any Error>, about asked: [String: [UUID]]) {
+        switch result {
+        case .success(let found):
+            adopt(found, asked: asked)
+            awaiting.subtract(asked.keys)
+            check.answered += asked.count
+            check.failed += asked.keys.filter { found[$0] == nil }.count
+            send()
+        case .failure(let error):
+            endCheck()
+            if error is CancellationError || (error as? LLMError) == .cancelled {
+                phase = .stopped
+            } else {
+                fail(error)
+                phase = .failed
             }
         }
     }
 
-    /// Stop reading, stop checking after the current batches (the proposals so far stay), stop "Merge
-    /// all" after the merge under way (a merge is never cut in the middle).
+    /// The run is over before the line emptied: the requests out are cancelled, what waited is let go.
+    private func endCheck() {
+        gathering?.cancel()
+        gathering = nil
+        for request in requests.values { request.cancel() }
+        requests = [:]
+        line = []
+        tappedAhead = 0
+        awaiting = []
+        check.sent = check.answered                // nothing is out any more
+    }
+
+    private func finishCheckIfDrained() {
+        guard phase == .checking, requests.isEmpty, line.isEmpty else { return }
+        gathering?.cancel()
+        gathering = nil
+        phase = .checked
+    }
+
+    /// Stop reading; stop the Check — its requests are cancelled, the proposals so far stay; stop
+    /// "Merge all" after the merge under way (a merge is never cut in the middle).
     public func stop() {
-        task?.cancel()
+        scanTask?.cancel()
+        if phase == .checking {
+            endCheck()
+            phase = .stopped
+        }
         mergeAllTask?.cancel()
     }
 
@@ -231,8 +330,8 @@ public final class DuplicatesViewModel: Identifiable {
         for merge in Array(groupMerges.values) { await merge.value }
     }
 
-    /// Whether the group's own buttons act now: nothing is writing it, and the Check isn't waiting for
-    /// the model's answer about it.
+    /// Whether the group's own buttons act now: nothing is writing it, and it isn't put to the model
+    /// with the answer still to come.
     private func canDecide(_ key: String) -> Bool {
         !busy.contains(key) && !awaiting.contains(key)
     }
@@ -331,8 +430,14 @@ public final class DuplicatesViewModel: Identifiable {
             return true
         }
         do {
-            try await duplicates.merge(members, into: merge.card, as: merge.kind,
-                                       studiedLanguage: studiedLanguage(), nativeLanguage: nativeLanguage())
+            // A merge is a write of several steps: in a task of its own, so that stopping the run around
+            // it (Stop, the sheet closing) can't cut it in the middle — whatever the use case does on
+            // cancellation.
+            let studied = studiedLanguage(), native = nativeLanguage()
+            try await Task { [duplicates] in
+                try await duplicates.merge(members, into: merge.card, as: merge.kind,
+                                           studiedLanguage: studied, nativeLanguage: native)
+            }.value
             merged += 1
             await resolve(merge, members: members, in: key)
             return true
@@ -373,8 +478,17 @@ public final class DuplicatesViewModel: Identifiable {
         }
     }
 
+    /// The group is decided and leaves the list — and the line, if it still waited there (an answer
+    /// on its way finds no group and is let go).
     private func remove(_ key: String) {
         groups.removeAll { $0.key == key }
         proposals[key] = nil
+        awaiting.remove(key)
+        if let waiting = line.firstIndex(where: { $0.key == key }) {
+            line.remove(at: waiting)
+            if waiting < tappedAhead { tappedAhead -= 1 }
+            check.total -= 1
+            finishCheckIfDrained()
+        }
     }
 }

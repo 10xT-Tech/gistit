@@ -7,8 +7,9 @@
 //  green catching up — over the groups: each with its phrases and their progress, the proposed
 //  merges (exact duplicates at once, the model's after the check) with the card each makes, and two
 //  buttons — Merge / Don't merge ("not duplicates", kept with the cards); a group nobody checked yet
-//  offers Check instead of Merge, and one the running Check is asking the model about waits for the
-//  answer ("The model is checking…", Merge off). "Merge all duplicates" takes the clear cases at once
+//  offers Check instead of Merge — it joins the sheet's one line to the model, with the same progress
+//  and Stop as "Check" — and a group put to the model waits for the answer ("The model is checking…",
+//  Merge off). "Merge all duplicates" takes the clear cases at once
 //  — a run with its own progress line in place of the button, Stop in the toolbar, its groups
 //  spinning until merged; "Full
 //  re-check" searches again and has the model check the groups marked "not duplicates" too — they
@@ -157,9 +158,10 @@ struct DuplicatesView: View {
                     caption(Loc.t("Модель не ответила по \(model.check.failed) — их можно проверить ещё раз.",
                                   "No answer for \(model.check.failed) — you can check them again."))
                 }
-                if !model.isBusy, !model.unchecked.isEmpty, model.check.total > 0 {
-                    EHButton(Loc.t("Проверить оставшиеся (\(model.unchecked.count))",
-                                   "Check the rest (\(model.unchecked.count))"),
+                // Also while a group's own Check is out: the rest can join the same line.
+                if model.mergeAll == nil, !model.notAsked.isEmpty, model.check.total > 0 {
+                    EHButton(Loc.t("Проверить оставшиеся (\(model.notAsked.count))",
+                                   "Check the rest (\(model.notAsked.count))"),
                              icon: "sparkles", kind: .tonal, fillWidth: true,
                              accessibilityID: "dups.check") { check { model.startCheck() } }
                 }

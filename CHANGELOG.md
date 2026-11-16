@@ -116,9 +116,10 @@ another phrase after all. The merged card is written in dictionary form — "to 
 corkscrew". Each group has two buttons: **Merge** (a duplicate keeps your best-known card; several
 meanings keep the less-known one, since the card now asks for all of them) and **Don't merge** — the
 cards are then marked as not duplicates of each other, the card shows it, and the next search leaves
-them be. **Merge all duplicates** takes the clear cases at once — with a progress line and **Stop**,
-and a group the model is still checking waits for its answer before it can be merged — and **Full
-re-check** has the model look again at the groups you marked as not duplicates — after the search got
+them be. A group's own **Check** joins the same queue as the big one — tap several in a row and
+they're asked about together, with the same progress line and **Stop**. **Merge all duplicates** takes
+the clear cases at once — with a progress line and **Stop**, and a group the model is still checking
+waits for its answer before it can be merged — and **Full re-check** has the model look again at the groups you marked as not duplicates — after the search got
 smarter — and shows only those it now finds duplicates in. The search and exact duplicates are free; the model's **Check** is
 part of **Gist It Pro**.
 
