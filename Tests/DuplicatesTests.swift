@@ -328,6 +328,24 @@ import Presentation
         await #expect(throws: LLMError.self) {
             for try await _ in offline.check(groups, studiedLanguage: "English", nativeLanguage: "Russian") {}
         }
+
+        // A service that doesn't answer (asked twice) stops the Check too — the other batches aren't
+        // spent on it; a refused request only leaves its own batch unchecked.
+        let down = ScriptedLLM(script: Array(repeating: .failure(LLMError.overloaded), count: 6))
+        let dead = DuplicatesInteractor(llm: down, expressions: MockExpressionRepository(seed: studied),
+                                        cards: MockReviewCardRepository(seed: reviewCards))
+        var stoppedBy: Error?
+        do {
+            for try await _ in dead.check(groups, studiedLanguage: "English", nativeLanguage: "Russian") {}
+        } catch { stoppedBy = error }
+        #expect(stoppedBy as? LLMError == .overloaded)
+
+        let refusing = DuplicatesInteractor(llm: ScriptedLLM(script: [.failure(LLMError.requestRejected("HTTP 400"))]),
+                                            expressions: MockExpressionRepository(seed: studied),
+                                            cards: MockReviewCardRepository(seed: reviewCards))
+        var last: DuplicateCheckStep?
+        for try await step in refusing.check(groups, studiedLanguage: "English", nativeLanguage: "Russian") { last = step }
+        #expect(last?.answered == 12 && (last?.failed ?? 0) > 0)
     }
 
     // MARK: Merge

@@ -258,6 +258,11 @@ public final class ClaudeLLMClient: LLMClient {
                 if isOverload { throw LLMError.overloaded }
                 // Bound the echoed API error body: it can be large and may contain request content.
                 let detail = (String(data: body, encoding: .utf8) ?? "").prefix(200)
+                // A 4xx left here (not the key, the plan or a rate limit) is about THIS request — a
+                // bad or too large one; 408 is the server giving up waiting, a service failure.
+                if (400..<500).contains(http.statusCode), http.statusCode != 408 {
+                    throw LLMError.requestRejected("HTTP \(http.statusCode): \(detail)")
+                }
                 throw LLMError.requestFailed("HTTP \(http.statusCode): \(detail)")
             } catch is CancellationError {
                 throw LLMError.cancelled

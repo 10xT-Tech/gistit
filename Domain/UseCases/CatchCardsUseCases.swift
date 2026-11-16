@@ -41,8 +41,10 @@ public struct CatchProgress: Sendable, Equatable {
 }
 
 public protocol CatchCardsFromPhotosUseCase: Sendable {
-    /// Yields progress at the start and after every photo, then finishes. Ends by throwing when going
-    /// on can't help — offline, the free plan's limit, no API key, cancellation — keeping what's stored.
+    /// Yields progress at the start and after every photo, then finishes. A photo whose answer can't
+    /// be used (or whose request is rejected) is skipped (`RunFailure`). Ends by throwing when going on
+    /// can't help — offline, the free plan's limit, no API key, cancellation, or the service not
+    /// answering for two photos in a row — keeping what's stored.
     func callAsFunction(_ images: [RecognizableImage], studiedLanguage: String, nativeLanguage: String)
         -> AsyncThrowingStream<CatchProgress, Error>
 }
@@ -69,40 +71,60 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                 var alreadySaved: [String] = []
                 var addedNow = Set<UUID>()             // cards this batch stored — repeats, not "already saved"
                 continuation.yield(CatchProgress(processed: 0, total: images.count, added: 0, failed: 0))
+                /// Photos in a row the service gave no answer for.
+                var unanswered = 0
                 for (index, image) in images.enumerated() {
+                    let outcome: RunOutcome<PhotoCardsResult>
                     do {
                         try Task.checkCancellation()
-                        let result = try await Self.ask(llm, template, about: image)
-                        if result.cards.isEmpty { empty += 1 }
-                        for draft in result.cards {
-                            if let existing = try await repository.find(en: draft.expression) {
-                                if !addedNow.contains(existing.id), !alreadySaved.contains(existing.en) {
-                                    alreadySaved.append(existing.en)
-                                }
-                                continue
-                            }
-                            // The letter case Fix cards writes, whatever the model did ("i'm" → "I'm").
-                            let studied = { FixCardsInteractor.lettercase($0, language: studiedLanguage) }
-                            let native = { FixCardsInteractor.lettercase($0, language: nativeLanguage) }
-                            let card = Expression(en: studied(draft.expression), ru: native(draft.translation),
-                                                  example: studied(draft.example), synonyms: draft.synonyms.map(studied),
-                                                  context: native(draft.context))
-                            try await repository.add(card)
-                            addedNow.insert(card.id)
-                            added += 1
-                        }
-                        analytics?.track(.photoCardsCompleted)
+                        outcome = try await RunRequest.send { try await llm.run(template, input: image) }
                     } catch {
-                        guard Self.canGoOn(after: error) else {
-                            continuation.finish(throwing: error)
-                            return
+                        continuation.finish(throwing: error)
+                        return
+                    }
+                    var stoppedBy: (any Error)?
+                    switch outcome {
+                    case .answer(let result):
+                        unanswered = 0
+                        do {
+                            if result.cards.isEmpty { empty += 1 }
+                            for draft in result.cards {
+                                if let existing = try await repository.find(en: draft.expression) {
+                                    if !addedNow.contains(existing.id), !alreadySaved.contains(existing.en) {
+                                        alreadySaved.append(existing.en)
+                                    }
+                                    continue
+                                }
+                                // The letter case Fix cards writes, whatever the model did ("i'm" → "I'm").
+                                let studied = { FixCardsInteractor.lettercase($0, language: studiedLanguage) }
+                                let native = { FixCardsInteractor.lettercase($0, language: nativeLanguage) }
+                                let card = Expression(en: studied(draft.expression), ru: native(draft.translation),
+                                                      example: studied(draft.example), synonyms: draft.synonyms.map(studied),
+                                                      context: native(draft.context))
+                                try await repository.add(card)
+                                addedNow.insert(card.id)
+                                added += 1
+                            }
+                            analytics?.track(.photoCardsCompleted)
+                        } catch {
+                            failed += 1                                 // its cards couldn't be stored
+                            lastError = .requestFailed(String(describing: error))
                         }
+                    case .none(let error, let failure):
                         failed += 1
                         lastError = (error as? LLMError) ?? .requestFailed(String(describing: error))
+                        // One photo the service didn't answer for may be that photo's weight; a
+                        // second in a row is the service — the rest would only spend requests.
+                        unanswered = failure == .service ? unanswered + 1 : 0
+                        if unanswered == Self.unansweredLimit { stoppedBy = error }
                     }
                     continuation.yield(CatchProgress(processed: index + 1, total: images.count,
                                                       added: added, failed: failed, empty: empty,
                                                       lastError: lastError, alreadySaved: alreadySaved))
+                    if let stoppedBy {
+                        continuation.finish(throwing: stoppedBy)
+                        return
+                    }
                 }
                 continuation.finish()
             }
@@ -110,25 +132,6 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
         }
     }
 
-    /// The cards for one photo — asked again once if the first answer fails in a way the next try
-    /// might not (an unreadable answer, a server hiccup).
-    private static func ask(_ llm: LLMClient, _ template: PhotoCardsTemplate,
-                            about image: RecognizableImage) async throws -> PhotoCardsResult {
-        do {
-            return try await llm.run(template, input: image)
-        } catch let error where canGoOn(after: error) {
-            return try await llm.run(template, input: image)
-        }
-    }
-
-    /// One photo's failure (an unreadable answer, a server error) mustn't stop the rest; a failure the
-    /// next photo would hit too does.
-    static func canGoOn(after error: Error) -> Bool {
-        if error is CancellationError { return false }
-        guard let llm = error as? LLMError else { return true }
-        switch llm {
-        case .offline, .cancelled, .notConfigured, .subscriptionRequired, .dailyLimitReached: return false
-        default: return true
-        }
-    }
+    /// Photos in a row without the service's answer (each asked twice) after which the batch stops.
+    static let unansweredLimit = 2
 }

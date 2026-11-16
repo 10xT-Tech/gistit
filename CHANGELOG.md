@@ -100,8 +100,10 @@ works in batches; its progress line shows what's been sent off (grey) and what's
 up). Stop whenever you like — next time it continues where it stopped. Your learning progress isn't
 touched. Without a subscription it shares the one-request-every-5-minutes limit with explanations
 (it stops and goes on later); with **Gist It Pro**, no limit. If the model
-gives no answer for some cards, they aren't lost: the sheet says how many, and the next run sends
-them first. If the service itself stops answering, the run stops there instead of skipping ahead.
+gives no answer for some cards, they aren't lost: the sheet says how many, and the next run asks about
+each of them again, one by one. A card the model can't handle even on its own is left as it is, and
+you're told how many. If the service itself stops answering, the run stops there instead of skipping
+ahead — and so do the duplicates check and cards from photos.
 
 **Find duplicates.** In flashcards' menu has **Find duplicates**: it finds the phrases written alike
 once articles, "to", punctuation and word forms are set aside ("sb", "smb" and "someone" count as one

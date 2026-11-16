@@ -146,6 +146,37 @@ import Presentation
         #expect(last == CatchProgress(processed: 1, total: 1, added: 2, failed: 0))
     }
 
+    /// A service that doesn't answer for two photos in a row (each asked twice) stops the batch — the
+    /// rest would only spend requests; one such photo between good ones is just skipped. A photo whose
+    /// request is refused is skipped without asking again.
+    @Test func aDeadServiceStopsTheBatch() async throws {
+        let repo = MockExpressionRepository(seed: [])
+        let down = LLMError.overloaded
+        let dead = ScriptedPhotoLLM(script: Array(repeating: .failure(down), count: 8))
+        var last: CatchProgress?
+        var stoppedBy: Error?
+        do {
+            for try await step in CatchCardsFromPhotosInteractor(llm: dead, repository: repo)(
+                [image(1), image(2), image(3), image(4)], studiedLanguage: "English", nativeLanguage: "Russian") {
+                last = step
+            }
+        } catch { stoppedBy = error }
+        #expect(stoppedBy as? LLMError == down)
+        #expect(last == CatchProgress(processed: 2, total: 4, added: 0, failed: 2, lastError: down))
+        #expect(dead.calls == 4)                                   // photos 3 and 4 were never sent
+
+        // Photo 1: no answer (twice). Photo 2: fine. Photo 3: refused — not asked again. Photo 4: fine.
+        let refused = LLMError.requestRejected("HTTP 413")
+        let flaky = ScriptedPhotoLLM(script: [.failure(down), .failure(down), .success, .failure(refused), .success])
+        var end: CatchProgress?
+        for try await step in CatchCardsFromPhotosInteractor(llm: flaky, repository: repo)(
+            [image(1), image(2), image(3), image(4)], studiedLanguage: "English", nativeLanguage: "Russian") {
+            end = step
+        }
+        #expect(end == CatchProgress(processed: 4, total: 4, added: 4, failed: 2, lastError: refused))
+        #expect(flaky.calls == 5)
+    }
+
     @Test func progressSheetRunsToDone() async throws {
         let repo = MockExpressionRepository(seed: [])
         let vm = CatchFromPhotosViewModel(photoCount: 3,
@@ -320,11 +351,13 @@ import Presentation
 private final class ScriptedPhotoLLM: LLMClient, @unchecked Sendable {
     enum Step { case success, failure(Error) }
     private var script: [Step]
+    private var count = 0
     private let lock = NSLock()
     init(script: [Step]) { self.script = script }
+    var calls: Int { lock.withLock { count } }
 
     func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
-        let step: Step = lock.withLock { script.isEmpty ? .success : script.removeFirst() }
+        let step: Step = lock.withLock { count += 1; return script.isEmpty ? .success : script.removeFirst() }
         switch step {
         case .success:
             // A distinct pair of cards per call, so successes add up.

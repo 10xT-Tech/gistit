@@ -493,6 +493,9 @@ public final class VoiceViewModel {
             errorMessage = dailyLimitMessage(retryAfter: retryAfter)
         case .requestFailed:
             errorMessage = Loc.t("Сервис недоступен. Попробуйте позже.", "Service unavailable. Try later.")
+        case .requestRejected:
+            errorMessage = Loc.t("Сервис не принял этот запрос. Попробуйте изменить его.",
+                                 "The service didn't accept this request. Try changing it.")
         }
     }
 

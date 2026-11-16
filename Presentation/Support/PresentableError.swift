@@ -82,6 +82,10 @@ func presentableError(_ error: Error) -> PresentableError {
     case .requestFailed:
         return PresentableError(message: Loc.t("Сервис недоступен. Попробуйте позже.",
                                                "Service unavailable. Try later."), isOffline: false)
+    case .requestRejected:
+        return PresentableError(message: Loc.t("Сервис не принял этот запрос. Попробуйте изменить его.",
+                                               "The service didn't accept this request. Try changing it."),
+                                isOffline: false)
     case .subscriptionRequired(let retryAfter):
         return PresentableError(message: subscriptionLimitMessage(retryAfter: retryAfter), isOffline: false,
                                 needsSubscription: true)

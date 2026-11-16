@@ -44,13 +44,22 @@ struct FixCardsView: View {
                     }
 
                     if model.progress.failed > 0 {
-                        note(Loc.t("Без ответа модели: \(model.progress.failed). Им исправлен только регистр букв; при следующем запуске они уйдут первыми.",
-                                   "No answer from the model: \(model.progress.failed). Only their letter case was fixed; the next run sends them first.",
-                                   "Sans réponse du modèle : \(model.progress.failed). Seule la casse a été corrigée ; la prochaine fois, elles partiront en premier.",
-                                   "Sin respuesta del modelo: \(model.progress.failed). Solo se corrigieron mayúsculas y minúsculas; la próxima vez se enviarán primero.",
-                                   "Ohne Antwort des Modells: \(model.progress.failed). Nur die Groß- und Kleinschreibung wurde korrigiert; beim nächsten Lauf kommen sie zuerst.",
-                                   "Senza risposta del modello: \(model.progress.failed). Corrette solo maiuscole e minuscole; la prossima volta saranno inviate per prime."))
+                        note(Loc.t("Без ответа модели: \(model.progress.failed). Им исправлен только регистр букв; при следующем запуске каждая будет отправлена ещё раз, отдельно.",
+                                   "No answer from the model: \(model.progress.failed). Only their letter case was fixed; the next run asks about each of them again, one by one.",
+                                   "Sans réponse du modèle : \(model.progress.failed). Seule la casse a été corrigée ; la prochaine fois, chacune sera renvoyée séparément.",
+                                   "Sin respuesta del modelo: \(model.progress.failed). Solo se corrigieron mayúsculas y minúsculas; la próxima vez se enviará cada una por separado.",
+                                   "Ohne Antwort des Modells: \(model.progress.failed). Nur die Groß- und Kleinschreibung wurde korrigiert; beim nächsten Lauf wird jede einzeln erneut gesendet.",
+                                   "Senza risposta del modello: \(model.progress.failed). Corrette solo maiuscole e minuscole; la prossima volta ognuna sarà inviata di nuovo, da sola."))
                             .accessibilityIdentifier("fix.unanswered")
+                    }
+                    if model.progress.givenUp > 0 {
+                        note(Loc.t("Модель не смогла обработать даже по одной: \(model.progress.givenUp). Эти фразы оставлены как есть.",
+                                   "The model couldn't handle these even one at a time: \(model.progress.givenUp). They're left as they are.",
+                                   "Le modèle n'a pas pu les traiter, même une par une : \(model.progress.givenUp). Elles restent telles quelles.",
+                                   "El modelo no pudo procesarlas ni de una en una: \(model.progress.givenUp). Se quedan como están.",
+                                   "Das Modell konnte sie nicht einmal einzeln verarbeiten: \(model.progress.givenUp). Sie bleiben, wie sie sind.",
+                                   "Il modello non è riuscito a elaborarle nemmeno una alla volta: \(model.progress.givenUp). Restano come sono."))
+                            .accessibilityIdentifier("fix.givenUp")
                     }
                     if let error = model.errorMessage {
                         note(error)

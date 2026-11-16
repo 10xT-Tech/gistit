@@ -303,7 +303,8 @@ public final class PhotoTranslateViewModel {
                 switch llm {
                 case .offline, .timedOut, .overloaded, .requestFailed, .invalidOutput:
                     lastErrorRetryable = true
-                case .notConfigured, .responseTooLong, .cancelled, .subscriptionRequired, .dailyLimitReached:
+                case .notConfigured, .responseTooLong, .requestRejected, .cancelled, .subscriptionRequired,
+                     .dailyLimitReached:
                     lastErrorRetryable = false
                 }
             } else {

@@ -452,20 +452,20 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         }
     }
 
-    /// The model's answers for a batch, by group id — one retry; nil when the answer is unusable twice.
-    /// Failures the next batch would hit too are thrown.
+    /// The model's answers for a batch, by group id; nil when there's no answer for THIS batch (unusable
+    /// twice, or the request rejected) — its groups stay unchecked and the Check goes on. THROWS when
+    /// the service doesn't answer (twice) or asking again can't help now (`RunFailure`): the Check
+    /// stops there instead of sending the rest of the groups to a dead service.
     private static func ask(_ llm: LLMClient, _ template: DuplicatesTemplate,
                             about items: [DuplicateGroupItem]) async throws -> [String: DuplicateVerdict]? {
-        for attempt in 1...2 {
-            do {
-                let result = try await llm.run(template, input: items)
-                return Dictionary(result.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            } catch {
-                guard CatchCardsFromPhotosInteractor.canGoOn(after: error) else { throw error }
-                if attempt == 2 { return nil }
-            }
+        switch try await RunRequest.send({ try await llm.run(template, input: items) }) {
+        case .answer(let result):
+            return Dictionary(result.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        case .none(let error, .service):
+            throw error
+        case .none:
+            return nil
         }
-        return nil
     }
 
     // MARK: Merge

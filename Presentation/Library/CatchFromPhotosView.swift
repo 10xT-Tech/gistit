@@ -181,7 +181,7 @@ struct CatchFromPhotosView: View {
     /// The technical detail behind a request or answer failure — to pass on if it keeps happening.
     private var failureDetail: String? {
         switch model.progress.lastError {
-        case .requestFailed(let detail)?: detail
+        case .requestFailed(let detail)?, .requestRejected(let detail)?: detail
         case .invalidOutput(let detail)? where detail != LLMError.declinedDetail: detail
         default: nil
         }
