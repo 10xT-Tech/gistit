@@ -350,6 +350,18 @@ holds `BackgroundTimeHolding` from `.ending` (or `.finished`, on a failure) unti
 written: behind the screen the microphone is the app's reason to run, and it goes off BEFORE the last
 words are collected — a session stopped from the Lock Screen, by silence or by a call could be suspended
 unsaved. None of this is verifiable on the Simulator — check on a device.
+Online — A LONG SESSION ON SCREEN (the review: "the final text only grows — a long session inflates
+memory"). The text is small (≈150 KB an hour for both panes, 1.2 MB for eight) and must grow — the user
+scrolls back to the start; what grew with it was the SCREEN's work: each pane was ONE `Text` with the whole
+transcript, laid out and drawn again on every update, several times a second. A pane is now a plain
+(non-lazy — the scroll sync of the two panes works on the real content height; never make it lazy) stack of
+`Text`s, one per BLOCK of whole paragraphs (`TranscriptBlocks`, `LiveTranscriptView.swift`: a block closes
+at the first "\n\n" after `blockSize` 2,000 UTF-8 bytes and never changes afterwards; it keeps the first of
+the two line breaks, so the stack measures as the single `Text` did; cut incrementally — `take` reads only
+what came after the last closed block). Hosted measurement on the Simulator, per update of one pane:
+11–200 ms → 1–3 ms for one to three hours of speech, 32 → 10 ms for eight. One `Text` per PARAGRAPH was
+tried first and was no better than blocks (hundreds of small views cost as much to walk). `LiveTranscriptTests`
+pins the cut and the height against the single `Text`.
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
 case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`.
 Fix ONE card (`Presentation/Flashcards/CardFix.swift`): a wand next to the speaker — in `CardPreviewView`

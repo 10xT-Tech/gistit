@@ -147,6 +147,10 @@ stop right after switching the direction, what you said after the switch is stil
 session that ends while the phone is locked — you tapped Stop on the Lock Screen, it went quiet for
 five minutes, or a call came in — is saved to History straight away, not when you next open the app.
 
+**Long Online sessions stay smooth.** A lecture or a meeting that runs for an hour or more no longer
+makes the transcript heavier to show with every new word: the screen now updates only the part that is
+still being written.
+
 **A changed clock no longer closes your day.** If the phone's date was ahead while you practised and was
 then put right, those answers used to count as today's on every day until that date came: the daily goal
 looked reached, **Start** had nothing to give, and cards you'd answered three times stayed locked. Now
