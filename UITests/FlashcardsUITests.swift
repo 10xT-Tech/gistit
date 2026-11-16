@@ -293,6 +293,9 @@ final class FlashcardsUITests: XCTestCase {
         let separately = app.buttons["Move separately"]
         XCTAssertTrue(separately.waitForExistence(timeout: 5))
         separately.tap()
+        // The row leaves once the phrase IS in flashcards; the dashboard counts when it appears.
+        let moved = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
+        XCTAssertTrue(moved.waitForNonExistence(timeout: 5), "the phrase moved separately stayed in Caught")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
         let studying = app.buttons["study.studying"]
         XCTAssertTrue(studying.waitForExistence(timeout: 3))
@@ -322,6 +325,9 @@ final class FlashcardsUITests: XCTestCase {
         let separately = app.buttons["Move separately"]
         XCTAssertTrue(separately.waitForExistence(timeout: 5))
         separately.tap()
+        // The row leaves once the phrase IS in flashcards; the dashboard counts when it appears.
+        let moved = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
+        XCTAssertTrue(moved.waitForNonExistence(timeout: 5), "the phrase moved separately stayed in Caught")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
         let studying = app.buttons["study.studying"]
         XCTAssertTrue(studying.waitForExistence(timeout: 3))

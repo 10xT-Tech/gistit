@@ -499,11 +499,16 @@ public final class StudyListViewModel {
                                                 nativeLanguage: nativeLanguage)
     }
 
-    /// The sheet closed: merged cards appear as one.
+    /// The sheet closed (Done, or swiped away): what it was doing stops, and once the merge still under
+    /// way has finished the list is read again — merged cards appear as one.
     public func endDuplicates() {
-        duplicatesSession?.stop()
+        guard let session = duplicatesSession else { return }
+        session.stop()
         duplicatesSession = nil
-        Task { await load() }
+        Task {
+            await session.settle()
+            await load()
+        }
     }
 
     // MARK: Card files

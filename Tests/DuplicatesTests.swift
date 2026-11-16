@@ -10,7 +10,10 @@
 //  put to the model again by a full re-check, adopted from the first builds' UserDefaults, carried by
 //  card files), a verb and a noun never look-alikes, the
 //  template, and the screens: a look-alike moved from Caught (exact, by the model, or another phrase),
-//  Move all without look-alikes, the Find duplicates sheet.
+//  Move all without look-alikes, the Find duplicates sheet — and what may run at the same time in it:
+//  "Merge all" as one run (two taps, the groups' own buttons, a full re-check, Stop), a group out for
+//  checking waiting for its answer, an answer about a group that changed since, closing the sheet
+//  with a merge under way.
 //
 
 import Testing
@@ -484,7 +487,7 @@ import Presentation
     }
 
     private func list(_ expressions: MockExpressionRepository, _ cards: MockReviewCardRepository,
-                      duplicates: DuplicatesInteractor) -> StudyListViewModel {
+                      duplicates: any DuplicatesUseCase, scope: StudyListViewModel.Scope = .caught) -> StudyListViewModel {
         StudyListViewModel(
             studyList: StudyListInteractor(repository: expressions, cards: cards),
             saveExpression: SaveExpressionInteractor(enrich: EnrichExpressionInteractor(llm: MockLLMClient()),
@@ -493,8 +496,26 @@ import Presentation
             exportAnki: ExportDeckInteractor(repository: expressions, exporter: AnkiExporter()),
             pronounce: PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing()),
             isConfigured: true, flashcards: FlashcardsInteractor(expressions: expressions, cards: cards),
-            duplicates: duplicates, scope: .caught,
+            duplicates: duplicates, scope: scope,
             studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+    }
+
+    /// `count` exact pairs ("word" / "to word", one translation), each its own group.
+    private func exactPairs(_ count: Int) -> [Domain.Expression] {
+        let words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"]
+        return words.prefix(count).enumerated().flatMap { index, word in
+            [phrase(word, "перевод \(index)", Double(index * 2)), phrase("to \(word)", "перевод \(index)", Double(index * 2 + 1))]
+        }
+    }
+
+    /// The sheet over `all` in flashcards, its merges taking a little time (and counted).
+    private func sheet(_ all: [Domain.Expression], llm: any LLMClient = MockLLMClient())
+        -> (DuplicatesViewModel, SlowMerges, MockExpressionRepository) {
+        let expressions = MockExpressionRepository(seed: all)
+        let cards = MockReviewCardRepository(seed: all.flatMap(newCards))
+        let duplicates = SlowMerges(DuplicatesInteractor(llm: llm, expressions: expressions, cards: cards))
+        let vm = DuplicatesViewModel(duplicates: duplicates, studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+        return (vm, duplicates, expressions)
     }
 
     private func wait(_ condition: () -> Bool) async throws {
@@ -707,6 +728,214 @@ import Presentation
         #expect(again.shownGroups.map(\.key) == ["solid"] && again.confirmedApart == 1)
         #expect(again.proposals["solid"]?.first?.kind == .senses)
         #expect(again.duplicateMerges.isEmpty)                                       // no bulk merge of marked pairs
+    }
+
+    /// "Merge all" is ONE run: a second tap, the groups' own Merge / Don't merge and a full re-check
+    /// wait for it — every merge is made once, and the count says what was merged. (Two taps made every
+    /// merge twice and showed "Merged: 40" of 20; a full re-check made it skip the rest silently.)
+    @Test func mergeAllIsOneRun() async throws {
+        let (vm, duplicates, expressions) = sheet(exactPairs(10))
+        vm.start()
+        try await wait { vm.phase != .scanning }
+        #expect(vm.duplicateMerges.count == 10 && !vm.isBusy)
+        let first = try #require(vm.groups.first), last = try #require(vm.groups.last)
+
+        vm.mergeAllDuplicates()
+        #expect(vm.mergeAll?.done == 0 && vm.mergeAll?.total == 10 && vm.isBusy)     // at once: Stop, not Done
+        #expect(vm.busy == Set(vm.groups.map(\.key)))                                // their own buttons wait
+        vm.mergeAllDuplicates()                                                      // a second tap
+        vm.mergeGroup(first)                                                         // the group's own Merge
+        vm.keepApart(last)                                                           // …and Don't merge
+        vm.rescanFully()                                                             // a full re-check
+        vm.startCheck()
+        #expect(vm.phase == .found && vm.groups.count == 10 && !vm.isFull)
+
+        try await wait { vm.mergeAll != nil && vm.mergeAll?.done ?? 0 >= 3 }
+        #expect(vm.busy.count < 10)                                                  // a merged group is free again
+        try await wait { vm.mergeAll == nil }
+        #expect(duplicates.merges.count == 10 && Set(duplicates.merges).count == 10) // each once
+        #expect(duplicates.mostAtOnce == 1)
+        #expect(vm.merged == 10 && vm.groups.isEmpty && vm.busy.isEmpty && !vm.isBusy)
+        #expect(try await expressions.all().count == 10)
+        #expect(try await duplicates.notDuplicates().isEmpty)                        // "Don't merge" didn't get in
+    }
+
+    /// Stop ends "Merge all" after the merge under way; the rest stay proposed, free to be merged later.
+    @Test func mergeAllStops() async throws {
+        let (vm, duplicates, expressions) = sheet(exactPairs(10))
+        vm.start()
+        try await wait { vm.phase != .scanning }
+        vm.mergeAllDuplicates()
+        try await wait { vm.merged >= 2 }
+        vm.stop()
+        await vm.settle()
+        let made = duplicates.merges.count
+        #expect(made < 10 && vm.merged == made)
+        #expect(vm.mergeAll == nil && vm.busy.isEmpty && !vm.isBusy)
+        #expect(vm.groups.count == 10 - made && vm.duplicateMerges.count == 10 - made)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(duplicates.merges.count == made)                                     // nothing goes on behind
+        #expect(try await expressions.all().count == 20 - made)
+
+        vm.mergeAllDuplicates()                                                      // the rest, later
+        try await wait { vm.mergeAll == nil }
+        #expect(vm.merged == 10 && vm.groups.isEmpty)
+    }
+
+    /// A merge that fails ends "Merge all" there, with the message — the rest stay as they were.
+    @Test func aFailedMergeEndsMergeAll() async throws {
+        let (vm, duplicates, _) = sheet(exactPairs(10))
+        duplicates.failFrom = 3
+        vm.start()
+        try await wait { vm.phase != .scanning }
+        vm.mergeAllDuplicates()
+        try await wait { vm.mergeAll == nil }
+        #expect(vm.merged == 3 && duplicates.merges.count == 4)                      // the 4th failed, no 5th
+        #expect(vm.errorMessage != nil && vm.groups.count == 7 && vm.busy.isEmpty)
+    }
+
+    /// A group the Check has asked the model about keeps its Merge until the answer comes — its exact
+    /// pair isn't merged from under the question (by the group's button or by "Merge all"), and nobody
+    /// asks about it twice. Once answered it merges as proposed.
+    @Test func aGroupOutForCheckingWaitsForItsAnswer() async throws {
+        let pick1 = phrase("pick on sb", "придираться", 0), pick2 = phrase("pick on someone", "дразнить", 1)
+        let pick3 = phrase("to pick on smb", "придираться", 2)
+        let llm = SlowLLM()
+        let (vm, duplicates, expressions) = sheet([pick1, pick2, pick3], llm: llm)
+        vm.start()
+        try await wait { vm.phase != .scanning }
+        let group = try #require(vm.groups.first)
+        #expect(vm.duplicateMerges.count == 1)                                       // the exact pair, at once
+
+        vm.startCheck()
+        #expect(vm.awaiting == [group.key] && vm.duplicateMerges.isEmpty)
+        vm.mergeGroup(group)
+        vm.mergeAllDuplicates()
+        vm.checkGroup(group)
+        try await wait { vm.phase != .checking }
+        #expect(llm.calls == 1 && duplicates.merges.isEmpty)                         // nothing ran meanwhile
+        #expect(vm.awaiting.isEmpty && vm.checkedKeys == [group.key])
+        #expect(vm.proposals[group.key]?.map(\.expressionIDs) == [[pick1.id, pick3.id]])
+
+        vm.mergeAllDuplicates()
+        try await wait { vm.mergeAll == nil }
+        #expect(vm.merged == 1 && vm.groups.isEmpty)                                 // the other "pick on" is apart
+        #expect(Set(try await expressions.all().map(\.id)) == [pick1.id, pick2.id])
+    }
+
+    /// An answer about a group that was merged in since it was sent is dropped: it names a phrase that
+    /// is gone. The group stays unchecked as it is now — no proposal that can't be made. (It left a
+    /// "Merge" and a "Merge all duplicates (1)" that did nothing.)
+    @Test func anAnswerAboutAChangedGroupIsDropped() async throws {
+        let pick1 = phrase("pick on sb", "придираться", 0), pick2 = phrase("pick on someone", "дразнить", 1)
+        let pick3 = phrase("to pick on smb", "придираться", 2)
+        let (vm, _, _) = sheet([pick1, pick2, pick3], llm: SlowLLM())
+        vm.start()
+        try await wait { vm.phase != .scanning }
+        let group = try #require(vm.groups.first)
+
+        vm.mergeGroup(group)                    // the exact pair is being merged…
+        vm.startCheck()                         // …and the Check asks about the three, as they still are
+        try await wait { vm.phase != .checking }
+        #expect(vm.merged == 1)
+        #expect(vm.groups.first?.expressions.map(\.id) == [pick1.id, pick2.id])
+        #expect(vm.proposals[group.key] == [] && vm.duplicateMerges.isEmpty)
+        #expect(vm.checkedKeys.isEmpty && vm.unchecked.count == 1)                   // still to check, as it is now
+    }
+
+    /// Closing the sheet stops "Merge all" after the merge under way, and the list behind is read once
+    /// that one is stored — not before, showing a card that's about to go.
+    @Test func closingTheSheetWaitsForTheMergeUnderWay() async throws {
+        let all = exactPairs(10)
+        let expressions = MockExpressionRepository(seed: all)
+        let cards = MockReviewCardRepository(seed: all.flatMap(newCards))
+        let duplicates = SlowMerges(DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions, cards: cards))
+        let vm = list(expressions, cards, duplicates: duplicates, scope: .studying)
+        await vm.load()
+        #expect(vm.expressions.count == 20)
+        vm.openDuplicates()
+        let session = try #require(vm.duplicatesSession)
+        session.start()
+        try await wait { session.phase != .scanning }
+        session.mergeAllDuplicates()
+        try await wait { session.merged >= 1 }
+
+        vm.endDuplicates()
+        #expect(vm.duplicatesSession == nil)
+        try await wait { vm.expressions.count < 20 }
+        let stored = try await expressions.all().count
+        #expect(stored < 20 && stored > 10)                                          // stopped, not run to the end
+        #expect(vm.expressions.count == stored)                                      // the list shows what's stored
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(try await expressions.all().count == stored)
+    }
+}
+
+/// The real use case with merges that take a little time — counted, how many at once, failing from the
+/// `failFrom`-th on.
+private final class SlowMerges: DuplicatesUseCase, @unchecked Sendable {
+    private let inner: DuplicatesInteractor
+    private let lock = NSLock()
+    private var made: [String] = []
+    private var running = 0, peak = 0
+    private var failing: Int?
+    /// The merges asked for, by what they join.
+    var merges: [String] { lock.withLock { made } }
+    var mostAtOnce: Int { lock.withLock { peak } }
+    var failFrom: Int? {
+        get { lock.withLock { failing } }
+        set { lock.withLock { failing = newValue } }
+    }
+
+    init(_ inner: DuplicatesInteractor) { self.inner = inner }
+
+    func merge(_ expressions: [Domain.Expression], into card: CardText, as kind: DuplicateKind,
+               studiedLanguage: String, nativeLanguage: String) async throws {
+        let fails = lock.withLock { () -> Bool in
+            made.append(expressions.map(\.en).joined(separator: " + "))
+            running += 1
+            peak = max(peak, running)
+            return failing.map { made.count > $0 } ?? false
+        }
+        defer { lock.withLock { running -= 1 } }
+        try await Task.sleep(for: .milliseconds(10))
+        if fails { throw RepositoryError.persistenceFailed("no room") }
+        try await inner.merge(expressions, into: card, as: kind, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+
+    func scan(studiedLanguage: String, full: Bool) -> AsyncThrowingStream<DuplicateScanStep, Error> {
+        inner.scan(studiedLanguage: studiedLanguage, full: full)
+    }
+    func check(_ groups: [DuplicateGroup], studiedLanguage: String, nativeLanguage: String)
+        -> AsyncThrowingStream<DuplicateCheckStep, Error> {
+        inner.check(groups, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+    func proposals(for expressions: [Domain.Expression], studiedLanguage: String, nativeLanguage: String) async throws
+        -> [DuplicateMerge] {
+        try await inner.proposals(for: expressions, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+    func lookAlikesInFlashcards(for expressions: [Domain.Expression], studiedLanguage: String) async throws
+        -> [UUID: [Domain.Expression]] {
+        try await inner.lookAlikesInFlashcards(for: expressions, studiedLanguage: studiedLanguage)
+    }
+    func mergeCaught(_ caught: Domain.Expression, into lookAlikes: [Domain.Expression],
+                     studiedLanguage: String, nativeLanguage: String) async throws {
+        try await inner.mergeCaught(caught, into: lookAlikes, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+    func markNotDuplicates(_ expressionIDs: [UUID]) async throws { try await inner.markNotDuplicates(expressionIDs) }
+    func notDuplicates() async throws -> Set<NotDuplicatePair> { try await inner.notDuplicates() }
+}
+
+/// Answers like the mock, after a while — counting the calls.
+private final class SlowLLM: LLMClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var calls: Int { lock.withLock { count } }
+
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        lock.withLock { count += 1 }
+        try await Task.sleep(for: .milliseconds(200))
+        return try await MockLLMClient().run(template, input: input)
     }
 }
 

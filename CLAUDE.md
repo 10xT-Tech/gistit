@@ -291,7 +291,17 @@ the model can't be reached / the limit is spent it THROWS — nothing merged, th
 shows. Move all checks the whole list first and offers "Move new" (all but look-alikes) / "Move all". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
 progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
 two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
-"Merge all duplicates" (never a linked pair), "Full re-check"; after a merge a checked group with
+"Merge all duplicates" (never a linked pair), "Full re-check". EVERY WRITE TO A GROUP IS ONE AT A TIME
+(`DuplicatesViewModel`; the review found two taps on "Merge all" making each merge twice, a merge during
+the Check leaving a proposal that names a deleted phrase, a full re-check making it skip the rest, and
+the merging going on behind a closed sheet): "Merge all" is ONE tracked run (`mergeAll` progress shown in
+place of the button, Stop in the toolbar, ends on the first failed merge; its groups stay in `busy` until
+merged, so their own buttons, a second tap, a full re-check and a new Check wait — `isBusy` covers it); a
+group the running Check has asked about (`awaiting`) keeps Merge / Check off until its answer and is left
+out of `duplicateMerges`; `adopt` drops an answer about a group whose phrases changed since it was sent
+(it stays unchecked as it is now); closing the sheet goes through `StudyListViewModel.endDuplicates` on
+every path (a custom sheet binding — SwiftUI clears the item before `onDismiss`): `stop()`, then
+`settle()` waits for the merge under way BEFORE the list is reloaded. After a merge a checked group with
 nothing left proposed is done and its rest linked as not duplicates. Today's goal line is green
 (`ProgressLine`, `Tokens.Chart.progressDone`).
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,

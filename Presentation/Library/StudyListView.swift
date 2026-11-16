@@ -134,8 +134,11 @@ public struct StudyListView: View {
             FixCardsView(model: session) { model.fixSession = nil }
                 .environment(subscription)
         }
-        .sheet(item: $model.duplicatesSession, onDismiss: { model.endDuplicates() }) { session in
-            DuplicatesView(model: session) { model.duplicatesSession = nil }
+        // However the sheet goes away — Done, or swiped down, where SwiftUI clears the item before any
+        // onDismiss — it ends through `endDuplicates` while the session is still there to be stopped.
+        .sheet(item: Binding(get: { model.duplicatesSession },
+                             set: { if $0 == nil { model.endDuplicates() } })) { session in
+            DuplicatesView(model: session) { model.endDuplicates() }
                 .environment(subscription)
         }
         .sheet(item: $model.lookAlike) { lookAlike in
