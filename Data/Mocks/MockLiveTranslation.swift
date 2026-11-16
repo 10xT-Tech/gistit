@@ -18,13 +18,16 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
         /// Non-nil = the stream throws AFTER the updates (still emitting `.finished` first,
         /// matching the live adapter's partial-save contract).
         public var failure: LiveTranslationError?
+        /// Non-nil = the end runs out of time: `.cutShort` comes between `.ending` and `.finished`.
+        public var cutShort: LiveCutShort?
 
         public init(updates: [LiveTranslationText] = MockLiveTranslating.defaultUpdates,
                     recording: LiveSessionRecording? = LiveSessionRecording(fileName: "mock-session.m4a", duration: 12),
-                    failure: LiveTranslationError? = nil) {
+                    failure: LiveTranslationError? = nil, cutShort: LiveCutShort? = nil) {
             self.updates = updates
             self.recording = recording
             self.failure = failure
+            self.cutShort = cutShort
         }
     }
 
@@ -120,12 +123,25 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
     }
 
     public func stop() async {
+        beginEnding()
+        finishEnding()
+    }
+
+    /// The first half of an end, as the live adapter does it — by itself too (silence, a call):
+    /// `.ending`, the session still open while the last words are collected.
+    public func beginEnding() {
+        lock.withLock { continuation }?.yield(.ending)
+    }
+
+    /// The second half: (`.cutShort`,) `.finished`, the stream completes.
+    public func finishEnding() {
         let continuation = lock.withLock {
             let held = self.continuation
             self.continuation = nil
             self.paused = false
             return held
         }
+        if let part = script.cutShort { continuation?.yield(.cutShort(part)) }
         continuation?.yield(.finished(recording: script.recording))
         continuation?.finish()
     }

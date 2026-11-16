@@ -462,7 +462,12 @@ public final class InViewModel {
                     case .text(let text):
                         // After "New" the drain tail belongs to the SAVED session, not the screen.
                         if !self.liveClearPending { self.liveText = text }
-                    case .finished:
+                    case .ending:
+                        // Also when the SESSION ends itself (silence, a call, a lost microphone): the
+                        // microphone is off from here, so the screen says "stopping", not "listening".
+                        self.isLiveStopping = true
+                        self.liveLevel = 0
+                    case .cutShort, .finished:
                         break   // history is saved by the use case; UI keeps the transcript on screen
                     }
                 }

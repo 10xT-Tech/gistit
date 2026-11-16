@@ -49,9 +49,25 @@ public enum LiveTranslationEvent: Sendable, Equatable {
     case text(LiveTranslationText)
     /// Microphone input level 0…1 (a few times per second) — drives the on-button sound diagram.
     case level(Float)
-    /// The session ended gracefully (user stop, silence auto-stop, interruption). Always the last
-    /// event before the stream finishes; `recording` is nil when nothing could be recorded.
+    /// The session is ENDING (user stop, silence auto-stop, interruption): the microphone goes off
+    /// now, the last words are still being collected — `.text` updates may follow, then `.finished`.
+    /// Whoever saves the session keeps the app running from here (`BackgroundTimeHolding`): behind
+    /// the screen, the microphone was what kept it awake.
+    case ending
+    /// The end didn't collect everything in the time it has — see `LiveCutShort`. Comes before
+    /// `.finished`; what WAS received (the provisional tail included) and the recording are saved.
+    case cutShort(LiveCutShort)
+    /// The session ended. Always the last event before the stream finishes (also before it throws);
+    /// `recording` is nil when nothing could be recorded.
     case finished(recording: LiveSessionRecording?)
+}
+
+/// Which part of a session's end ran out of time.
+public enum LiveCutShort: String, Sendable, Equatable {
+    /// The audio not sent yet didn't reach the service (a slow uplink, a socket still coming up).
+    case sending
+    /// It was all sent; the service didn't finish answering.
+    case waiting
 }
 
 public enum LiveTranslationError: Error, Sendable, Equatable {

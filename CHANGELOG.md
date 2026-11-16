@@ -141,6 +141,12 @@ more before the tab bar.
 **Steadier swipes between screens.** A swipe that drifts up or down no longer scrolls the screen
 while it slides sideways.
 
+**Online keeps your last words.** When a live session ends, Gist It now gives the last words more room
+to arrive: on a slow connection the wait starts only once everything you said has been sent, and if you
+stop right after switching the direction, what you said after the switch is still translated. A
+session that ends while the phone is locked — you tapped Stop on the Lock Screen, it went quiet for
+five minutes, or a call came in — is saved to History straight away, not when you next open the app.
+
 **A changed clock no longer closes your day.** If the phone's date was ahead while you practised and was
 then put right, those answers used to count as today's on every day until that date came: the daily goal
 looked reached, **Start** had nothing to give, and cards you'd answered three times stayed locked. Now

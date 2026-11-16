@@ -217,6 +217,85 @@ struct SonioxTokenAccumulatorTests {
         #expect(duration == 42)
     }
 
+    /// The end of a session is kept running: from `.ending` — the microphone going off, which
+    /// behind the screen is the app's reason to run — until the History row is WRITTEN, and the time
+    /// is given back after that, once. (Nothing held the app there: suspended in those seconds, the
+    /// session was saved only on return — or never, if the app was discarded meanwhile.)
+    @Test func theEndOfASessionIsKeptRunningUntilItIsSaved() async throws {
+        let history = MockHistoryRepository()
+        let live = MockLiveTranslating(script: .init(updates: [LiveTranslationText(originalFinal: "Hello")]))
+        let background = BackgroundTimeSpy(history: history)
+        let useCase = LiveTranslateInteractor(live: live, history: history, background: background)
+
+        let consumer = Task {
+            for try await _ in useCase.start(studiedLanguage: "en", nativeLanguage: "ru") {}
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await background.holds == 0)                 // a running session needs none: the mic holds it
+        live.beginEnding()                                   // the session ends itself (silence, a call)
+        try await waitUntil { await background.holds == 1 }
+        #expect(await background.holds == 1)                 // …held while the last words are collected
+        #expect(await background.releases == 0)
+        live.finishEnding()
+        _ = try? await consumer.value
+
+        #expect(await background.holds == 1)                 // `.finished` doesn't ask a second time
+        #expect(await background.releases == 1)
+        #expect(await background.savedWhenReleased == [1])   // given back only after the row was written
+    }
+
+    /// A session that fails at once has no `.ending`: the hold starts at `.finished`, and covers the
+    /// partial save all the same.
+    @Test func aFailedSessionIsKeptRunningUntilItIsSavedToo() async throws {
+        let history = MockHistoryRepository()
+        let live = MockLiveTranslating(script: .init(updates: [LiveTranslationText(originalFinal: "Hello")],
+                                                     failure: .serviceUnavailable))
+        let background = BackgroundTimeSpy(history: history)
+        let useCase = LiveTranslateInteractor(live: live, history: history, background: background)
+        do { for try await _ in useCase.start(studiedLanguage: "en", nativeLanguage: "ru") {} } catch {}
+        try await waitUntil { await background.releases == 1 }
+        #expect(await background.holds == 1)
+        #expect(await background.savedWhenReleased == [1])
+    }
+
+    /// An end that ran out of time is reported — which part of it — and the session is saved with
+    /// what was received.
+    @Test func anEndCutShortIsReportedAndStillSaved() async throws {
+        for (part, event) in [(LiveCutShort.sending, AnalyticsEvent.liveTailNotSent),
+                              (.waiting, .liveTailNotAnswered)] {
+            let history = MockHistoryRepository()
+            let analytics = MockAnalyticsTracker()
+            let live = MockLiveTranslating(script: .init(
+                updates: [LiveTranslationText(originalFinal: "Mind the gap.", originalPending: " Please")],
+                cutShort: part))
+            let useCase = LiveTranslateInteractor(live: live, history: history, analytics: analytics)
+            let events = Task { () -> [LiveTranslationEvent] in
+                var seen: [LiveTranslationEvent] = []
+                for try await event in useCase.start(studiedLanguage: "en", nativeLanguage: "ru") { seen.append(event) }
+                return seen
+            }
+            try await Task.sleep(for: .milliseconds(50))
+            await useCase.stop()
+            let seen = try await events.value
+            #expect(seen.suffix(3) == [.ending, .cutShort(part),
+                                       .finished(recording: LiveSessionRecording(fileName: "mock-session.m4a", duration: 12))])
+            #expect(analytics.events.contains(event))
+            #expect(analytics.events.contains(.liveTranslationCompleted))
+            #expect(try await history.recent(limit: 10).first?.inputText == "Mind the gap. Please")
+        }
+    }
+
+    /// What a stop does with the audio the service hasn't got: sent on the socket that is up — or on
+    /// the one a direction switch is opening (it used to be dropped: the session ended at once and
+    /// what was said after the switch never became text); nothing to send when the microphone never
+    /// started or the first socket never came up.
+    @Test func aStopSendsTheTailUnlessTheServiceNeverHeardTheSession() {
+        #expect(LiveStopPlan(captured: true, socketReady: true, rotating: false) == .sendTail)
+        #expect(LiveStopPlan(captured: true, socketReady: false, rotating: true) == .sendTail)
+        #expect(LiveStopPlan(captured: true, socketReady: false, rotating: false) == .finishNow)
+        #expect(LiveStopPlan(captured: false, socketReady: false, rotating: false) == .finishNow)
+    }
+
     /// Nothing recognized → nothing in history (no empty rows for accidental taps) — and the
     /// session's recording is deleted, not orphaned on disk with no row referencing it.
     @Test func emptySessionIsNotSavedAndItsRecordingIsDeleted() async throws {
@@ -397,6 +476,29 @@ struct SessionRecordingsPlayerTests {
         try await waitUntil { (try? await history.recent(limit: 5))?.isEmpty == false }
         let entries = try await history.recent(limit: 5)
         #expect(entries.first?.kind == .liveTranslation)
+    }
+
+    /// A session that ends ITSELF (silence, a call, a lost microphone) turns the microphone off at
+    /// `.ending`: the screen shows "stopping" from there — it kept saying "listening" until the
+    /// stream closed — and the controls of a running session are off.
+    @Test func aSessionEndingByItselfShowsStopping() async throws {
+        let live = MockLiveTranslating()
+        let vm = makeVM(live: live)
+        vm.routeMode(.online)
+        vm.toggleLive()
+        try await waitUntil { vm.liveText.translationFinal == "Осторожно, промежуток." }
+        #expect(vm.isLiveListening && !vm.isLiveStopping)
+
+        live.beginEnding()
+        try await waitUntil { vm.isLiveStopping }
+        #expect(vm.isLiveStopping && vm.isLiveListening)
+        vm.toggleLivePause()
+        #expect(!vm.isLivePaused)                        // no pausing a session that is ending
+
+        live.finishEnding()
+        try await waitUntil { !vm.isLiveListening }
+        #expect(!vm.isLiveListening && !vm.isLiveStopping)
+        #expect(vm.liveText.originalFinal == "Mind the gap.")
     }
 
     /// Switching away from Online mid-session ends it gracefully — never a hot mic under
@@ -703,4 +805,25 @@ private final class SpyLiveActivity: LiveSessionActivityPresenting {
 /// Deterministic empty clipboard (never reads the simulator's real one).
 private struct EmptyPasteboard: PasteboardReading {
     var hasText: Bool { false }
+}
+
+/// Counts the holds and their releases — and, at each release, how many History rows were there.
+private actor BackgroundTimeSpy: BackgroundTimeHolding {
+    private let history: MockHistoryRepository
+    private(set) var holds = 0
+    private(set) var releases = 0
+    private(set) var savedWhenReleased: [Int] = []
+
+    init(history: MockHistoryRepository) { self.history = history }
+
+    func hold(_ name: String) async -> @Sendable () async -> Void {
+        holds += 1
+        return { await self.release() }
+    }
+
+    private func release() async {
+        let saved = (try? await history.recent(limit: 10).count) ?? 0
+        releases += 1
+        savedWhenReleased.append(saved)
+    }
 }

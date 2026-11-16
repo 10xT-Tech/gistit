@@ -57,7 +57,8 @@ Each layer is a **separate framework module**, so the compiler enforces the depe
 (live mic→cloud interpreter stream) + `SessionRecordingsManaging` (stored session audio),
 `TranscriptionServiceChecking` (Soniox health probe), `ExpressionRepository`, `ReviewCardRepository`
 (flashcard SRS state), `HistoryRepository` (append/recent/delete), `TranslationCache`, `DeckExporting`,
-`AnalyticsTracking`, `SubscriptionManaging`. The media ports
+`AnalyticsTracking`, `SubscriptionManaging`, `BackgroundTimeHolding` (a short stretch of running
+time behind the screen → `BackgroundTimeKeeper`, App). The media ports
 are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 
 ### Prompt templates (Domain)
@@ -334,6 +335,21 @@ returns it only on an upstream error — a cancel from the phone would spend it 
 of the result shown (`generatedSource` / `generatedIntent`); an edit never submitted is dropped back to it
 on leaving, and a mode / tone change re-runs it, in BOTH states (it used to hold for a result only: an
 edit typed while the request was out stayed above the answer to the old text until the next leave).
+Online — THE END OF A SESSION (`SonioxLiveTranslator` `stopGracefully`; the review asked about its 5 s
+limit: what was RECEIVED is always saved, the provisional tail included, and the recording is whole —
+only words the service never answered for can be missing). The stream says `.ending` (the microphone goes
+off; also when the session ends itself — silence, a call, a lost mic — so the screen shows "stopping"),
+maybe `.cutShort(.sending | .waiting)`, then `.finished`. Two limits, one per part: `tailSendLimit` 10 s
+for the audio not sent yet to reach the service, then `tailAnswerLimit` 5 s FROM THE END-OF-AUDIO FRAME for
+its answer (one 5 s limit from the stop itself left a backlog on a slow uplink no time to be answered);
+running out of either ends the session with what it has and is reported (`Live.tailNotSent` /
+`Live.tailNotAnswered`). `LiveStopPlan` (pure): a stop during a direction switch lets the rotation finish
+and sends the tail on the NEW socket (it ended at once, dropping what was said after the switch); the
+microphone never started / the first socket never came up → the stop is immediate. `LiveTranslateInteractor`
+holds `BackgroundTimeHolding` from `.ending` (or `.finished`, on a failure) until the History row is
+written: behind the screen the microphone is the app's reason to run, and it goes off BEFORE the last
+words are collected — a session stopped from the Lock Screen, by silence or by a call could be suspended
+unsaved. None of this is verifiable on the Simulator — check on a device.
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
 case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`.
 Fix ONE card (`Presentation/Flashcards/CardFix.swift`): a wand next to the speaker — in `CardPreviewView`

@@ -96,6 +96,7 @@ public final class AppContainer: Sendable {
         analytics: (any AnalyticsTracking)? = nil,
         transcriptionService: any TranscriptionServiceChecking = MockTranscriptionService(),
         liveTranslating: any LiveTranslating = MockLiveTranslating(),
+        backgroundTime: (any BackgroundTimeHolding)? = nil,
         recordings: any SessionRecordingsManaging = MockSessionRecordings(),
         subscriptions: any SubscriptionManaging = UnlimitedAccess()
     ) {
@@ -156,7 +157,8 @@ public final class AppContainer: Sendable {
         self.connectionHealth = ConnectionHealthInteractor(llm: llm)
         self.transcriptionHealth = TranscriptionHealthInteractor(service: transcriptionService)
         self.liveTranslate = LiveTranslateInteractor(live: liveTranslating, history: history,
-                                                     recordings: recordings, analytics: analytics)
+                                                     recordings: recordings, analytics: analytics,
+                                                     background: backgroundTime)
         self.recordings = recordings
         self.understand = UnderstandInteractor(llm: llm, history: history, cache: cache,
                                                tier: { .fast },
@@ -253,6 +255,8 @@ public final class AppContainer: Sendable {
             transcriptionService: transcriptionService,
             liveTranslating: SonioxLiveTranslator(credential: sonioxCredential,
                                                   model: config.sonioxModel),   // ← swap live engine here
+            // A session ending behind the screen is saved before the app is suspended.
+            backgroundTime: BackgroundTimeKeeper(),
             recordings: recordings,
             subscriptions: storeKit ?? UnlimitedAccess()
         )

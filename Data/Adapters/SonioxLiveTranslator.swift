@@ -12,10 +12,11 @@
 //  session can be replayed from History, meters input level for the on-button sound diagram, and
 //  auto-stops after 5 minutes of continuous silence (Soniox bills wall-clock connection time).
 //
-//  Lifecycle contract (see the LiveTranslating port): `stop()` = graceful — an empty frame tells
-//  Soniox end-of-audio, the final tokens are drained, `.finished(recording:)` is emitted, the
-//  stream completes. Cancelling the consuming task = ABORT — teardown, partial recording deleted,
-//  nothing emitted. On a mid-session failure the adapter still emits `.finished` (with whatever
+//  Lifecycle contract (see the LiveTranslating port): `stop()` = graceful — `.ending`, the audio
+//  not sent yet goes out, an empty frame tells Soniox end-of-audio, the final tokens are drained,
+//  `.finished(recording:)` is emitted, the stream completes (each part of that has a time limit —
+//  `.cutShort` says which one ran out). Cancelling the consuming task = ABORT — teardown, partial
+//  recording deleted, nothing emitted. On a mid-session failure the adapter still emits `.finished` (with whatever
 //  was recorded) BEFORE throwing, so the use case can save the partial session.
 //
 
@@ -137,6 +138,10 @@ private final class LiveSession: @unchecked Sendable {
     @MainActor private var senderTask: Task<Void, Never>?
     @MainActor private var watchdogTask: Task<Void, Never>?
     @MainActor private var finishTimeoutTask: Task<Void, Never>?
+    /// The part of the end the time limit armed now is for — a limit that fires for a part already
+    /// over (it lost the race with its own cancellation) is ignored.
+    @MainActor private var endingPart: LiveCutShort?
+    @MainActor private var tailTask: Task<Void, Never>?
     @MainActor private var interruptionObserver: NSObjectProtocol?
     @MainActor private var configurationObserver: NSObjectProtocol?
     @MainActor private var recordingURL: URL?
@@ -149,6 +154,13 @@ private final class LiveSession: @unchecked Sendable {
     private static let silenceLimit: TimeInterval = 300
     /// 120 ms of 16 kHz mono s16 audio — the chunk cadence from the official examples.
     private static let chunkBytes = 3840
+    /// The end of a session, part one: the audio not sent yet reaches the service — on a slow uplink
+    /// that is a backlog, mid-rotation the new socket has to come up first.
+    private static let tailSendLimit: Duration = .seconds(10)
+    /// Part two, counted from the end-of-audio frame: the service answers the last words and
+    /// `finished`. (It used to be ONE limit of 5 s from the stop itself — a backlog still being sent
+    /// left the service no time to answer it.)
+    private static let tailAnswerLimit: Duration = .seconds(5)
     private static let beginCueID: SystemSoundID = 1113
     private static let endCueID: SystemSoundID = 1114
 
@@ -285,9 +297,19 @@ private final class LiveSession: @unchecked Sendable {
                 await MainActor.run { self?.socketConfigured = true }   // buffered audio may flush now
                 await self?.receiveLoop(socket)
             } catch {
-                await self?.fail(Self.map(error))
+                await self?.socketDidNotOpen(socket, error)
             }
         }
+    }
+
+    /// The socket couldn't be brought up (no key, no connection, the config frame didn't go).
+    private func socketDidNotOpen(_ socket: URLSessionWebSocketTask, _ error: Error) async {
+        let (stale, draining) = await MainActor.run { (webSocket !== socket, finishing) }
+        if stale { return }                     // rotated away while it was connecting: not this session's socket
+        // A session that is ending (a stop during a direction switch waits for this socket to send
+        // its tail on) ends with what it has — the user asked to stop, not for an error.
+        if draining { await emitFinishedAndComplete(error: nil); return }
+        await fail(Self.map(error))
     }
 
     private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
@@ -327,11 +349,14 @@ private final class LiveSession: @unchecked Sendable {
                 }
             } catch {
                 // A rotated-away socket dies by design — only the CURRENT socket's failure matters.
-                let (aborted, draining, stale) = await MainActor.run {
-                    (stopped, finishing, webSocket !== socket)
+                let (aborted, draining, stale, rotating) = await MainActor.run {
+                    (stopped, finishing, webSocket !== socket, direction.isRotating)
                 }
                 if aborted || stale { return }
                 // Socket died while draining finals → finish with what we have instead of failing.
+                // Unless it is the OLD socket of a rotation and the audio said since is still to be
+                // sent: the rotation goes on without its <fin>, the tail goes to the new socket.
+                if draining, rotating { await performRotation(); return }
                 if draining { await emitFinishedAndComplete(error: nil); return }
                 await fail(Self.map(error))
                 return
@@ -474,7 +499,9 @@ private final class LiveSession: @unchecked Sendable {
     /// Tear down the drained old socket, swap the languages, draw the divider, reconnect.
     private func performRotation() async {
         await MainActor.run {
-            guard direction.isRotating, !stopped, !finishing else { return }
+            // Not stopped by a session that is ENDING: what was said after the switch waits in the
+            // tap for the new socket, and the end sends it there (`sendTail`).
+            guard direction.isRotating, !stopped else { return }
             rotationTimeoutTask?.cancel()
             rotationTimeoutTask = nil
             receiveTask?.cancel()
@@ -491,48 +518,90 @@ private final class LiveSession: @unchecked Sendable {
         }
     }
 
-    /// Graceful end: mic off, recording closed, EOF to Soniox, drain finals (5 s cap), emit
-    /// `.finished`, complete the stream. Idempotent.
+    /// Graceful end: `.ending`, mic off, recording closed, the audio not sent yet + EOF to Soniox
+    /// (`tailSendLimit`), drain finals (`tailAnswerLimit`), emit `.finished`, complete the stream.
+    /// Idempotent.
     func stopGracefully() async {
-        let alreadyEnding = await MainActor.run { () -> Bool in
-            if stopped || finishing { return true }
+        let plan = await MainActor.run { () -> LiveStopPlan? in
+            if stopped || finishing { return nil }
             finishing = true
-            return false
-        }
-        guard !alreadyEnding else { return }
-
-        await MainActor.run {
+            // BEFORE the microphone goes: behind the screen it is what keeps the app running, and
+            // whoever saves the session takes over from this event (`BackgroundTimeHolding`).
+            continuation?.yield(.ending)
+            let plan = LiveStopPlan(captured: captureBegan, socketReady: socketConfigured,
+                                    rotating: direction.isRotating)
             stopCapture()
+            return plan
+        }
+        guard let plan else { return }
+        guard plan == .sendTail else {
+            await emitFinishedAndComplete(error: nil)   // nothing was heard by the service: nothing to collect
+            return
+        }
+        await MainActor.run {
             // The periodic sender must not race the final flush (out-of-order / post-EOF tail
             // audio): cancel it AND await its in-flight iteration before flushing — cancel alone
             // doesn't abort a send that is already suspended inside URLSession.
             let sender = senderTask
             sender?.cancel()
             senderTask = nil
-            // Ship the tail of the audio, then EOF (empty frame). The receive loop keeps running:
-            // Soniox finalizes everything and replies … finished:true, which completes the stream.
-            let socket = webSocket
-            let ready = socketConfigured
-            Task { [weak self] in
-                guard let self else { return }
+            tailTask = Task { [weak self] in
                 _ = await sender?.value   // strict ordering: only one writer on the socket
-                if ready, let socket {
-                    for chunk in self.tap.take(chunkSize: Self.chunkBytes, includeRemainder: true) {
-                        try? await socket.send(.data(chunk))
-                    }
-                    try? await socket.send(.data(Data()))           // end-of-audio
-                } else {
-                    // Socket never came up — nothing to drain.
-                    await self.emitFinishedAndComplete(error: nil)
-                }
+                await self?.sendTail()
             }
-            // Safety net: if the finished frame never arrives, complete anyway.
-            finishTimeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(5))
-                if Task.isCancelled { return }
-                await self?.emitFinishedAndComplete(error: nil)
-            }
+            limitEnding(.sending, to: Self.tailSendLimit)
         }
+    }
+
+    /// Ships the tail of the audio, then EOF (empty frame) — on the socket the session ends on: the
+    /// one that is up, or, when the stop came during a direction switch, the one the rotation opens
+    /// (what was said after the switch waits in the tap; it used to be dropped, the session ending at
+    /// once). The receive loop keeps running: Soniox finalizes everything and replies
+    /// … finished:true, which completes the stream. Only THEN does the wait for that answer start
+    /// counting.
+    private func sendTail() async {
+        var socket: URLSessionWebSocketTask?
+        while socket == nil {
+            let (current, ready, over) = await MainActor.run { (webSocket, socketConfigured, stopped) }
+            if over || Task.isCancelled { return }
+            if ready { socket = current }
+            if socket == nil { try? await Task.sleep(for: .milliseconds(50)) }
+        }
+        guard let socket else { return }
+        do {
+            for chunk in tap.take(chunkSize: Self.chunkBytes, includeRemainder: true) {
+                try await socket.send(.data(chunk))
+            }
+            try await socket.send(.data(Data()))           // end-of-audio
+        } catch {
+            // The socket is gone: its receive loop ends the session with what it has.
+        }
+        await MainActor.run { limitEnding(.waiting, to: Self.tailAnswerLimit) }
+    }
+
+    /// Safety net for one part of the end: when it runs out of time, the session completes with
+    /// what it has — and says so (`.cutShort`), so that it is known how often it happens.
+    @MainActor
+    private func limitEnding(_ part: LiveCutShort, to limit: Duration) {
+        guard !stopped else { return }
+        endingPart = part
+        finishTimeoutTask?.cancel()
+        finishTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: limit)
+            if Task.isCancelled { return }
+            await self?.endingRanOutOfTime(part)
+        }
+    }
+
+    private func endingRanOutOfTime(_ part: LiveCutShort) async {
+        let stillThatPart = await MainActor.run { () -> Bool in
+            guard !stopped, endingPart == part else { return false }
+            continuation?.yield(.cutShort(part))
+            return true
+        }
+        guard stillThatPart else { return }
+        liveLog.error("the end of the session ran out of time: \(part.rawValue, privacy: .public)")
+        await emitFinishedAndComplete(error: nil)
     }
 
     /// Consumer cancelled the stream: hard teardown, discard the partial recording (no history row
@@ -607,6 +676,7 @@ private final class LiveSession: @unchecked Sendable {
         senderTask?.cancel(); senderTask = nil
         watchdogTask?.cancel(); watchdogTask = nil
         finishTimeoutTask?.cancel(); finishTimeoutTask = nil
+        tailTask?.cancel(); tailTask = nil
         rotationTimeoutTask?.cancel(); rotationTimeoutTask = nil
         if let observer = interruptionObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -910,6 +980,21 @@ public struct PendingAudioBuffer: Sendable {
             data = rest
         }
         return chunks
+    }
+}
+
+/// What a graceful stop does with the audio the service hasn't got yet. Pure, so the rule is
+/// unit-tested without a microphone.
+public enum LiveStopPlan: Sendable, Equatable {
+    /// Nothing to collect: the microphone never started, or the FIRST socket never came up (the
+    /// service heard nothing of this session, the screen showed nothing — the stop is immediate).
+    case finishNow
+    /// Send what the tap still holds, then end-of-audio — on the socket that is up, or, when a
+    /// direction switch is under way, on the one it opens.
+    case sendTail
+
+    public init(captured: Bool, socketReady: Bool, rotating: Bool) {
+        self = captured && (socketReady || rotating) ? .sendTail : .finishNow
     }
 }
 
