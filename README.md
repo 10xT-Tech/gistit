@@ -232,7 +232,9 @@ CHANGELOG.md     user-facing release notes
 
 ## Status
 
-**v2.0.0 (in development)** — **Study becomes a place to learn.** A dashboard with a daily goal;
+**v2.0.1 (in development)** — the fixes of the 2.0.0 (2) code review (see `CHANGELOG.md`).
+
+**v2.0.0** — **Study becomes a place to learn.** A dashboard with a daily goal;
 **Caught** (saved, typed or photographed phrases, each a full card); in-app **flashcards** with FSRS
 (both directions, a day as one practice, a fixed-layout dashboard); **cards from photos** (featured or
 marked phrases only, a usage note on every card); **Fix cards** and **Find duplicates** (look-alikes by

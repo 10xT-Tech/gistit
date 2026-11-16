@@ -146,7 +146,14 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
-**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
+**v2.0.1 (in development, branch `code_review_2.0.0-2`; 2.0.1 (1) not built yet)** — the code review of
+2.0.0 (2) and what came after that build: every fix is described in place in the 2.0.0 text below (look for
+"the review"), user-facing in `CHANGELOG.md` → 2.0.1. The landing (`docs/marketing/landing`) marks what
+needs Gist It Pro — Online translation and the duplicates Check (`AccessTier.canUseLiveTranslation` /
+`canCheckDuplicates`) — with a `Pro` badge and a Free / Pro block; keep it and `support/index.html` in step
+with `AccessTier` when a gate changes.
+
+**v2.0.0 (2.0.0 (2) uploaded 2026-11-13; branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
 flashcards.** Saving (Say it / Get it / See it) stores an `Expression` = **Caught** (`StudyListView` +
 `StudyListViewModel`, scope `.caught`, pushed from the dashboard; swipe-left delete, swipe-right or the
 stack icon → move: a phrase that lacks a translation / example / synonyms / note is COMPLETED by the model
