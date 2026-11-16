@@ -334,6 +334,55 @@ struct SplitMix64: RandomNumberGenerator {
         #expect(try await sut.stats(now: now).today.studied == 1)
     }
 
+    /// Deleting a phrase doesn't take the day's work back: its answers were given (they stay in the
+    /// log, and the bars count them), so the goal keeps them too — it used to drop to "4 of 5" and
+    /// Start drew one more card.
+    @Test func deletingAPhraseAnsweredTodayKeepsTheDaysCount() async throws {
+        let phrases = (0..<20).map { expression("p\($0)", ageDays: Double($0 + 2)) }
+        let repo = MockReviewCardRepository(seed: phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) })
+        let expressions = MockExpressionRepository(seed: phrases)
+        let sut = FlashcardsInteractor(expressions: expressions, cards: repo, dailyGoal: { 5 }, calendar: calendar,
+                                       makeRandom: { SplitMix64(seed: 1) })
+        let set = try await sut.queue(now: now)
+        #expect(set.count == 5)
+        for (index, card) in set.enumerated() {
+            _ = try await sut.rate(card.card, .easy, now: now.addingTimeInterval(Double(index)))
+        }
+        let later = now.addingTimeInterval(60)
+        try await StudyListInteractor(repository: expressions, cards: repo).delete(id: set[0].expression.id)
+
+        let stats = try await sut.stats(now: later)
+        #expect(stats.inStudy == 19)
+        #expect(stats.today.studied == 5 && stats.today.goalReached)
+        #expect(stats.reviewsByDay.last?.count == 5)                // the same number as the bars' "today"
+        #expect(try await sut.queue(now: later).isEmpty)            // nothing to make up for
+        // Everything deleted: the day's work is still the day's work.
+        for phrase in try await expressions.all() {
+            try await StudyListInteractor(repository: expressions, cards: repo).delete(id: phrase.id)
+        }
+        #expect(try await sut.stats(now: later).today.studied == 5)
+    }
+
+    /// Merging two duplicates answered today drops one card of each direction — not its answer.
+    @Test func mergingDuplicatesAnsweredTodayKeepsTheDaysCount() async throws {
+        let a = expression("hit the roof", ageDays: 3), b = expression("to hit the roof", ageDays: 2)
+        let repo = MockReviewCardRepository(seed: newCards(a, movedAt: now.addingTimeInterval(-day))
+                                                  + newCards(b, movedAt: now.addingTimeInterval(-day)))
+        let expressions = MockExpressionRepository(seed: [a, b])
+        let sut = FlashcardsInteractor(expressions: expressions, cards: repo, dailyGoal: { 2 }, calendar: calendar,
+                                       makeRandom: { SplitMix64(seed: 1) })
+        let set = try await sut.queue(now: now)
+        #expect(Set(set.map(\.expression.id)) == [a.id, b.id])
+        for card in set { _ = try await sut.rate(card.card, .easy, now: now) }
+
+        let text = CardText(expression: "to hit the roof", translation: "взбеситься", example: "", synonyms: [], context: "")
+        try await DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions, cards: repo)
+            .merge([a, b], into: text, as: .duplicate, studiedLanguage: "English", nativeLanguage: "Russian")
+        #expect(try await repo.all().count == 2)                    // one phrase, one card per direction
+        let plan = try await sut.stats(now: now.addingTimeInterval(60)).today
+        #expect(plan.studied == 2 && plan.goalReached)
+    }
+
     // MARK: Randomness
 
     @Test func setsAreRandomButReproducible() async throws {

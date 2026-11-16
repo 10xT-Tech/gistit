@@ -146,6 +146,10 @@ then put right, those answers used to count as today's on every day until that d
 looked reached, **Start** had nothing to give, and cards you'd answered three times stayed locked. Now
 only what you answered today counts for today.
 
+**Deleting a phrase doesn't undo your day.** If you delete a phrase you've already answered today — or
+merge it into its duplicate — today's goal keeps that answer. Before, a reached goal could turn into
+"4 of 5" and **Start** asked for one more card.
+
 **The text always matches the answer.** Sent a request on Get it or Say it, typed something else while
 waiting and went to another screen? The answer still arrives — a request you sent is never dropped —
 and the field now shows the text it was for, right away. Before, the new text stayed above an answer

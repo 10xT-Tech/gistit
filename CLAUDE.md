@@ -248,7 +248,12 @@ stamped on a later day (the phone's clock was ahead when they were given, then p
 every day until theirs came — the goal read reached with nothing answered, Start gave an empty set, cards
 answered three times stayed over the limit, and the 7-day bars said 0 for the same day (the review found
 it). The end is the day's, not "now": a clock put back by an hour leaves answers later than now that were
-given today. The cards' own due dates stay as that clock wrote them. `stats(now:)` feeds
+given today. The cards' own due dates stay as that clock wrote them. THE REVIEW LOG OUTLIVES ITS CARD, on purpose (the
+review asked to delete it with the phrase): the 7-day bars are the work done, an answer given isn't taken
+back by deleting or merging the phrase (past days would change after the fact), and the log is the data for
+fitting FSRS. The goal follows the same rule — `studied` = every card answered today, in the deck or not
+(it counted only the cards still there: deleting a phrase turned "5 of 5, reached" into "4 of 5" and Start
+drew one more card, while the bars' "today" still said 5). `stats(now:)` feeds
 `StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
 Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
 cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,

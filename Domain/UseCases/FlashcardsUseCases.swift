@@ -339,7 +339,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         /// The day had no set yet (the first Start of the day saves one, even if empty).
         let isNew: Bool
         let answers: [UUID: Int]
-        /// Distinct cards answered today.
+        /// Distinct cards answered today, whether they are still in the deck or not.
         let studied: Int
         /// The day's set, still to do: unanswered, or learning and under the day's limit.
         let pending: [Flashcard]
@@ -371,7 +371,11 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         }
         let drawable = available(deck, now: now).byStage.values.joined()
             .filter { !inSet.contains($0.id) && (answers[$0.id] ?? 0) < limit }
-        let studied = answers.keys.filter { byID[$0] != nil }.count
+        // Every card answered today counts — a card deleted since (its phrase deleted, or merged into
+        // its duplicate) too: the answers were given, and they stay in the log (the 7-day bars count
+        // them). Counting only the cards still there, deleting a phrase took the day's work back:
+        // "5 of 5, goal reached" became "4 of 5" and Start drew one more card.
+        let studied = answers.count
         return Today(day: day, isNew: isNew, answers: answers, studied: studied, pending: pending,
                      drawable: Array(drawable))
     }
