@@ -182,13 +182,22 @@ article, missing example / synonyms / note; a field the model returns empty keep
 (`apply` never empties a field); letter case is applied locally
 (`lettercase`: everything lower case except the English "I"/I'm/I've/I'll/I'd — simple word
 boundaries, English text only, since Italian "i" is an article — and German left as is for its nouns);
-one retry per batch, then letter case only; offline / plan limit / no key stop the run.
+one retry per batch. A phrase is DONE only when the model ANSWERED for it, and the two ways it can fail
+to are kept apart (`FixCardsInteractor.failure`): the SERVICE doesn't answer twice (`.timedOut` /
+`.overloaded` / `.requestFailed`) → the run STOPS with that error, the position BEFORE the batch (going on
+walked a whole deck through a dead service and marked it all as passed — the review found it); the ANSWER
+leaves phrases out (`.invalidOutput` / `.responseTooLong` twice, or a card missing from a good answer) →
+the run goes on, those get letter case only, are counted (`FixProgress.failed`) and REMEMBERED in the
+checkpoint (`CardFixCheckpoint.unanswered`): the next run sends them FIRST, in requests of
+`retryBatchSize` (5), and `remaining` / `survey` count them as left; offline / plan limit / no key stop
+the run at once. `complete` (Caught → flashcards) asks once more about what an answer left out, then
+throws — a phrase never moves unseen by the model; what was answered is stored.
 The "Fix cards" sheet (`FixCardsView`/`FixCardsViewModel`) does it all: `survey()` reads the
 phrases with progress and counts each mode, the modes are buttons there, and the run shows a two-part
 `ProgressLine` (DesignSystem: `sent` grey — breathing while it waits — `processed` green;
 `FixProgress.sent`); `ActivityLine` (a gliding segment) while the cards are read and the total is unknown.
 The position after each batch is kept per scope (`CardFixProgressStoring`, UserDefaults; the all-cards
-key predates scopes) — Stop and resume without sending a card twice; "start over" resets it; "Only
+key predates scopes; `unanswered` is optional in the stored JSON) — Stop and resume without sending an answered card twice; "start over" resets it; "Only
 incomplete" restarts by itself once its run went through them all. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
 studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
 lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`

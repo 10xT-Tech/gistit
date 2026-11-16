@@ -44,12 +44,13 @@ struct FixCardsView: View {
                     }
 
                     if model.progress.failed > 0 {
-                        note(Loc.t("Не удалось обработать: \(model.progress.failed) — им исправлен только регистр букв.",
-                                   "Couldn't be processed: \(model.progress.failed) — only their letter case was fixed.",
-                                   "Non traitées : \(model.progress.failed) — seule la casse a été corrigée.",
-                                   "No procesadas: \(model.progress.failed) — solo se corrigieron mayúsculas y minúsculas.",
-                                   "Nicht verarbeitet: \(model.progress.failed) — nur die Groß- und Kleinschreibung wurde korrigiert.",
-                                   "Non elaborate: \(model.progress.failed) — corrette solo maiuscole e minuscole."))
+                        note(Loc.t("Без ответа модели: \(model.progress.failed). Им исправлен только регистр букв; при следующем запуске они уйдут первыми.",
+                                   "No answer from the model: \(model.progress.failed). Only their letter case was fixed; the next run sends them first.",
+                                   "Sans réponse du modèle : \(model.progress.failed). Seule la casse a été corrigée ; la prochaine fois, elles partiront en premier.",
+                                   "Sin respuesta del modelo: \(model.progress.failed). Solo se corrigieron mayúsculas y minúsculas; la próxima vez se enviarán primero.",
+                                   "Ohne Antwort des Modells: \(model.progress.failed). Nur die Groß- und Kleinschreibung wurde korrigiert; beim nächsten Lauf kommen sie zuerst.",
+                                   "Senza risposta del modello: \(model.progress.failed). Corrette solo maiuscole e minuscole; la prossima volta saranno inviate per prime."))
+                            .accessibilityIdentifier("fix.unanswered")
                     }
                     if let error = model.errorMessage {
                         note(error)

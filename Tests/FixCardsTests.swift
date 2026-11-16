@@ -3,9 +3,11 @@
 //  EnglishHelperTests
 //
 //  In flashcards → Fix cards: the prompt template, letter case, the run in batches with progress,
-//  resuming where it stopped (no card sent twice), only the incomplete cards (a checkpoint of their
-//  own), a field the model leaves empty, unusable answers, the plan's limit, and what is never touched
-//  (Caught phrases, learning progress).
+//  resuming where it stopped (no answered card sent twice), only the incomplete cards (a checkpoint of
+//  their own), a field the model leaves empty, phrases the model gave no answer for (an unusable
+//  answer, a card left out — remembered and sent first by the next run), a service that doesn't answer
+//  (the run stops before that batch), the plan's limit, and what is never touched (Caught phrases,
+//  learning progress).
 //
 
 import Testing
@@ -250,8 +252,9 @@ import Presentation
         #expect(again.first?.total == 45)
     }
 
-    /// An unusable answer (twice) skips the model's fix for that batch — capitals still applied — and
-    /// the run goes on; the plan's limit stops it, keeping the position before the refused batch.
+    /// An unusable answer (twice) leaves that batch without the model's fix — capitals still applied —
+    /// and the run goes on, remembering those phrases for the next run; the plan's limit stops it,
+    /// keeping the position before the refused batch.
     @Test func badAnswersAndThePlanLimit() async throws {
         let (studied, cards) = deck(45)
         let expressions = MockExpressionRepository(seed: studied)
@@ -275,8 +278,129 @@ import Presentation
         }
         let firstBatch = try await expressions.all().filter { $0.createdAt < now.addingTimeInterval(20) }
         #expect(firstBatch.allSatisfy { $0.en.hasPrefix("phrase") && $0.example.isEmpty })  // letter case only
-        let left5 = try await sut.remaining(.all)
-        #expect(left5.left == 5 && left5.total == 45)
+        let left = try await sut.remaining(.all)
+        #expect(left.left == 25 && left.total == 45)                    // 5 not reached + 20 unanswered
+    }
+
+    /// Phrases a run went past without an answer go FIRST in the next one, in small requests; then
+    /// the phrases it hadn't reached. The answered ones are never sent again.
+    @Test func theNextRunSendsTheUnansweredFirst() async throws {
+        let (studied, cards) = deck(50)
+        let expressions = MockExpressionRepository(seed: studied)
+        let reviews = MockReviewCardRepository(seed: cards)
+        let store = InMemoryCardFixProgressStore()
+        let unusable = LLMError.invalidOutput("x")
+        // Batch 1: unusable twice. Batch 2: answered. Batch 3: no network.
+        let first = FixCardsInteractor(llm: ScriptedFixLLM(script: [.failure(unusable), .failure(unusable), .success,
+                                                                    .failure(LLMError.offline)]),
+                                       expressions: expressions, cards: reviews, progress: store)
+        await #expect(throws: LLMError.self) { _ = try await run(first) }
+        let mark = try #require(await store.load(.all))
+        #expect(mark.id == studied[39].id)                              // past the first two batches
+        #expect(mark.unanswered == Set(studied.prefix(20).map(\.id)))
+        let left = try await first.remaining(.all)
+        #expect(left.left == 30 && left.total == 50)
+        let survey = try #require(try await lastSurvey(first))
+        #expect(survey.all == FixCounts(left: 30, total: 50))
+
+        let spy = SpyFixLLM()
+        let second = FixCardsInteractor(llm: spy, expressions: expressions, cards: reviews, progress: store)
+        let steps = try await run(second)
+        #expect(steps.last == FixProgress(processed: 30, total: 30, changed: 30, failed: 0))
+        #expect(spy.requestSizes == [5, 5, 5, 5, 10])                   // the unanswered in small requests
+        #expect(spy.answeredIDs == (studied.prefix(20) + studied.suffix(10)).map(\.id.uuidString))
+        #expect(try await expressions.all().allSatisfy { !FixCardsInteractor.isIncomplete($0) })
+        let after = try #require(await store.load(.all))
+        #expect(after.unanswered.isEmpty && after.id == studied[49].id)
+        let done = try await second.remaining(.all)
+        #expect(done.left == 0 && done.total == 50)
+    }
+
+    /// A service that doesn't answer (a timeout, an overload, a server error — after one more try)
+    /// STOPS the run with that error, the position before the batch: nothing is walked past unanswered.
+    /// One hiccup the second try gets over isn't noticed.
+    @Test func aServiceThatDoesntAnswerStopsTheRun() async throws {
+        for failure in [LLMError.overloaded, .timedOut, .requestFailed("HTTP 500: x")] {
+            let (studied, cards) = deck(45)
+            let store = InMemoryCardFixProgressStore()
+            let llm = ScriptedFixLLM(script: [.success, .failure(failure), .failure(failure)])
+            let sut = FixCardsInteractor(llm: llm, expressions: MockExpressionRepository(seed: studied),
+                                         cards: MockReviewCardRepository(seed: cards), progress: store)
+            var steps: [FixProgress] = []
+            var stoppedBy: Error?
+            do {
+                for try await step in sut(.all, studiedLanguage: "English", nativeLanguage: "Russian", restart: false) {
+                    steps.append(step)
+                }
+            } catch { stoppedBy = error }
+            #expect(stoppedBy as? LLMError == failure)
+            #expect(steps.last == FixProgress(processed: 20, total: 45, changed: 20, failed: 0, sent: 40))
+            #expect(llm.calls == 3)                                     // no third batch through a dead service
+            let mark = await store.load(.all)
+            #expect(mark?.id == studied[19].id && mark?.unanswered.isEmpty == true)
+            let left = try await sut.remaining(.all)
+            #expect(left.left == 25 && left.total == 45)                // the refused batch goes again
+        }
+
+        let (studied, cards) = deck(45)
+        let sut = FixCardsInteractor(llm: ScriptedFixLLM(script: [.failure(LLMError.overloaded)]),
+                                     expressions: MockExpressionRepository(seed: studied),
+                                     cards: MockReviewCardRepository(seed: cards))
+        #expect(try await run(sut).last == FixProgress(processed: 45, total: 45, changed: 45, failed: 0))
+    }
+
+    /// A good answer that leaves cards out: they're counted, remembered, and sent again by the next
+    /// run — until the model answers for them or the phrase is gone.
+    @Test func aCardLeftOutOfTheAnswerIsSentAgain() async throws {
+        let (studied, cards) = deck(40)
+        let expressions = MockExpressionRepository(seed: studied)
+        let reviews = MockReviewCardRepository(seed: cards)
+        let store = InMemoryCardFixProgressStore()
+        let leftOut = [studied[3], studied[25]]
+        let forgetful = ForgetfulFixLLM(forgetting: Set(leftOut.map(\.id)))
+        let sut = FixCardsInteractor(llm: forgetful, expressions: expressions, cards: reviews, progress: store)
+
+        let steps = try await run(sut)
+        #expect(steps.last == FixProgress(processed: 40, total: 40, changed: 38, failed: 2))
+        #expect(await store.load(.all)?.unanswered == Set(leftOut.map(\.id)))
+        let left = try await sut.remaining(.all)
+        #expect(left.left == 2 && left.total == 40)
+
+        let again = try await run(sut)                                  // left out once more: still waiting
+        #expect(again.last == FixProgress(processed: 2, total: 2, changed: 0, failed: 2))
+        #expect(forgetful.requests.last == leftOut.map(\.id.uuidString))
+        #expect(await store.load(.all)?.unanswered == Set(leftOut.map(\.id)))
+
+        try await expressions.delete(id: leftOut[0].id)                 // a deleted phrase isn't waited for
+        let spy = SpyFixLLM()
+        let last = try await run(FixCardsInteractor(llm: spy, expressions: expressions, cards: reviews, progress: store))
+        #expect(last.last == FixProgress(processed: 1, total: 1, changed: 1, failed: 0))
+        #expect(spy.answeredIDs == [leftOut[1].id.uuidString])
+        #expect(await store.load(.all)?.unanswered.isEmpty == true)
+        #expect(try await expressions.all().allSatisfy { !FixCardsInteractor.isIncomplete($0) })
+    }
+
+    /// Caught → flashcards: a phrase the answer left out is asked about once more; still without an
+    /// answer, the move stops — it never goes into flashcards unseen — and what was answered is kept.
+    @Test func completingAsksAgainAboutWhatTheAnswerLeftOut() async throws {
+        let lacking = (0..<4).map { Domain.Expression(en: "caught \($0)", ru: "пойманная \($0)", createdAt: now.addingTimeInterval(Double($0))) }
+        let once = ForgetfulFixLLM(forgetting: [lacking[2].id], inTheFirst: 1)
+        let expressions = MockExpressionRepository(seed: lacking)
+        let completed = try await FixCardsInteractor(llm: once, expressions: expressions, cards: MockReviewCardRepository())
+            .complete(lacking, studiedLanguage: "English", nativeLanguage: "Russian")
+        #expect(completed.map(\.id) == lacking.map(\.id))
+        #expect(completed.allSatisfy { !FixCardsInteractor.needsCompletion($0) })
+        #expect(once.requests == [lacking.map(\.id.uuidString), [lacking[2].id.uuidString]])
+
+        let always = ForgetfulFixLLM(forgetting: [lacking[2].id])
+        let store = MockExpressionRepository(seed: lacking)
+        await #expect(throws: LLMError.self) {
+            _ = try await FixCardsInteractor(llm: always, expressions: store, cards: MockReviewCardRepository())
+                .complete(lacking, studiedLanguage: "English", nativeLanguage: "Russian")
+        }
+        #expect(always.requests.count == 2)
+        let stored = try await store.all()
+        #expect(stored.filter(FixCardsInteractor.needsCompletion).map(\.id) == [lacking[2].id])
     }
 
     /// "Only incomplete": just the cards missing an example, synonyms or a note go to the model; the
@@ -378,6 +502,15 @@ import Presentation
         await store.reset(.incomplete)
         let allAfter = await store.load(.all), incompleteAfter = await store.load(.incomplete)
         #expect(allAfter == a && incompleteAfter == nil)
+
+        // The phrases left unanswered are stored with the position; a checkpoint from a build that
+        // had none reads as "none".
+        let waiting = CardFixCheckpoint(createdAt: now, id: UUID(), unanswered: [UUID(), UUID()])
+        await store.save(waiting, for: .incomplete)
+        #expect(await store.load(.incomplete) == waiting)
+        let old = #"{"createdAt":800000000,"id":"\#(a.id.uuidString)"}"#
+        defaults.set(Data(old.utf8), forKey: "flashcardsFixCheckpoint")
+        #expect(await store.load(.all) == CardFixCheckpoint(createdAt: now, id: a.id))
     }
 }
 
@@ -419,16 +552,43 @@ import Presentation
 private final class SpyFixLLM: LLMClient, @unchecked Sendable {
     private let lock = NSLock()
     private var ids: [String] = []
+    private var sizes: [Int] = []
     private var calls = 0
     private let failing: [Int: LLMError]
     init(failing: [Int: LLMError] = [:]) { self.failing = failing }
     var answeredIDs: [String] { lock.withLock { ids } }
+    /// How many cards each answered request carried.
+    var requestSizes: [Int] { lock.withLock { sizes } }
 
     func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
         let call = lock.withLock { calls += 1; return calls }
         if let error = failing[call] { throw error }
-        if let cards = input as? [FixCardItem] { lock.withLock { ids += cards.map(\.id) } }
+        if let cards = input as? [FixCardItem] { lock.withLock { ids += cards.map(\.id); sizes.append(cards.count) } }
         return try await MockLLMClient().run(template, input: input)
+    }
+}
+
+/// Answers like the mock but leaves the listed cards out of its answer — in its first `calls`
+/// answers only, when given. Records what each request asked about.
+private final class ForgetfulFixLLM: LLMClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var asked: [[String]] = []
+    private let forgetting: Set<String>
+    private let forgetfulCalls: Int
+    init(forgetting: Set<UUID>, inTheFirst calls: Int = .max) {
+        self.forgetting = Set(forgetting.map(\.uuidString))
+        self.forgetfulCalls = calls
+    }
+    var requests: [[String]] { lock.withLock { asked } }
+
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        let ids = (input as? [FixCardItem] ?? []).map(\.id)
+        let call = lock.withLock { asked.append(ids); return asked.count }
+        let answer = try await MockLLMClient().run(template, input: input)
+        guard call <= forgetfulCalls, let full = answer as? FixCardsResult,
+              let cut = FixCardsResult(cards: full.cards.filter { !forgetting.contains($0.id) }) as? Template.Output
+        else { return answer }
+        return cut
     }
 }
 
@@ -448,10 +608,12 @@ private final class ScriptedFixLLM: LLMClient, @unchecked Sendable {
     enum Step { case success, failure(Error) }
     private let lock = NSLock()
     private var script: [Step]
+    private var count = 0
     init(script: [Step]) { self.script = script }
+    var calls: Int { lock.withLock { count } }
 
     func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
-        let step: Step = lock.withLock { script.isEmpty ? .success : script.removeFirst() }
+        let step: Step = lock.withLock { count += 1; return script.isEmpty ? .success : script.removeFirst() }
         switch step {
         case .success: return try await MockLLMClient().run(template, input: input)
         case .failure(let error): throw error
