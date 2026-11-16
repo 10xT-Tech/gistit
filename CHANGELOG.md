@@ -141,6 +141,12 @@ more before the tab bar.
 **Steadier swipes between screens.** A swipe that drifts up or down no longer scrolls the screen
 while it slides sideways.
 
+**The text always matches the answer.** Sent a request on Get it or Say it, typed something else while
+waiting and went to another screen? The answer still arrives — a request you sent is never dropped —
+and the field now shows the text it was for, right away. Before, the new text stayed above an answer
+to the old one until you left the screen once more. Changing the mode or the tone while you wait
+re-runs what you sent, not the unfinished text.
+
 ## 1.5.3 — 2026-10-15
 
 **Share to any app.** Every card you can copy now has a **Share** button next to **Copy**: the

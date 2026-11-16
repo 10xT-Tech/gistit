@@ -133,6 +133,39 @@ import Presentation
         #expect(vm.variants.map(\.en) == shown)
     }
 
+    /// Leaving while the request is still OUT: the request is the user's own and finishes behind
+    /// the tab (not cancelled) — and the edit typed meanwhile is dropped right then, so the variants
+    /// land under the text they are about (it used to stay until the NEXT leave).
+    @Test func leavingScreenWhileTheRequestIsOutRevertsUnsubmittedEdit() async throws {
+        let vm = makeVM(llm: StubLLMClient(behavior: .success, latency: .milliseconds(150)))
+        vm.intent = "как сказать спасибо"
+        vm.submit()
+        #expect(vm.phase == .processing)
+
+        vm.intent = "совсем другой текст"      // edited while the request is out, never submitted
+        vm.screenDisappeared()                  // ← tab switched away
+
+        #expect(vm.intent == "как сказать спасибо")
+        #expect(vm.phase == .processing)        // the sent request goes on
+        try await waitUntil { vm.phase == .results }
+        #expect(!vm.variants.isEmpty)           // …and its answer landed
+        #expect(vm.intent == "как сказать спасибо")
+    }
+
+    /// A tone change while the request is out re-runs the input that was SENT — the same rule as
+    /// with results on screen: an unsubmitted draft never goes to the model.
+    @Test func toneChangeWhileTheRequestIsOutRerunsTheSentInputNotDraft() async throws {
+        let vm = makeVM(llm: StubLLMClient(behavior: .success, latency: .milliseconds(150)))
+        vm.intent = "как сказать спасибо"
+        vm.submit()
+        #expect(vm.phase == .processing)
+
+        vm.intent = "черновик без кнопки"       // edited, never submitted
+        vm.selectTone(.formal)
+        #expect(vm.intent == "как сказать спасибо")
+        try await waitUntil { vm.phase == .results }
+    }
+
     /// With nothing generated there is nothing to mismatch — a draft survives leaving the screen.
     @Test func leavingScreenKeepsDraftWhenNothingGenerated() {
         let vm = makeVM()

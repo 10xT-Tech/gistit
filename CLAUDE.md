@@ -313,6 +313,15 @@ every path (a custom sheet binding — SwiftUI clears the item before `onDismiss
 `settle()` waits for the merge under way BEFORE the list is reloaded. After a merge a checked group with
 nothing left proposed is done and its rest linked as not duplicates. Today's goal line is green
 (`ProgressLine`, `Tokens.Chart.progressDone`).
+Say it / Get it — A SENT REQUEST OUTLIVES THE TAB (the review asked to cancel it on leaving; that is the
+design, not a bug: the view models live in `RootView`, `withBackgroundCompletion` keeps the same request
+alive behind the whole app, and the backend claims the free plan's request before the model call and
+returns it only on an upstream error — a cancel from the phone would spend it for nothing).
+`screenDisappeared` stops the mic and playback only. What the screen's state is ABOUT is one notion,
+`askedSource` / `askedIntent`: the text of the request out (`sentSource` / `sentIntent`, `.processing`) or
+of the result shown (`generatedSource` / `generatedIntent`); an edit never submitted is dropped back to it
+on leaving, and a mode / tone change re-runs it, in BOTH states (it used to hold for a result only: an
+edit typed while the request was out stayed above the answer to the old text until the next leave).
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
 case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`.
 Fix ONE card (`Presentation/Flashcards/CardFix.swift`): a wand next to the speaker — in `CardPreviewView`

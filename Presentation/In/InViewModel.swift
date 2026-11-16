@@ -94,6 +94,19 @@ public final class InViewModel {
     /// The input the on-screen result was generated from — restored on leaving the screen so an
     /// edit the user never submitted can't sit above a result it doesn't match.
     private var generatedSource: String?
+    /// The input of the request that is OUT (`.processing`) — until its answer lands there is no
+    /// `generatedSource` for it yet, and the field may already hold something else.
+    private var sentSource: String?
+    /// The text the user actually ASKED about — of the request that is out, or of the result on
+    /// screen; nil when there is neither. An edit of the field that was never submitted is dropped
+    /// back to it on leaving the screen and before a mode switch re-runs the input.
+    private var askedSource: String? {
+        switch phase {
+        case .processing: sentSource
+        case .result: generatedSource
+        default: nil
+        }
+    }
     /// The mode that produced the on-screen result. A round trip back to this same mode must not
     /// re-fire the request — the result is still valid.
     private var generatedMode: Mode?
@@ -618,6 +631,7 @@ public final class InViewModel {
         // captured for (a user edit of `source` invalidates it).
         let explainAlts = (mode == .explain && explainAlternativesText == text) ? explainAlternatives : []
         requestTask?.cancel()
+        sentSource = text
         phase = .processing
         errorMessage = nil
         isOffline = false
@@ -711,10 +725,11 @@ public final class InViewModel {
             stopPlayback()
             return
         }
-        // Re-run the input the result was GENERATED from, not an edited-but-unsubmitted draft —
-        // running new text happens only via the button. (A deliberately CLEARED field falls through
-        // to the reset branch instead of resurrecting deleted text.)
-        if phase == .result, canSubmit, let generatedSource { source = generatedSource }
+        // Re-run the input the user ASKED about (the result's, or the request's still out), not an
+        // edited-but-unsubmitted draft — running new text happens only via the button. (A
+        // deliberately CLEARED field falls through to the reset branch instead of resurrecting
+        // deleted text.)
+        if canSubmit, let askedSource { source = askedSource }
         // The on-screen result already belongs to the target mode (round trip through Online):
         // it is still valid — re-firing would waste a request and reset the bookmark state.
         if phase == .result, newMode == generatedMode { return }
@@ -777,7 +792,10 @@ public final class InViewModel {
     /// The screen is leaving (tab switch / navigation away). Stops anything that must not keep
     /// running from a hidden tab, then drops an edit the user typed but never submitted, so on
     /// return the input still matches the result on screen — the only way to run the new text is to
-    /// actually press the button.
+    /// actually press the button. A request already SENT is not one of the things stopped: the user
+    /// asked for it (the backend has counted it), it finishes behind the tab like it does behind the
+    /// app (`withBackgroundCompletion`) — so the edit is dropped while it is out too, or the answer
+    /// would land under a text it isn't about.
     public func screenDisappeared() {
         // The push-to-talk mic must never keep recording from a hidden tab — and unlike
         // stopListening(), leaving must NOT auto-submit: no LLM request may fire from a screen the
@@ -789,11 +807,11 @@ public final class InViewModel {
             phase = .idle
         }
         stopPlayback()
-        // Trimmed comparison: `generatedSource` stores the trimmed submit text, so a whitespace-only
+        // Trimmed comparison: `askedSource` is the trimmed submit text, so a whitespace-only
         // difference (e.g. dictation's trailing space) must not count as an edit.
-        guard phase == .result, let generatedSource,
-              source.trimmingCharacters(in: .whitespacesAndNewlines) != generatedSource else { return }
-        source = generatedSource
+        guard let askedSource,
+              source.trimmingCharacters(in: .whitespacesAndNewlines) != askedSource else { return }
+        source = askedSource
     }
 
     private func handleRequestError(_ error: Error) {
