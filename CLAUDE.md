@@ -146,7 +146,7 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
-**v2.0.1 (in development, branch `code_review_2.0.0-2`; 2.0.1 (1) not built yet)** — the code review of
+**v2.0.1 (branch `code_review_2.0.0-2`, not merged into `main`; 2.0.1 (1) uploaded to TestFlight 2026-11-16 from that branch)** — the code review of
 2.0.0 (2) and what came after that build: every fix is described in place in the 2.0.0 text below (look for
 "the review"), user-facing in `CHANGELOG.md` → 2.0.1. The landing (`docs/marketing/landing`) marks what
 needs Gist It Pro — Online translation and the duplicates Check (`AccessTier.canUseLiveTranslation` /
