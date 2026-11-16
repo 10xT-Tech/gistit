@@ -272,8 +272,9 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository, DeckFootprintR
         try save()
     }
 
-    public func logs(since date: Date) async throws -> [ReviewLog] {
-        let descriptor = FetchDescriptor<ReviewLogModel>(predicate: #Predicate { $0.reviewedAt >= date })
+    public func logs(in period: Range<Date>) async throws -> [ReviewLog] {
+        let from = period.lowerBound, to = period.upperBound
+        let descriptor = FetchDescriptor<ReviewLogModel>(predicate: #Predicate { $0.reviewedAt >= from && $0.reviewedAt < to })
         return try modelContext.fetch(descriptor).compactMap { $0.toDomain() }
     }
 

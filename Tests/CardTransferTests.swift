@@ -309,7 +309,7 @@ private actor FailingSaveAllCards: ReviewCardRepository {
         try await inner.replaceCards(of: expressionIDs, with: cards)
     }
     func appendLog(_ log: ReviewLog) async throws { try await inner.appendLog(log) }
-    func logs(since date: Date) async throws -> [ReviewLog] { try await inner.logs(since: date) }
+    func logs(in period: Range<Date>) async throws -> [ReviewLog] { try await inner.logs(in: period) }
 }
 
 /// "Not duplicates" links that can't be stored.
@@ -356,5 +356,5 @@ private actor RacingCards: ReviewCardRepository {
         try await inner.replaceCards(of: expressionIDs, with: cards)
     }
     func appendLog(_ log: ReviewLog) async throws { try await inner.appendLog(log) }
-    func logs(since date: Date) async throws -> [ReviewLog] { try await inner.logs(since: date) }
+    func logs(in period: Range<Date>) async throws -> [ReviewLog] { try await inner.logs(in: period) }
 }

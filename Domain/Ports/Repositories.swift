@@ -45,8 +45,10 @@ public protocol ReviewCardRepository: Sendable {
     /// the learning progress deleted and its replacement unwritten.
     func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws
     func appendLog(_ log: ReviewLog) async throws
-    /// Answers given at or after `date`.
-    func logs(since date: Date) async throws -> [ReviewLog]
+    /// Answers given within `period` (its end excluded). ALWAYS a closed period, never "since": an
+    /// answer stamped later than the period asked about — the phone's clock was ahead when it was
+    /// given, and has been put right — belongs to its own day, not to every day before it.
+    func logs(in period: Range<Date>) async throws -> [ReviewLog]
 }
 
 public extension ReviewCardRepository {

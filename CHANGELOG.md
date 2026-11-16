@@ -141,6 +141,11 @@ more before the tab bar.
 **Steadier swipes between screens.** A swipe that drifts up or down no longer scrolls the screen
 while it slides sideways.
 
+**A changed clock no longer closes your day.** If the phone's date was ahead while you practised and was
+then put right, those answers used to count as today's on every day until that date came: the daily goal
+looked reached, **Start** had nothing to give, and cards you'd answered three times stayed locked. Now
+only what you answered today counts for today.
+
 **The text always matches the answer.** Sent a request on Get it or Say it, typed something else while
 waiting and went to another screen? The answer still arrives — a request you sent is never dropped —
 and the field now shows the text it was for, right away. Before, the new text stayed above an answer

@@ -131,7 +131,7 @@ private actor FlakyCards: ReviewCardRepository {
         try await inner.replaceCards(of: expressionIDs, with: cards)
     }
     func appendLog(_ log: ReviewLog) async throws { try await inner.appendLog(log) }
-    func logs(since date: Date) async throws -> [ReviewLog] { try await inner.logs(since: date) }
+    func logs(in period: Range<Date>) async throws -> [ReviewLog] { try await inner.logs(in: period) }
 }
 
 /// Expressions whose delete fails the first `deleteFailures` times.

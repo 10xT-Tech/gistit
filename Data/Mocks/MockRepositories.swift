@@ -101,7 +101,7 @@ public actor MockReviewCardRepository: ReviewCardRepository {
         for card in replacement { cards[card.id] = card }
     }
     public func appendLog(_ entry: ReviewLog) async throws { log.append(entry) }
-    public func logs(since date: Date) async throws -> [ReviewLog] { log.filter { $0.reviewedAt >= date } }
+    public func logs(in period: Range<Date>) async throws -> [ReviewLog] { log.filter { period.contains($0.reviewedAt) } }
 }
 
 public actor MockHistoryRepository: HistoryRepository {

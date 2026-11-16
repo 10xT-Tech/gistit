@@ -196,4 +196,16 @@ import Adapters
         let after = await reader.usage()
         #expect(after.phraseCount == 0 && after.cardCount == 0 && after.deckBytes == 60)   // the log stays
     }
+
+    /// The store answers for a PERIOD: its start included, its end not, nothing later.
+    @Test func logsAreReadForAPeriod() async throws {
+        let cards = SwiftDataReviewCardRepository(modelContainer: try container())
+        let offsets: [TimeInterval] = [-1, 0, 100, 86_399, 86_400, 7 * 86_400]
+        for offset in offsets {
+            try await cards.appendLog(ReviewLog(cardID: UUID(), rating: .good, state: .new,
+                                                reviewedAt: now.addingTimeInterval(offset)))
+        }
+        let read = try await cards.logs(in: now..<now.addingTimeInterval(86_400))
+        #expect(read.map { $0.reviewedAt.timeIntervalSince(now) }.sorted() == [0, 100, 86_399])
+    }
 }

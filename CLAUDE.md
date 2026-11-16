@@ -241,7 +241,14 @@ last answered on an earlier day. A DAY is one practice: the first Start draws to
 via `PracticeDayStoring` — UserDefaults JSON in the live boot, in-memory otherwise); Start/Continue
 later the same day returns the set's unanswered cards in order (+ learning cards coming back), tops up
 if the goal was raised, and `extra` appends an extra set of 25. A card is answered at most
-`PracticeDay.maxAnswersPerCard` (3) times a day (counted from the review log), across sessions. `stats(now:)` feeds
+`PracticeDay.maxAnswersPerCard` (3) times a day (counted from the review log), across sessions. TODAY'S ANSWERS
+ARE THE LOG ENTRIES OF TODAY'S CALENDAR DAY, midnight to midnight (`calendarDay(of:)`; the port reads a closed
+period only — `ReviewCardRepository.logs(in:)`, there is no "since"): counted "since midnight", answers
+stamped on a later day (the phone's clock was ahead when they were given, then put right) were today's on
+every day until theirs came — the goal read reached with nothing answered, Start gave an empty set, cards
+answered three times stayed over the limit, and the 7-day bars said 0 for the same day (the review found
+it). The end is the day's, not "now": a clock put back by an hour leaves answers later than now that were
+given today. The cards' own due dates stay as that clock wrote them. `stats(now:)` feeds
 `StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
 Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
 cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,
