@@ -49,6 +49,9 @@ public final class StudyListViewModel {
 
     /// A failed delete / move, surfaced without flipping the whole list to `.failed`.
     public private(set) var actionError: String?
+    /// The action stopped at the free plan's limit: the message offers the subscription (a sheet with
+    /// "Subscribe", not the plain alert).
+    public private(set) var actionNeedsSubscription = false
 
     public enum ExportFormat: CaseIterable, Sendable {
         case algoApp, anki
@@ -70,8 +73,13 @@ public final class StudyListViewModel {
     public var showMoveAllConfirmation = false
     /// "Delete all" (Caught) asks first.
     public var showDeleteAllConfirmation = false
-    /// Caught phrases that look like phrases already in flashcards — "Move all" can leave them here.
-    public private(set) var moveAllLookAlikes: Set<UUID> = []
+    /// Caught phrases a check found to look like phrases already in flashcards: their rows carry a
+    /// mark, and "Move new" leaves them here. Filled by a single move that came back to ask and by the
+    /// check before "Move all" (which goes through the whole list, so it replaces the set).
+    public private(set) var lookAlikeIDs: Set<UUID> = []
+
+    /// Whether a check found this caught phrase to look like one already in flashcards.
+    public func isLookAlike(_ expression: Domain.Expression) -> Bool { lookAlikeIDs.contains(expression.id) }
     /// A caught phrase being moved that looks like one already in flashcards.
     public struct LookAlike: Identifiable, Equatable {
         public let caught: Domain.Expression
@@ -80,8 +88,6 @@ public final class StudyListViewModel {
     }
     /// Asks: merge into the look-alike, move separately, or cancel.
     public var lookAlike: LookAlike?
-    /// The look-alike turned out to be another phrase (nothing to merge with): move it separately?
-    public var notADuplicate: LookAlike?
     /// The model is writing the merged card of a caught phrase and its look-alike.
     public private(set) var isMerging = false
     /// "Move all" is looking for look-alikes among the phrases in flashcards before it asks.
@@ -111,6 +117,21 @@ public final class StudyListViewModel {
     private let studiedLanguage: () -> String
     private let nativeLanguage: () -> String
     private var playTask: Task<Void, Never>?
+    private var bulkMoveTask: Task<Void, Never>?
+
+    /// In flashcards → the card view's wand: fixing one card with the model (nil when Fix cards isn't wired).
+    public let cardFix: CardFixModel?
+
+    /// Caught phrases being moved one by one right now (completed by the model if they lack fields,
+    /// then given their cards): their rows show it, and leave the list once moved.
+    public private(set) var movingIDs: Set<UUID> = []
+    /// "Move all" / "Move new" under way: how many of how many have moved.
+    public struct BulkMove: Equatable, Sendable {
+        public let done: Int
+        public let total: Int
+    }
+    public private(set) var bulkMove: BulkMove?
+    public func isMoving(_ expression: Domain.Expression) -> Bool { movingIDs.contains(expression.id) }
 
     public init(
         studyList: any StudyListUseCase,
@@ -138,6 +159,9 @@ public final class StudyListViewModel {
         self.catchFromPhotos = catchFromPhotos
         self.cardTransfer = cardTransfer
         self.fixCards = fixCards
+        self.cardFix = fixCards.map {
+            CardFixModel(fixCards: $0, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        }
         self.duplicates = duplicates
         self.scope = scope
         self.studiedLanguage = studiedLanguage
@@ -242,93 +266,110 @@ public final class StudyListViewModel {
         }
     }
 
-    /// Move an expression into flashcards (its two cards are created; it leaves this list) — unless it
-    /// looks like a phrase already there: then `lookAlike` asks first.
+    /// Move an expression into flashcards — unless it looks like a phrase already there: then
+    /// `lookAlike` asks first. The row stays (showing it's moving) until the phrase IS in flashcards:
+    /// a phrase lacking fields is completed by the model first (`FixCardsUseCase.complete`); if that
+    /// can't be done — offline, the plan's limit, no answer — the move stops, the row stays and says why.
     public func moveToFlashcards(_ expression: Domain.Expression) {
-        guard let flashcards, let index = expressions.firstIndex(where: { $0.id == expression.id }) else { return }
-        // The row goes at once; the look-alike check runs behind it. The row comes back to ask if the
-        // phrase looks like one already in flashcards, or if the move fails.
-        let moved = expressions.remove(at: index)
-        let wasLoaded = phase
-        if expressions.isEmpty { phase = .empty }
+        guard flashcards != nil, bulkMove == nil, !movingIDs.contains(expression.id),
+              expressions.contains(where: { $0.id == expression.id }) else { return }
+        movingIDs.insert(expression.id)
         let duplicates = self.duplicates, language = studiedLanguage()
         Task { [weak self] in
             guard let self else { return }
             if let duplicates,
-               let existing = (try? await duplicates.lookAlikesInFlashcards(for: [moved], studiedLanguage: language))?[moved.id] {
-                self.restore(moved, at: index, phase: wasLoaded)
-                self.lookAlike = LookAlike(caught: moved, existing: existing)
+               let existing = (try? await duplicates.lookAlikesInFlashcards(for: [expression], studiedLanguage: language))?[expression.id] {
+                self.movingIDs.remove(expression.id)
+                self.lookAlikeIDs.insert(expression.id)      // the row is marked from now on
+                self.lookAlike = LookAlike(caught: expression, existing: existing)
                 return
             }
-            do {
-                try await flashcards.enroll(moved.id, now: Date())
-            } catch {
-                self.restore(moved, at: index, phase: wasLoaded)
-                self.actionError = Loc.t("Не удалось перенести во флеш-карты. Попробуйте ещё раз.",
-                                         "Couldn't move to flashcards. Try again.")
-            }
+            await self.moveOne(expression)
         }
     }
 
-    private func restore(_ expression: Domain.Expression, at index: Int, phase: Phase) {
-        guard !expressions.contains(where: { $0.id == expression.id }) else { return }
-        expressions.insert(expression, at: min(index, expressions.count))
-        self.phase = phase
+    /// Complete (if it lacks fields) and enrol one phrase; its row leaves only once it's moved.
+    private func moveOne(_ expression: Domain.Expression) async {
+        guard let flashcards else { return }
+        movingIDs.insert(expression.id)
+        defer { movingIDs.remove(expression.id) }
+        do {
+            let completed = try await completed([expression]).first ?? expression
+            replaceRow(with: completed)
+            try await flashcards.enroll(expression.id, now: Date())
+            removeRow(expression.id)
+        } catch {
+            report(Self.moveFailure(error, moved: nil, of: 1), for: error)
+        }
+    }
+
+    /// Show why a move or a merge stopped — with the subscription offered when it was the plan's limit.
+    private func report(_ message: String, for error: Error) {
+        actionError = message
+        actionNeedsSubscription = presentableError(error).needsSubscription
+    }
+
+    /// The phrases with what they lacked filled in — as they are when Fix cards isn't wired.
+    private func completed(_ batch: [Domain.Expression]) async throws -> [Domain.Expression] {
+        guard let fixCards else { return batch }
+        return try await fixCards.complete(batch, studiedLanguage: studiedLanguage(), nativeLanguage: nativeLanguage())
+    }
+
+    private func replaceRow(with expression: Domain.Expression) {
+        if let index = expressions.firstIndex(where: { $0.id == expression.id }) { expressions[index] = expression }
+    }
+
+    private func removeRow(_ id: UUID) {
+        expressions.removeAll { $0.id == id }
+        lookAlikeIDs.remove(id)
+        if expressions.isEmpty { phase = .empty }
+    }
+
+    /// Why the move stopped, and — for a bulk move — how far it got.
+    static func moveFailure(_ error: Error, moved: Int?, of total: Int) -> String {
+        let reason = presentableError(error).message
+        guard let moved, total > 1 else {
+            return Loc.t("Не удалось перенести во флеш-карты.", "Couldn't move to flashcards.") + " " + reason
+        }
+        return Loc.t("Перенос остановлен: перенесено \(moved) из \(total).", "The move stopped: \(moved) of \(total) moved.",
+                     "Déplacement interrompu : \(moved) sur \(total) déplacées.", "Traslado detenido: \(moved) de \(total) movidas.",
+                     "Verschieben gestoppt: \(moved) von \(total) verschoben.", "Spostamento interrotto: \(moved) di \(total) spostate.")
+            + " " + reason
     }
 
     /// Move the caught phrase anyway, as a phrase of its own.
     public func moveSeparately(_ lookAlike: LookAlike) {
         self.lookAlike = nil
-        enroll(lookAlike.caught)
+        Task { [weak self] in await self?.moveOne(lookAlike.caught) }
     }
 
-    /// Merge the caught phrase into the look-alike it really is: an exact duplicate (the same phrase and
-    /// translation) at once, otherwise the model says which of the look-alikes it is one card with (one
-    /// meaning, or several numbered) and writes that card — only those merge; the flashcard keeps its
-    /// progress and the caught phrase goes. If it's none of them, `notADuplicate` asks to move it apart.
+    /// "Merge" is the user's decision: once the check has answered, the caught phrase IS merged and
+    /// leaves Caught (`DuplicatesUseCase.mergeCaught`) — an exact duplicate at once; otherwise into the
+    /// look-alike(s) the model names, with the card it writes; and if it names none, into the oldest
+    /// look-alike, as one more meaning. The flashcard keeps its progress. If the model can't be
+    /// reached, doesn't answer or the plan's limit is spent, nothing is merged: the phrase stays on
+    /// Caught and the error is shown.
     public func mergeIntoFlashcards(_ lookAlike: LookAlike) {
         self.lookAlike = nil
         guard let duplicates, !isMerging else { return }
         isMerging = true
-        let group = lookAlike.existing + [lookAlike.caught]
         let studied = studiedLanguage(), native = nativeLanguage()
         Task { [weak self] in
             guard let self else { return }
             do {
-                let proposals = try await duplicates.proposals(for: group, studiedLanguage: studied, nativeLanguage: native)
-                if let merge = proposals.first(where: { $0.expressionIDs.contains(lookAlike.caught.id) }) {
-                    try await duplicates.merge(group.filter { merge.expressionIDs.contains($0.id) }, into: merge.card,
-                                               as: merge.kind, studiedLanguage: studied, nativeLanguage: native)
-                    self.expressions.removeAll { $0.id == lookAlike.caught.id }
-                    if self.expressions.isEmpty { self.phase = .empty }
-                } else {
-                    self.notADuplicate = lookAlike
-                }
+                try await duplicates.mergeCaught(lookAlike.caught, into: lookAlike.existing,
+                                                 studiedLanguage: studied, nativeLanguage: native)
+                self.expressions.removeAll { $0.id == lookAlike.caught.id }
+                self.lookAlikeIDs.remove(lookAlike.caught.id)
+                if self.expressions.isEmpty { self.phase = .empty }
             } catch {
-                self.actionError = Loc.t("Не удалось объединить.", "Couldn't merge.") + " " + presentableError(error).message
+                self.report(Loc.t("Не удалось объединить.", "Couldn't merge.") + " " + presentableError(error).message,
+                            for: error)
             }
             self.isMerging = false
         }
     }
 
-    /// Optimistic like `delete`: the row goes at once and comes back if the move fails.
-    private func enroll(_ expression: Domain.Expression) {
-        guard let flashcards, let index = expressions.firstIndex(where: { $0.id == expression.id }) else { return }
-        let moved = expressions.remove(at: index)
-        let wasLoaded = phase
-        if expressions.isEmpty { phase = .empty }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await flashcards.enroll(moved.id, now: Date())
-            } catch {
-                self.expressions.insert(moved, at: min(index, self.expressions.count))
-                self.phase = wasLoaded
-                self.actionError = Loc.t("Не удалось перенести во флеш-карты. Попробуйте ещё раз.",
-                                         "Couldn't move to flashcards. Try again.")
-            }
-        }
-    }
 
     /// The phrases this one is marked "not duplicates" with (In flashcards).
     public func notDuplicates(of expression: Domain.Expression) -> [String] {
@@ -348,7 +389,7 @@ public final class StudyListViewModel {
     public func prepareMoveAll() {
         guard canMoveToFlashcards, !expressions.isEmpty else { return }
         guard let duplicates else {
-            moveAllLookAlikes = []
+            lookAlikeIDs = []
             showMoveAllConfirmation = true
             return
         }
@@ -359,39 +400,74 @@ public final class StudyListViewModel {
             guard let self else { return }
             let found = (try? await duplicates.lookAlikesInFlashcards(for: caught, studiedLanguage: language)) ?? [:]
             self.isCheckingLookAlikes = false
-            self.moveAllLookAlikes = Set(found.keys)
+            self.lookAlikeIDs = Set(found.keys)
             self.showMoveAllConfirmation = true
         }
     }
 
-    /// Move every caught expression into flashcards — or every one but the look-alikes, which stay to
-    /// be moved one by one. New cards are introduced in list order, oldest first.
+    /// "Move all": every caught expression goes into flashcards. "Move new" (`skippingLookAlikes`):
+    /// every one but the look-alikes, which stay — marked — to be moved one by one. Oldest first, in
+    /// groups of `FixCardsInteractor.batchSize`: the phrases of a group that lack fields are completed
+    /// by the model in one request, then each phrase gets its cards and leaves the list — one by one,
+    /// so the list always shows exactly what hasn't moved. The first failure — offline, the plan's
+    /// limit, no answer, a store error — stops the move and says how far it got; Stop does too.
     public func moveAllToFlashcards(skippingLookAlikes: Bool = false) {
-        guard let flashcards, canMoveToFlashcards, !expressions.isEmpty else { return }
-        let skipped = skippingLookAlikes ? moveAllLookAlikes : []
-        let moving = expressions.filter { !skipped.contains($0.id) }.sorted { $0.createdAt < $1.createdAt }
+        guard let flashcards, canMoveToFlashcards, bulkMove == nil, movingIDs.isEmpty, !expressions.isEmpty else { return }
+        let skipped = skippingLookAlikes ? lookAlikeIDs : []
+        let moving = expressions.filter { !skipped.contains($0.id) }
+            .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
         guard !moving.isEmpty else { return }
-        expressions.removeAll { !skipped.contains($0.id) }
-        phase = expressions.isEmpty ? .empty : .loaded
-        Task { [weak self] in
+        bulkMove = BulkMove(done: 0, total: moving.count)
+        bulkMoveTask = Task { [weak self] in
             guard let self else { return }
             let now = Date()
-            var failed = false
-            for (index, expression) in moving.enumerated() {
-                // A millisecond apart: the queue introduces new cards in the order they were moved in.
-                do { try await flashcards.enroll(expression.id, now: now.addingTimeInterval(Double(index) / 1_000)) }
-                catch { failed = true }
+            var done = 0
+            defer {
+                self.movingIDs = []
+                self.bulkMove = nil
+                self.bulkMoveTask = nil
             }
-            if failed {
-                await self.load()
-                self.actionError = Loc.t("Не удалось перенести часть фраз. Попробуйте ещё раз.",
-                                         "Couldn't move some phrases. Try again.")
+            do {
+                for start in stride(from: 0, to: moving.count, by: FixCardsInteractor.batchSize) {
+                    try Task.checkCancellation()
+                    let group = Array(moving[start..<min(start + FixCardsInteractor.batchSize, moving.count)])
+                    self.movingIDs = Set(group.map(\.id))
+                    let completed = try await self.completed(group)
+                    completed.forEach(self.replaceRow)
+                    for expression in completed {
+                        try Task.checkCancellation()
+                        // A millisecond apart: the queue introduces new cards in the order they were moved in.
+                        try await flashcards.enroll(expression.id, now: now.addingTimeInterval(Double(done) / 1_000))
+                        self.removeRow(expression.id)
+                        self.movingIDs.remove(expression.id)
+                        done += 1
+                        self.bulkMove = BulkMove(done: done, total: moving.count)
+                    }
+                }
+            } catch is CancellationError {
+                // Stop: what moved stays moved, the rest stays on the list.
+            } catch LLMError.cancelled {
+            } catch {
+                self.report(Self.moveFailure(error, moved: done, of: moving.count), for: error)
             }
         }
     }
 
+    /// Stop "Move all" after the phrase being moved; what moved stays moved.
+    public func stopMoving() {
+        bulkMoveTask?.cancel()
+    }
+
     /// The whole list as cards — four lines each, separated by "---" (Copy all).
     public var allCardsText: String { Domain.Expression.cardsText(expressions) }
+
+    // MARK: Fix one card
+
+    /// The card view's wand: send the card to the model; the fixed texts replace its row (and the
+    /// open card view shows them — it reads the row).
+    public func fixCard(_ expression: Domain.Expression) {
+        cardFix?.start(expression) { [weak self] fixed in self?.replaceRow(with: fixed) }
+    }
 
     // MARK: Fix cards
 
@@ -423,11 +499,16 @@ public final class StudyListViewModel {
                                                 nativeLanguage: nativeLanguage)
     }
 
-    /// The sheet closed: merged cards appear as one.
+    /// The sheet closed (Done, or swiped away): what it was doing stops, and once the merge still under
+    /// way has finished the list is read again — merged cards appear as one.
     public func endDuplicates() {
-        duplicatesSession?.stop()
+        guard let session = duplicatesSession else { return }
+        session.stop()
         duplicatesSession = nil
-        Task { await load() }
+        Task {
+            await session.settle()
+            await load()
+        }
     }
 
     // MARK: Card files
@@ -575,5 +656,8 @@ public final class StudyListViewModel {
 
     public func clearExport() { exportedDeck = nil }
     public func clearExportError() { exportError = nil }
-    public func clearActionError() { actionError = nil }
+    public func clearActionError() {
+        actionError = nil
+        actionNeedsSubscription = false
+    }
 }

@@ -18,13 +18,16 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
         /// Non-nil = the stream throws AFTER the updates (still emitting `.finished` first,
         /// matching the live adapter's partial-save contract).
         public var failure: LiveTranslationError?
+        /// Non-nil = the end runs out of time: `.cutShort` comes between `.ending` and `.finished`.
+        public var cutShort: LiveCutShort?
 
         public init(updates: [LiveTranslationText] = MockLiveTranslating.defaultUpdates,
                     recording: LiveSessionRecording? = LiveSessionRecording(fileName: "mock-session.m4a", duration: 12),
-                    failure: LiveTranslationError? = nil) {
+                    failure: LiveTranslationError? = nil, cutShort: LiveCutShort? = nil) {
             self.updates = updates
             self.recording = recording
             self.failure = failure
+            self.cutShort = cutShort
         }
     }
 
@@ -48,11 +51,17 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
     }
     private var startLanguages: (studied: String, native: String)?
 
-    /// How many times the direction was switched mid-session.
+    /// How many times the direction really changed mid-session.
     public var switchCount: Int {
         lock.withLock { switches }
     }
     private var switches = 0
+
+    /// The languages the session runs in now (start, then every `setLanguages`).
+    public var currentLanguages: (studied: String, native: String)? {
+        lock.withLock { languages }
+    }
+    private var languages: (studied: String, native: String)?
 
     public init(script: Script = Script()) {
         self.script = script
@@ -63,6 +72,7 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
             lock.lock()
             self.continuation = continuation
             self.startLanguages = (studiedLanguage, nativeLanguage)
+            self.languages = (studiedLanguage, nativeLanguage)
             self.lastYielded = script.updates.last ?? .empty
             lock.unlock()
             continuation.onTermination = { @Sendable [weak self] _ in
@@ -92,9 +102,13 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
         lock.withLock { paused = newValue }
     }
 
-    /// Mirrors the live adapter's contract: mid-session a divider line lands in both transcripts.
-    public func switchLanguages() async {
-        let (continuation, updated) = lock.withLock { () -> (AsyncThrowingStream<LiveTranslationEvent, Error>.Continuation?, LiveTranslationText) in
+    /// Mirrors the live adapter's contract: a real change mid-session draws a divider line in both
+    /// transcripts; asking for the languages it already runs in does nothing.
+    public func setLanguages(studiedLanguage: String, nativeLanguage: String) async {
+        let (continuation, updated) = lock.withLock { () -> (AsyncThrowingStream<LiveTranslationEvent, Error>.Continuation?, LiveTranslationText?) in
+            guard self.continuation != nil, let current = languages,
+                  current != (studiedLanguage, nativeLanguage) else { return (nil, nil) }
+            languages = (studiedLanguage, nativeLanguage)
             switches += 1
             let boundary = SonioxTokenAccumulator.boundary
             lastYielded = LiveTranslationText(
@@ -105,16 +119,29 @@ public final class MockLiveTranslating: LiveTranslating, @unchecked Sendable {
             )
             return (self.continuation, lastYielded)
         }
-        continuation?.yield(.text(updated))
+        if let updated { continuation?.yield(.text(updated)) }
     }
 
     public func stop() async {
+        beginEnding()
+        finishEnding()
+    }
+
+    /// The first half of an end, as the live adapter does it — by itself too (silence, a call):
+    /// `.ending`, the session still open while the last words are collected.
+    public func beginEnding() {
+        lock.withLock { continuation }?.yield(.ending)
+    }
+
+    /// The second half: (`.cutShort`,) `.finished`, the stream completes.
+    public func finishEnding() {
         let continuation = lock.withLock {
             let held = self.continuation
             self.continuation = nil
             self.paused = false
             return held
         }
+        if let part = script.cutShort { continuation?.yield(.cutShort(part)) }
         continuation?.yield(.finished(recording: script.recording))
         continuation?.finish()
     }
@@ -124,9 +151,12 @@ public final class MockSessionRecordings: SessionRecordingsManaging, @unchecked 
     private let lock = NSLock()
     private var existing: Set<String>
     private var deletedNames: [String] = []
+    /// When each recording was created; one without a date is as old as can be.
+    private let createdAt: [String: Date]
 
-    public init(existing: Set<String> = []) {
+    public init(existing: Set<String> = [], createdAt: [String: Date] = [:]) {
         self.existing = existing
+        self.createdAt = createdAt
     }
 
     /// Names passed to `delete` — assert on this in tests.
@@ -147,9 +177,10 @@ public final class MockSessionRecordings: SessionRecordingsManaging, @unchecked 
         }
     }
 
-    public func sweep(keeping: Set<String>) async {
+    public func sweep(keeping: Set<String>, createdBefore: Date) async {
         lock.withLock {
             let orphaned = existing.subtracting(keeping)
+                .filter { (createdAt[$0] ?? .distantPast) < createdBefore }
             existing.subtract(orphaned)
             deletedNames.append(contentsOf: orphaned.sorted())
         }

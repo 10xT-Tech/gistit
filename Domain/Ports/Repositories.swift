@@ -13,6 +13,8 @@ public protocol ExpressionRepository: Sendable {
     func addAll(_ expressions: [Expression]) async throws
     func update(_ expression: Expression) async throws
     func delete(id: Expression.ID) async throws
+    /// Many at once, removed in one go (undoing a card-file import). Default: one by one.
+    func deleteAll(ids: Set<Expression.ID>) async throws
     /// Toggle the staging "learned" flag.
     func setLearned(_ learned: Bool, id: Expression.ID) async throws
     /// First existing expression whose `en` matches (case-insensitive, trimmed), or nil. Drives
@@ -27,11 +29,26 @@ public protocol ReviewCardRepository: Sendable {
     func save(_ card: ReviewCard) async throws
     /// Many at once, stored in one go (a card-file import). Default: one by one.
     func saveAll(_ cards: [ReviewCard]) async throws
+    /// Store each of `cards` UNLESS its expression already has a card of that direction — in ONE
+    /// step: the check and the insert can't be interleaved with another call. Every way a phrase
+    /// enters flashcards goes through here (a move from Caught, a card-file import), so two of them at
+    /// once — the same phrase moved twice, or moved while a file with it is being imported — still
+    /// leave it one card per direction, not two. (A read of the cards followed by separate saves let
+    /// two callers both see "none".) A card that is skipped is dropped: the one already there stays as
+    /// it is, with its progress.
+    func addMissing(_ cards: [ReviewCard]) async throws
     /// Remove an expression's cards (it left the study list). Its answers stay in the log.
     func delete(expressionID: UUID) async throws
+    /// The cards of `expressionIDs` become exactly `cards` (matched by `id`: kept ones are updated —
+    /// also to another expression —, the rest of those expressions' cards go) — ALL OR NOTHING: a
+    /// failure leaves every card as it was. A merge of duplicates must never be left half-done with
+    /// the learning progress deleted and its replacement unwritten.
+    func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws
     func appendLog(_ log: ReviewLog) async throws
-    /// Answers given at or after `date`.
-    func logs(since date: Date) async throws -> [ReviewLog]
+    /// Answers given within `period` (its end excluded). ALWAYS a closed period, never "since": an
+    /// answer stamped later than the period asked about — the phone's clock was ahead when it was
+    /// given, and has been put right — belongs to its own day, not to every day before it.
+    func logs(in period: Range<Date>) async throws -> [ReviewLog]
 }
 
 public extension ReviewCardRepository {
@@ -43,6 +60,10 @@ public extension ReviewCardRepository {
 public extension ExpressionRepository {
     func addAll(_ expressions: [Expression]) async throws {
         for expression in expressions { try await add(expression) }
+    }
+
+    func deleteAll(ids: Set<Expression.ID>) async throws {
+        for id in ids { try await delete(id: id) }
     }
 
     /// Normalized key for content-level matching of an expression's `en`.
@@ -59,6 +80,16 @@ public protocol HistoryRepository: Sendable {
     func recent(limit: Int) async throws -> [HistoryEntry]
     /// Remove one entry. A missing id is a silent no-op (the row may already be pruned).
     func delete(id: HistoryEntry.ID) async throws
+    /// The session recordings the stored entries refer to — or nil when that can't be told for sure
+    /// (an entry couldn't be read): then no recording may be taken for an orphan.
+    func referencedRecordings() async throws -> Set<String>?
+}
+
+public extension HistoryRepository {
+    /// Every entry is readable here (in-memory doubles): the names of all of them.
+    func referencedRecordings() async throws -> Set<String>? {
+        Set(try await recent(limit: .max).compactMap(\.result.recordingFileName))
+    }
 }
 
 /// A persistent cache of completed TEXT-translation requests (Say it · How to say / What to say, and
@@ -89,7 +120,8 @@ public struct TranslationCacheStats: Sendable, Equatable {
     }
 }
 
-/// How much disk the app's stored data occupies, split by kind (Settings). The DB-backed numbers
+/// How much disk the app's stored data occupies, split by kind — and how much memory the deck takes
+/// while the app runs (Settings). The DB-backed numbers
 /// (cache, history) are CONTENT sums — SQLite's own overhead (indexes, WAL, free pages) can't be
 /// attributed per table — while audio is the actual size of the recording files on disk.
 public struct StorageUsage: Sendable, Equatable {
@@ -99,12 +131,25 @@ public struct StorageUsage: Sendable, Equatable {
     public let historyBytes: Int
     /// Session-recording audio files.
     public let audioBytes: Int
-    public var totalBytes: Int { cacheBytes + historyBytes + audioBytes }
+    /// The deck on disk: phrases (Caught and in flashcards), their flashcards and the review log.
+    public let deckBytes: Int
+    /// What the deck takes in MEMORY while the app runs (an estimate): it is kept there so the
+    /// dashboard, practice and the lists open at once instead of reading the store every time.
+    public let deckMemoryBytes: Int
+    public let phraseCount: Int
+    public let cardCount: Int
+    /// On disk.
+    public var totalBytes: Int { cacheBytes + historyBytes + audioBytes + deckBytes }
 
-    public init(cacheBytes: Int, historyBytes: Int, audioBytes: Int) {
+    public init(cacheBytes: Int, historyBytes: Int, audioBytes: Int, deckBytes: Int = 0,
+                deckMemoryBytes: Int = 0, phraseCount: Int = 0, cardCount: Int = 0) {
         self.cacheBytes = cacheBytes
         self.historyBytes = historyBytes
         self.audioBytes = audioBytes
+        self.deckBytes = deckBytes
+        self.deckMemoryBytes = deckMemoryBytes
+        self.phraseCount = phraseCount
+        self.cardCount = cardCount
     }
 
     public static let zero = StorageUsage(cacheBytes: 0, historyBytes: 0, audioBytes: 0)

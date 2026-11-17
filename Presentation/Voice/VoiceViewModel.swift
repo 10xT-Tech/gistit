@@ -71,6 +71,19 @@ public final class VoiceViewModel {
     /// The input the on-screen variants were generated from — restored on leaving the screen so an
     /// edit the user never submitted can't sit above results it doesn't match.
     private var generatedIntent: String?
+    /// The input of the request that is OUT (`.processing`) — until its answer lands there is no
+    /// `generatedIntent` for it yet, and the field may already hold something else.
+    private var sentIntent: String?
+    /// The text the user actually ASKED about — of the request that is out, or of the results on
+    /// screen; nil when there is neither. An edit of the field that was never submitted is dropped
+    /// back to it on leaving the screen and before a mode / tone change re-runs the input.
+    private var askedIntent: String? {
+        switch phase {
+        case .processing: sentIntent
+        case .results: generatedIntent
+        default: nil
+        }
+    }
     /// Bumped on every new result set; lets an in-flight save tell "user un-saved" from "results
     /// were regenerated" so a regenerate can't silently delete a phrase the user just bookmarked.
     private var resultsGeneration = 0
@@ -378,10 +391,11 @@ public final class VoiceViewModel {
         guard newMode != mode else { return }
         mode = newMode
         if persist { Prefs.store.set(newMode.rawValue, forKey: Mode.storageKey) }
-        // Re-run the input the results were GENERATED from, not an edited-but-unsubmitted draft —
-        // generation for new text happens only via the button. (A deliberately CLEARED field falls
-        // through to the reset branch instead of resurrecting deleted text.)
-        if phase == .results, canSubmit, let generatedIntent { intent = generatedIntent }
+        // Re-run the input the user ASKED about (the results', or the request's still out), not an
+        // edited-but-unsubmitted draft — generation for new text happens only via the button. (A
+        // deliberately CLEARED field falls through to the reset branch instead of resurrecting
+        // deleted text.)
+        if canSubmit, let askedIntent { intent = askedIntent }
         if canSubmit, phase == .results || phase == .processing {
             submit()                          // re-run the same input in the new mode
         } else if phase == .results || phase == .processing || phase == .failed {
@@ -398,7 +412,10 @@ public final class VoiceViewModel {
     /// The screen is leaving (tab switch / navigation away). Stops anything that must not keep
     /// running from a hidden tab, then drops an edit the user typed but never submitted, so on
     /// return the input still matches the results on screen — the only way to generate for the new
-    /// text is to actually press the button.
+    /// text is to actually press the button. A request already SENT is not one of the things
+    /// stopped: the user asked for it (the backend has counted it), it finishes behind the tab — so
+    /// the edit is dropped while it is out too, or the variants would land under a text they aren't
+    /// about.
     public func screenDisappeared() {
         // The mic must never keep recording from a hidden tab — and unlike stopListening(), leaving
         // must NOT auto-submit: no LLM request may fire from a screen the user isn't on.
@@ -408,11 +425,11 @@ public final class VoiceViewModel {
             phase = .idle
         }
         stopPlayback()
-        // Trimmed comparison: `generatedIntent` stores the trimmed submit text, so a whitespace-only
+        // Trimmed comparison: `askedIntent` is the trimmed submit text, so a whitespace-only
         // difference (e.g. dictation's trailing space) must not count as an edit.
-        guard phase == .results, let generatedIntent,
-              intent.trimmingCharacters(in: .whitespacesAndNewlines) != generatedIntent else { return }
-        intent = generatedIntent
+        guard let askedIntent,
+              intent.trimmingCharacters(in: .whitespacesAndNewlines) != askedIntent else { return }
+        intent = askedIntent
     }
 
     /// Pick a tone from the on-screen selector. With variants already shown (or in flight),
@@ -421,13 +438,14 @@ public final class VoiceViewModel {
     public func selectTone(_ newTone: ToneOfVoice) {
         guard newTone != tone else { return }
         tone = newTone
-        // Same rule as applyMode: re-run the GENERATED input, never an unsubmitted draft.
-        if phase == .results, canSubmit, let generatedIntent { intent = generatedIntent }
+        // Same rule as applyMode: re-run the input ASKED about, never an unsubmitted draft.
+        if canSubmit, let askedIntent { intent = askedIntent }
         if canSubmit, phase == .results || phase == .processing { submit() }
     }
 
     private func run(input: String, _ operation: @escaping () async throws -> [PhraseVariant]) {
         requestTask?.cancel()
+        sentIntent = input
         phase = .processing
         errorMessage = nil
         isOffline = false
@@ -493,6 +511,9 @@ public final class VoiceViewModel {
             errorMessage = dailyLimitMessage(retryAfter: retryAfter)
         case .requestFailed:
             errorMessage = Loc.t("Сервис недоступен. Попробуйте позже.", "Service unavailable. Try later.")
+        case .requestRejected:
+            errorMessage = Loc.t("Сервис не принял этот запрос. Попробуйте изменить его.",
+                                 "The service didn't accept this request. Try changing it.")
         }
     }
 

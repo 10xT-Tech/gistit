@@ -19,6 +19,8 @@ public final class AppContainer: Sendable {
     /// True when the on-disk store could not be opened and the app is running on an in-memory store:
     /// real Claude still works, but study-list/history changes WON'T survive relaunch. Drives a banner.
     public let usingFallbackStore: Bool
+    /// When this graph was built: recordings created later belong to this launch's sessions.
+    private let bootedAt = Date()
 
     private static let log = Logger(subsystem: "com.englishhelper.app", category: "persistence")
 
@@ -94,6 +96,7 @@ public final class AppContainer: Sendable {
         analytics: (any AnalyticsTracking)? = nil,
         transcriptionService: any TranscriptionServiceChecking = MockTranscriptionService(),
         liveTranslating: any LiveTranslating = MockLiveTranslating(),
+        backgroundTime: (any BackgroundTimeHolding)? = nil,
         recordings: any SessionRecordingsManaging = MockSessionRecordings(),
         subscriptions: any SubscriptionManaging = UnlimitedAccess()
     ) {
@@ -154,7 +157,8 @@ public final class AppContainer: Sendable {
         self.connectionHealth = ConnectionHealthInteractor(llm: llm)
         self.transcriptionHealth = TranscriptionHealthInteractor(service: transcriptionService)
         self.liveTranslate = LiveTranslateInteractor(live: liveTranslating, history: history,
-                                                     recordings: recordings, analytics: analytics)
+                                                     recordings: recordings, analytics: analytics,
+                                                     background: backgroundTime)
         self.recordings = recordings
         self.understand = UnderstandInteractor(llm: llm, history: history, cache: cache,
                                                tier: { .fast },
@@ -204,6 +208,9 @@ public final class AppContainer: Sendable {
             ?? .apiKey(config.sonioxAPIKey ?? "")
         let transcriptionService: any TranscriptionServiceChecking = backend.map { BackendTranscriptionHealth(backend: $0) }
             ?? SonioxClient(apiKey: config.sonioxAPIKey ?? "")
+        // ONE instance of each per store: they keep the deck in memory and are its only writers.
+        let expressions = SwiftDataExpressionRepository(modelContainer: modelContainer)
+        let reviewCards = SwiftDataReviewCardRepository(modelContainer: modelContainer)
         return AppContainer(
             config: config,
             usingFallbackStore: usingFallbackStore,
@@ -225,8 +232,8 @@ public final class AppContainer: Sendable {
             // NB: the photo flow currently uses Claude's vision (PhotoTranslateInteractor → LLM), so this
             // on-device OCR adapter is wired for the port contract / future use but NOT consumed today.
             textRecognizer: VisionTextRecognizer(),         // ← swap OCR engine here (when OCR is used)
-            expressions: SwiftDataExpressionRepository(modelContainer: modelContainer),
-            reviewCards: SwiftDataReviewCardRepository(modelContainer: modelContainer),
+            expressions: expressions,
+            reviewCards: reviewCards,
             practiceDays: UserDefaultsPracticeDayStore(),
             cardFixProgress: UserDefaultsCardFixProgressStore(),
             notDuplicates: SwiftDataNotDuplicateMarks(modelContainer: modelContainer),
@@ -236,8 +243,10 @@ public final class AppContainer: Sendable {
             exporter: AlgoAppXMLExporter(),
             // Persistent translation cache: repeat text translations skip the model (Say it + Get-it Translate).
             cache: SwiftDataTranslationCache(modelContainer: modelContainer),
-            // Disk usage shown in Settings (cache/history row contents + session-audio file sizes).
-            storageReader: StorageUsageReader(modelContainer: modelContainer, recordingsDirectory: nil),
+            // Disk usage shown in Settings (cache/history row contents + session-audio file sizes) and
+            // the deck — on disk and in memory — as the two repositories holding it report.
+            storageReader: StorageUsageReader(modelContainer: modelContainer, recordingsDirectory: nil,
+                                              phrases: expressions, cards: reviewCards),
             // Live product analytics (AmplitudeTracker) — created by the entry point, which owns the
             // single SDK instance; nil (no API key / tests) → analytics is simply off, like the API key.
             analytics: analytics,
@@ -246,6 +255,8 @@ public final class AppContainer: Sendable {
             transcriptionService: transcriptionService,
             liveTranslating: SonioxLiveTranslator(credential: sonioxCredential,
                                                   model: config.sonioxModel),   // ← swap live engine here
+            // A session ending behind the screen is saved before the app is suspended.
+            backgroundTime: BackgroundTimeKeeper(),
             recordings: recordings,
             subscriptions: storeKit ?? UnlimitedAccess()
         )
@@ -280,6 +291,8 @@ public final class AppContainer: Sendable {
         // `-screenshotDeck`: a believable French deck for the App Store screenshots.
         if ProcessInfo.processInfo.arguments.contains("-screenshotDeck") {
             let deck = ScreenshotDeck.make()
+            let expressions = MockExpressionRepository(seed: deck.expressions)
+            let reviewCards = MockReviewCardRepository(seed: deck.cards, logs: deck.logs)
             return AppContainer(
                 config: config,
                 llm: StubLLMClient(latency: .milliseconds(800)),
@@ -287,24 +300,34 @@ public final class AppContainer: Sendable {
                 speechRecognizerEN: StubSpeechRecognizing(),
                 speechSynthesizer: StubSpeechSynthesizing(),
                 textRecognizer: StubTextRecognizing(),
-                expressions: MockExpressionRepository(seed: deck.expressions),
-                reviewCards: MockReviewCardRepository(seed: deck.cards, logs: deck.logs),
+                expressions: expressions,
+                reviewCards: reviewCards,
                 history: MockHistoryRepository(),
                 exporter: MockDeckExporting(),
+                storageReader: DeckStorageUsageReader(phrases: expressions, cards: reviewCards),
                 subscriptions: UnlimitedAccess()
             )
         }
         #endif
+        // `-uiTestLimitReached`: the free plan's request limit is spent (metered requests are refused).
+        let stub = StubLLMClient(latency: .milliseconds(800))
+        let llm: any LLMClient = ProcessInfo.processInfo.arguments.contains("-uiTestLimitReached")
+            ? LimitReachedLLMClient(stub) : stub
+        let expressions = MockExpressionRepository()
+        let reviewCards = MockReviewCardRepository()
         return AppContainer(
             config: config,
-            llm: StubLLMClient(latency: .milliseconds(800)),
+            llm: llm,
             speechRecognizer: StubSpeechRecognizing(),
             speechRecognizerEN: StubSpeechRecognizing(),
             speechSynthesizer: StubSpeechSynthesizing(),
             textRecognizer: StubTextRecognizing(),
-            expressions: MockExpressionRepository(),
+            expressions: expressions,
+            reviewCards: reviewCards,
             history: MockHistoryRepository(),
             exporter: MockDeckExporting(),
+            // Settings shows what the deck holds here too (no disk store: the deck's part only).
+            storageReader: DeckStorageUsageReader(phrases: expressions, cards: reviewCards),
             // `-uiTestFreePlan`: the free plan's gates (paywall instead of Pro features).
             subscriptions: ProcessInfo.processInfo.arguments.contains("-uiTestFreePlan")
                 ? StubSubscriptionManaging(tier: .free) : UnlimitedAccess()
@@ -392,7 +415,7 @@ public final class AppContainer: Sendable {
 
     @MainActor
     public func makeStudyDashboardViewModel() -> StudyDashboardViewModel {
-        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce)
+        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce, fixCards: fixCards)
     }
 
     @MainActor
@@ -405,15 +428,11 @@ public final class AppContainer: Sendable {
 
     /// Reconcile the recordings store against history: a crash mid-session, the in-memory fallback
     /// store, or a failed save can all leave audio files no history row references. Called once per
-    /// launch (best-effort). History is capped at `SwiftDataHistoryRepository.maxEntries`, so one
-    /// `recent` read sees every live row.
+    /// launch (best-effort). Never on the fallback store itself — its history is an empty stand-in,
+    /// and the sweep would delete every recording the rows on disk still point at — and never a file
+    /// of this launch (see `RequestHistoryUseCase.sweepOrphanedRecordings`).
     public func sweepOrphanedRecordings() async {
-        guard let entries = try? await requestHistory.recent(limit: SwiftDataHistoryRepository.maxEntries) else { return }
-        let referenced = Set(entries.compactMap { entry -> String? in
-            guard case .liveTranslation(_, _, let fileName?, _) = entry.result else { return nil }
-            return fileName
-        })
-        await recordings.sweep(keeping: referenced)
+        await requestHistory.sweepOrphanedRecordings(createdBefore: bootedAt, usingFallbackStore: usingFallbackStore)
     }
 
     @MainActor

@@ -44,11 +44,15 @@ public final class SessionRecordingsPlayer: SessionRecordingsManaging, @unchecke
         try? FileManager.default.removeItem(at: url)
     }
 
-    public func sweep(keeping: Set<String>) async {
+    public func sweep(keeping: Set<String>, createdBefore: Date) async {
         guard let dir = try? RecordingsDirectory.url(),
               let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
         for file in files where !keeping.contains(file) {
-            try? FileManager.default.removeItem(at: dir.appending(path: file))
+            let url = dir.appending(path: file)
+            // Unknown date → keep: an orphan costs disk space, a wrong delete costs the recording.
+            guard let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate,
+                  created < createdBefore else { continue }
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

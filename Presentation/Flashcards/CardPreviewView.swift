@@ -5,7 +5,9 @@
 //  In flashcards → tap a phrase: the whole card at a glance — the phrase (with playback), its meaning,
 //  example, synonyms and notes — and where each of its two cards stands: stage, how many times it was
 //  answered, when it comes next; and the cards it's marked "not duplicates" with (Find duplicates →
-//  Don't merge). Read-only: no rating, nothing is written; it isn't practice.
+//  Don't merge). It isn't practice: no rating, the progress is never written. The one thing it can
+//  change is the card's texts — the wand next to the speaker sends the card to the model to fix it and
+//  fill in what's missing (`CardFix.swift`); the paywall for its limit is presented from this sheet.
 //
 
 import SwiftUI
@@ -19,6 +21,11 @@ struct CardPreviewView: View {
     let onPlay: () -> Void
     /// The phrases of the cards this one is marked "not duplicates" with.
     var notDuplicates: [String] = []
+    /// Fixing this card with the model: what's known about it, and the wand's action (nil hides it).
+    var fixStatus: CardFixModel.Status?
+    var onFix: (() -> Void)?
+    @State private var showPaywall = false
+    @Environment(SubscriptionState.self) private var subscription
     @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -44,6 +51,7 @@ struct CardPreviewView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .sheet(isPresented: $showPaywall) { PaywallView().environment(subscription) }
     }
 
     /// Both sides on one card: the studied-language side, then the meaning side.
@@ -65,9 +73,13 @@ struct CardPreviewView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Loc.t("Озвучить", "Play"))
+                if let onFix {
+                    FixCardButton(status: fixStatus, action: onFix)
+                }
             }
             Divider().overlay(Tokens.Hairline.default)
             CardBack(answer: expression.ru, expression: expression)
+            CardFixStatusLine(status: fixStatus) { showPaywall = true }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s20)

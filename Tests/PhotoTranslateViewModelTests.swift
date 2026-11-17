@@ -41,6 +41,72 @@ import Presentation
         }
     }
 
+    private func makeVM(translate: any PhotoTranslateUseCase) -> PhotoTranslateViewModel {
+        let repo = MockExpressionRepository(seed: [])
+        let llm = MockLLMClient()
+        return PhotoTranslateViewModel(
+            photoTranslate: translate,
+            photoExplain: PhotoExplainInteractor(llm: llm, history: MockHistoryRepository()),
+            pronounce: PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing()),
+            saveExpression: SaveExpressionInteractor(enrich: EnrichExpressionInteractor(llm: llm), repository: repo),
+            studyList: StudyListInteractor(repository: repo),
+            isConfigured: true
+        )
+    }
+
+    /// A run cancelled by a failed image load comes back with a success all the same (its answer was
+    /// already in): the screen keeps the load failure, not the previous photo's result.
+    @Test func aCancelledRunDoesNotOverwriteAFailedLoad() async throws {
+        let translate = GatedPhotoTranslate()
+        let vm = makeVM(translate: translate)
+        vm.routeMode(.translate)
+        vm.didPickFromLibrary(Data())
+        try await waitUntil { translate.calls == 1 }
+
+        vm.imageLoadFailed()
+        translate.open(0)
+        try await waitUntil { translate.finished == 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(vm.phase == .failed && vm.errorMessage != nil)
+        #expect(vm.blocks.isEmpty)
+    }
+
+    /// …nor a reset screen.
+    @Test func aCancelledRunDoesNotOverwriteAReset() async throws {
+        let translate = GatedPhotoTranslate()
+        let vm = makeVM(translate: translate)
+        vm.routeMode(.translate)
+        vm.didPickFromLibrary(Data())
+        try await waitUntil { translate.calls == 1 }
+
+        vm.reset()
+        translate.open(0)
+        try await waitUntil { translate.finished == 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(vm.phase == .idle && vm.blocks.isEmpty)
+    }
+
+    /// A new photo over a running request: the old photo's late answer is not shown over the new
+    /// photo — the screen stays "processing" until the new one answers.
+    @Test func theOldPhotosLateAnswerIsNotShownOverTheNewPhoto() async throws {
+        let translate = GatedPhotoTranslate()
+        let vm = makeVM(translate: translate)
+        vm.routeMode(.translate)
+        vm.didPickFromLibrary(Data())
+        try await waitUntil { translate.calls == 1 }
+        vm.didPickFromLibrary(Data([1]))
+        try await waitUntil { translate.calls == 2 }
+
+        translate.open(0)                                   // the superseded request answers first
+        try await waitUntil { translate.finished == 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(vm.phase == .processing && vm.blocks.isEmpty)
+
+        translate.open(1)
+        try await waitUntil { vm.phase == .result }
+        #expect(vm.blocks.map(\.en) == ["answer 1"])
+    }
+
     /// The chosen mode is persisted: a fresh view model (next launch) starts in the last-used mode.
     @Test func modePersistsAcrossInstances() {
         let vm = makeVM()
@@ -273,5 +339,31 @@ private final class FlakyEmptyBlocksLLM: LLMClient, @unchecked Sendable {
             return try template.decode(#"{"blocks":[]}"#)
         }
         return try template.decode(#"{"blocks":[{"en":"Exit","ru":"Выход"}]}"#)
+    }
+}
+
+/// A photo translation that answers only when its gate is opened — and answers with a SUCCESS even
+/// if its task was cancelled meanwhile (the case of an answer already received at the cancel).
+private final class GatedPhotoTranslate: PhotoTranslateUseCase, @unchecked Sendable {
+    private let lock = NSLock()
+    private var opened: Set<Int> = []
+    private var started = 0
+    private var done = 0
+
+    var calls: Int { lock.withLock { started } }
+    var finished: Int { lock.withLock { done } }
+    func open(_ call: Int) { lock.withLock { _ = opened.insert(call) } }
+
+    func callAsFunction(_ image: RecognizableImage, studiedLanguage: String, nativeLanguage: String) async throws -> [TranslatedBlock] {
+        let call = lock.withLock { () -> Int in
+            started += 1
+            return started - 1
+        }
+        while !lock.withLock({ opened.contains(call) }) {
+            try? await Task.sleep(for: .milliseconds(5))    // returns at once when cancelled…
+            await Task.yield()                              // …so the wait goes on regardless
+        }
+        lock.withLock { done += 1 }
+        return [TranslatedBlock(en: "answer \(call)", ru: "ответ \(call)")]
     }
 }

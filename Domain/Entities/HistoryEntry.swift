@@ -33,6 +33,12 @@ public enum RequestResult: Codable, Sendable, Equatable, Hashable {
     /// `audioFileName` is a file in the recordings store (nil = no audio kept); `duration` seconds.
     case liveTranslation(original: String, ru: String, audioFileName: String?, duration: TimeInterval)
 
+    /// The session recording this result keeps, if any.
+    public var recordingFileName: String? {
+        guard case .liveTranslation(_, _, let fileName?, _) = self else { return nil }
+        return fileName
+    }
+
     public var kind: RequestKind {
         switch self {
         case .howToSay: .howToSay

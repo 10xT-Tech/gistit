@@ -14,6 +14,17 @@ live sessions keep their audio; swipe-to-delete).
   Soniox `stt-rt-v5` over WebSocket.
 - Monochrome "Liquid Glass" design system; system colors are functional signals only.
 
+## How to work here
+
+- **Finish the job.** Carry every task through to the end — code, tests, docs (`CLAUDE.md`,
+  `CHANGELOG.md`), a green test run, the commit — so that nothing is left undone when the task is
+  reported finished. Don't stop at "the main part works" and hand the rest back as next steps: if
+  something can be done now, do it; leave open only what truly needs the user (a decision, an
+  account, a device), and say so plainly.
+- **This codebase is yours — decide for yourself how to build it.** Refactor as you go: when the
+  task touches code that is awkward, duplicated or no longer fits, reshape it rather than working
+  around it, keeping the architecture below and the tests green.
+
 ## Architecture — Clean Architecture, dependency rule strictly inward
 
 Each layer is a **separate framework module**, so the compiler enforces the dependency rule
@@ -46,7 +57,8 @@ Each layer is a **separate framework module**, so the compiler enforces the depe
 (live mic→cloud interpreter stream) + `SessionRecordingsManaging` (stored session audio),
 `TranscriptionServiceChecking` (Soniox health probe), `ExpressionRepository`, `ReviewCardRepository`
 (flashcard SRS state), `HistoryRepository` (append/recent/delete), `TranslationCache`, `DeckExporting`,
-`AnalyticsTracking`, `SubscriptionManaging`. The media ports
+`AnalyticsTracking`, `SubscriptionManaging`, `BackgroundTimeHolding` (a short stretch of running
+time behind the screen → `BackgroundTimeKeeper`, App). The media ports
 are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 
 ### Prompt templates (Domain)
@@ -134,10 +146,26 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
-**v2.0.0 (in development, branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
+**v2.0.1 (branch `code_review_2.0.0-2`, not merged into `main`; 2.0.1 (1) uploaded to TestFlight 2026-11-16 from that branch)** — the code review of
+2.0.0 (2) and what came after that build: every fix is described in place in the 2.0.0 text below (look for
+"the review"), user-facing in `CHANGELOG.md` → 2.0.1. The landing (`docs/marketing/landing`) marks what
+needs Gist It Pro — Online translation and the duplicates Check (`AccessTier.canUseLiveTranslation` /
+`canCheckDuplicates`) — with a `Pro` badge and a Free / Pro block; keep it and `support/index.html` in step
+with `AccessTier` when a gate changes.
+
+**v2.0.0 (2.0.0 (2) uploaded 2026-11-13; branch `feat/2.0.0-flashcards`) — Study dashboard, Caught,
 flashcards.** Saving (Say it / Get it / See it) stores an `Expression` = **Caught** (`StudyListView` +
 `StudyListViewModel`, scope `.caught`, pushed from the dashboard; swipe-left delete, swipe-right or the
-stack icon → `FlashcardsUseCase.enroll`, "Move all" → enroll every one, oldest first, list empties; share menu → "Delete all" → `ConfirmSheet` →
+stack icon → move: a phrase that lacks a translation / example / synonyms / note is COMPLETED by the model
+first (`FixCardsUseCase.complete` — `FixCardsTemplate`, groups of 20, metered on the free plan; complete
+phrases cost no request), then `FlashcardsUseCase.enroll`, and ONLY THEN its row leaves (`movingIDs`
+shows a spinner meanwhile — no optimistic removal); "Move all" → oldest first in groups of 20, each phrase
+leaving as it moves (`bulkMove` progress + Stop); the first failure (offline, the plan's limit, no answer)
+stops it: "The move stopped: X of Y moved" + the reason, and when it was the free plan's limit
+(`actionNeedsSubscription`) a `ConfirmSheet` with Subscribe → paywall instead of the plain alert (XCUI:
+`-uiTestLimitReached` = `LimitReachedLLMClient`). Every way into flashcards stores cards through
+`ReviewCardRepository.addMissing` (check + insert in one actor step: a phrase moved twice at once, or moved
+while a file with it is imported, keeps ONE card per direction); share menu → "Delete all" → `ConfirmSheet` →
 `StudyListViewModel.deleteAll()`, optimistic, reload + error on a failed delete).
 "+" = Generate from a phrase (`EnrichCardTemplate`, now `.fast` = the translation model) or From
 photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
@@ -162,13 +190,35 @@ article, missing example / synonyms / note; a field the model returns empty keep
 (`apply` never empties a field); letter case is applied locally
 (`lettercase`: everything lower case except the English "I"/I'm/I've/I'll/I'd — simple word
 boundaries, English text only, since Italian "i" is an article — and German left as is for its nouns);
-one retry per batch, then letter case only; offline / plan limit / no key stop the run.
+one retry per batch. A phrase is DONE only when the model ANSWERED for it. What a failed request means
+for a RUN OF MANY is decided once, in `Domain/UseCases/RunRequest.swift` (`RunFailure` + `RunRequest.send`,
+shared by Fix cards, the duplicates Check and cards from photos): `stopsRun` (offline / plan or day limit /
+no key / cancelled → the run ends at once), `service` (`.timedOut` / `.overloaded` / `.requestFailed` — one
+more try, and the next request would hit it too), `rejected` (`LLMError.requestRejected`, a 4xx about THIS
+request — no second try, the next may pass; `ClaudeLLMClient` maps 4xx except 401/402/403/408/429 to it),
+`answer` (`.invalidOutput` / `.responseTooLong` — one more try, this request's trouble). In Fix cards: the
+SERVICE not answering → the run STOPS, the position BEFORE the batch (going on walked a whole deck through
+a dead service and marked it all as passed — the review found it); no ANSWER for phrases (unusable twice,
+rejected, or a card missing from a good answer) → the run goes on, they get letter case only, are counted
+(`FixProgress.failed`) and REMEMBERED in the checkpoint (`CardFixCheckpoint.unanswered`; `remaining` /
+`survey` count them as left). The next run asks about each of them ALONE, first: answered → done; no
+answer even alone → GIVEN UP (`givenUp`, `FixProgress.givenUp`: left as it is, not left to do, not sent
+again until "start over" / the incomplete scope's own restart) — so a phrase the model can't take neither
+holds others back nor is asked about forever. A phrase is given up only on EVIDENCE that the model answers:
+another request of the same run got an answer, or it went unanswered alone in two runs (`askedAlone` marks
+the first); until a run has that evidence, after `barrenLimit` (3) unanswered in a row the phrases asked
+alone wait behind the batches. `barrenLimit` requests in a row without ONE answer stop the run with the
+last error (nothing answers: not "this request's trouble") — the phrases gone past stay remembered, nobody
+is given up. `complete` (Caught → flashcards) asks once more about what an answer left out, then throws — a
+phrase never moves unseen by the model; what was answered is stored. The duplicates Check stops when the
+service doesn't answer (a batch without an answer just stays unchecked); cards from photos skip a photo
+without an answer and stop after two photos in a row the service didn't answer for (`unansweredLimit`).
 The "Fix cards" sheet (`FixCardsView`/`FixCardsViewModel`) does it all: `survey()` reads the
 phrases with progress and counts each mode, the modes are buttons there, and the run shows a two-part
 `ProgressLine` (DesignSystem: `sent` grey — breathing while it waits — `processed` green;
 `FixProgress.sent`); `ActivityLine` (a gliding segment) while the cards are read and the total is unknown.
 The position after each batch is kept per scope (`CardFixProgressStoring`, UserDefaults; the all-cards
-key predates scopes) — Stop and resume without sending a card twice; "start over" resets it; "Only
+key predates scopes; `unanswered` / `askedAlone` / `givenUp` are optional in the stored JSON) — Stop and resume without sending an answered card twice; "start over" resets it; "Only
 incomplete" restarts by itself once its run went through them all. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:
 studied→native; recall: native→studied); "in flashcards" ⇔ has cards, so 1.x users' whole old list
 lands in Caught. The `learned` flag is legacy (no UI). Scheduling: `FSRS`
@@ -178,7 +228,16 @@ future FSRS fitting; schema **V4**), lightweight stages. NEVER change a schema v
 build has used it — a store matching no version fails with `unknownDataStoreSchema` and the app runs
 on the in-memory fallback ("Saved data is unavailable"); add the next version instead
 (`PersistenceMigrationTests` opens a store of every version, incl. the dev-build variants); cards link by `expressionID` and are deleted with
-their expression in `StudyListInteractor`. Sets are sized by the DAILY GOAL (Settings 25/50/75/100/150, `DailyGoal`
+their expression in `StudyListInteractor`. THE DECK IS KEPT IN MEMORY: `SwiftDataExpressionRepository` and
+`SwiftDataReviewCardRepository` read the store once and answer `all()` from memory, kept in step with every
+write they make (after the save succeeded) — reading 9.6k phrases + 19k cards out of SwiftData took ~1 s and
+happened on every dashboard appearance, practice start / end and list load (measured on a store that size:
+stats 940 → 126 ms, session start 1820 → 198 ms, list load 1180 → 28 ms; the first read is still ~0.9 s,
+done by RootView's launch preload). ONE instance of each per store (`bootLive` creates them once): a second
+instance or another process writing the table would leave the copy stale. `DeckCacheTests` compares the
+repository's answer with a FRESH instance's after every kind of write. Settings → "Disk and memory usage" →
+"Phrases and flashcards" shows the counts, the content on disk and the estimated memory
+(`DeckFootprintReporting` → `StorageUsageReader`; `DeckStorageUsageReader` in the stub boot). Sets are sized by the DAILY GOAL (Settings 25/50/75/100/150, `DailyGoal`
 → `FlashcardsInteractor.dailyGoal`): a set = what's left of the goal (distinct cards answered today),
 "more" = an extra set of 25 (`DailyGoalOptions.extraSet`, whatever the goal; `DailyPlan.moreSize` labels it); `SetComposer.quotas` puts LEARNING cards first (up to the set size), then splits
 the room among young / mature / new proportionally to today's available counts (new counted at most
@@ -190,7 +249,19 @@ last answered on an earlier day. A DAY is one practice: the first Start draws to
 via `PracticeDayStoring` — UserDefaults JSON in the live boot, in-memory otherwise); Start/Continue
 later the same day returns the set's unanswered cards in order (+ learning cards coming back), tops up
 if the goal was raised, and `extra` appends an extra set of 25. A card is answered at most
-`PracticeDay.maxAnswersPerCard` (3) times a day (counted from the review log), across sessions. `stats(now:)` feeds
+`PracticeDay.maxAnswersPerCard` (3) times a day (counted from the review log), across sessions. TODAY'S ANSWERS
+ARE THE LOG ENTRIES OF TODAY'S CALENDAR DAY, midnight to midnight (`calendarDay(of:)`; the port reads a closed
+period only — `ReviewCardRepository.logs(in:)`, there is no "since"): counted "since midnight", answers
+stamped on a later day (the phone's clock was ahead when they were given, then put right) were today's on
+every day until theirs came — the goal read reached with nothing answered, Start gave an empty set, cards
+answered three times stayed over the limit, and the 7-day bars said 0 for the same day (the review found
+it). The end is the day's, not "now": a clock put back by an hour leaves answers later than now that were
+given today. The cards' own due dates stay as that clock wrote them. THE REVIEW LOG OUTLIVES ITS CARD, on purpose (the
+review asked to delete it with the phrase): the 7-day bars are the work done, an answer given isn't taken
+back by deleting or merging the phrase (past days would change after the fact), and the log is the data for
+fitting FSRS. The goal follows the same rule — `studied` = every card answered today, in the deck or not
+(it counted only the cards still there: deleting a phrase turned "5 of 5, reached" into "4 of 5" and Start
+drew one more card, while the bars' "today" still said 5). `stats(now:)` feeds
 `StudyDashboardView`/`StudyDashboardViewModel` (Study tab root): practice tile (due / new / in study;
 Start — free plan → lock + paywall), Caught + In-flashcards rows, reviews per day (7 bars, today emphasised),
 cards by stage (new/learning/young/mature at 21 d) — `Tokens.Chart.stage`: grey for not yet learned,
@@ -213,8 +284,9 @@ unless a bare "drain" joins them (verbs-only / nouns-only buckets are keyed `key
 identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
 meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
 device (`exactMerges`: PhraseKey without lemmas + the same translation; a group of only those
-(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`, batches of 5 groups, 3
-requests in flight — Sonnet answers take tens of seconds, small parallel batches keep the line moving)
+(`isExactOnly`) never goes to the model), and `DuplicatesTemplate` (`.standard`; `DuplicatesUseCase.check`
+is ONE request for one batch — the SHEET keeps the line: batches of `batchSize` 5 groups, `inFlight` 3
+requests at once; Sonnet answers take tens of seconds, small parallel batches keep the line moving)
 returns per group a list of merges (ids + duplicate / senses + `CardText`; a card in none stays apart;
 `merges(_:among:)` sanitises ids). The merged expression is in dictionary form: verbs and verb phrases with
 "to", nouns and noun phrases with the article (prompt), and `keepingMarker` restores a "to"/article one of
@@ -231,17 +303,85 @@ links, but the sheet doesn't put the all-linked groups to the user: they go to t
 and show up (`DuplicatesViewModel.shownGroups`) only if a merge is proposed in them (exact or the
 model's) — the rest are removed and counted (`confirmedApart`); the user saw 39 marked noun/verb pairs
 come back as a wall of "Not checked yet". The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
-Caught: moving a phrase checks `lookAlikesInFlashcards`
-→ dialog Merge (`proposals(for:)`: exact first, else the model; only the merge containing the caught
-phrase is made; none → `notADuplicate` dialog "move separately?") / Move separately; Move all offers
-"all but look-alikes". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
+Caught: moving a phrase checks `lookAlikesInFlashcards` (on the device; a found one marks the row —
+`lookAlikeIDs`, "Looks like a card you learn") → sheet Merge / Move separately. Merge =
+`DuplicatesUseCase.mergeCaught` — the user's decision, so once the check ANSWERED the phrase is merged
+and leaves Caught: exact first, else the model's merge containing it, and if the model names none
+(another phrase, it thinks) `forcedMerge` into the oldest look-alike as one more numbered meaning; but if
+the model can't be reached / the limit is spent it THROWS — nothing merged, the phrase stays, the error
+shows. Move all checks the whole list first and offers "Move new" (all but look-alikes) / "Move all". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
 progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
 two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
-"Merge all duplicates" (never a linked pair), "Full re-check"; after a merge a checked group with
+"Merge all duplicates" (never a linked pair), "Full re-check". EVERY WRITE TO A GROUP IS ONE AT A TIME
+(`DuplicatesViewModel`; the review found two taps on "Merge all" making each merge twice, a merge during
+the Check leaving a proposal that names a deleted phrase, a full re-check making it skip the rest, and
+the merging going on behind a closed sheet): "Merge all" is ONE tracked run (`mergeAll` progress shown in
+place of the button, Stop in the toolbar, ends on the first failed merge; its groups stay in `busy` until
+merged, so their own buttons, a second tap, a full re-check and a new Check wait — `isBusy` covers it; each
+merge runs in a task of its own, so Stop / closing never cut one in the middle). ONE LINE TO THE MODEL per
+sheet (`line` + `requests`): "Check" puts every unchecked group on it, a group's own Check puts that group
+at its head (after `gatherDelay`, 1 s, so the next taps ride in the same request) — sent 5 a request, 3
+requests at once, WHOEVER asked (each group's Check used to be its own request outside the ceiling: 12
+taps = 12 requests at once, a group could be asked about twice, Stop and closing didn't reach them); one
+progress (`check`: sent / answered / total / failed), one Stop (cancels the requests out), `RunFailure`'s
+rule (the service not answering ends the run; a batch without an answer stays unchecked — `notAsked`
+feeds "Check the rest"). A group put to the model (`awaiting`: on the line or out) keeps Merge / Check off
+until its answer and is left out of `duplicateMerges`; a group being merged isn't put on the line; `adopt`
+drops an answer about a group whose phrases changed since it was sent (it stays unchecked as it is now);
+closing the sheet goes through `StudyListViewModel.endDuplicates` on
+every path (a custom sheet binding — SwiftUI clears the item before `onDismiss`): `stop()`, then
+`settle()` waits for the merge under way BEFORE the list is reloaded. After a merge a checked group with
 nothing left proposed is done and its rest linked as not duplicates. Today's goal line is green
 (`ProgressLine`, `Tokens.Chart.progressDone`).
+Say it / Get it — A SENT REQUEST OUTLIVES THE TAB (the review asked to cancel it on leaving; that is the
+design, not a bug: the view models live in `RootView`, `withBackgroundCompletion` keeps the same request
+alive behind the whole app, and the backend claims the free plan's request before the model call and
+returns it only on an upstream error — a cancel from the phone would spend it for nothing).
+`screenDisappeared` stops the mic and playback only. What the screen's state is ABOUT is one notion,
+`askedSource` / `askedIntent`: the text of the request out (`sentSource` / `sentIntent`, `.processing`) or
+of the result shown (`generatedSource` / `generatedIntent`); an edit never submitted is dropped back to it
+on leaving, and a mode / tone change re-runs it, in BOTH states (it used to hold for a result only: an
+edit typed while the request was out stayed above the answer to the old text until the next leave).
+Online — THE END OF A SESSION (`SonioxLiveTranslator` `stopGracefully`; the review asked about its 5 s
+limit: what was RECEIVED is always saved, the provisional tail included, and the recording is whole —
+only words the service never answered for can be missing). The stream says `.ending` (the microphone goes
+off; also when the session ends itself — silence, a call, a lost mic — so the screen shows "stopping"),
+maybe `.cutShort(.sending | .waiting)`, then `.finished`. Two limits, one per part: `tailSendLimit` 10 s
+for the audio not sent yet to reach the service, then `tailAnswerLimit` 5 s FROM THE END-OF-AUDIO FRAME for
+its answer (one 5 s limit from the stop itself left a backlog on a slow uplink no time to be answered);
+running out of either ends the session with what it has and is reported (`Live.tailNotSent` /
+`Live.tailNotAnswered`). `LiveStopPlan` (pure): a stop during a direction switch lets the rotation finish
+and sends the tail on the NEW socket (it ended at once, dropping what was said after the switch); the
+microphone never started / the first socket never came up → the stop is immediate. `LiveTranslateInteractor`
+holds `BackgroundTimeHolding` from `.ending` (or `.finished`, on a failure) until the History row is
+written: behind the screen the microphone is the app's reason to run, and it goes off BEFORE the last
+words are collected — a session stopped from the Lock Screen, by silence or by a call could be suspended
+unsaved. None of this is verifiable on the Simulator — check on a device.
+Online — A LONG SESSION ON SCREEN (the review: "the final text only grows — a long session inflates
+memory"). The text is small (≈150 KB an hour for both panes, 1.2 MB for eight) and must grow — the user
+scrolls back to the start; what grew with it was the SCREEN's work: each pane was ONE `Text` with the whole
+transcript, laid out and drawn again on every update, several times a second. A pane is now a plain
+(non-lazy — the scroll sync of the two panes works on the real content height; never make it lazy) stack of
+`Text`s, one per BLOCK of whole paragraphs (`TranscriptBlocks`, `LiveTranscriptView.swift`: a block closes
+at the first "\n\n" after `blockSize` 2,000 UTF-8 bytes and never changes afterwards; it keeps the first of
+the two line breaks, so the stack measures as the single `Text` did; cut incrementally — `take` reads only
+what came after the last closed block). Hosted measurement on the Simulator, per update of one pane:
+11–200 ms → 1–3 ms for one to three hours of speech, 32 → 10 ms for eight. One `Text` per PARAGRAPH was
+tried first and was no better than blocks (hundreds of small views cost as much to walk). `LiveTranscriptTests`
+pins the cut and the height against the single `Text`.
 Lists (Caught / In flashcards) have `.searchable` over every field (`Expression.matches`,
-case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`. XCUI
+case- and diacritic-insensitive); Move all hides while searching. Session: full-screen `FlashcardSessionView`.
+Fix ONE card (`Presentation/Flashcards/CardFix.swift`): a wand next to the speaker — in `CardPreviewView`
+and in practice once the answer is shown (never before: the prompt mustn't change under a user recalling
+it) — sends that card to the model again, `FixCardsUseCase.fix` (ALWAYS sent, complete or not; fixed and
+filled in like a Fix cards batch, stored; throws and changes nothing on a failure or an answer without the
+card; review cards untouched). `CardFixModel` (owned by `StudyListViewModel` and
+`FlashcardSessionViewModel`) holds the status of one card at a time — fixing (set synchronously on the tap) /
+updated / unchanged / failed(+needsSubscription) — and `status(for:)` returns it for THAT card only;
+`FixCardButton` + `CardFixStatusLine` are the shared views. The session swaps the fixed texts into `current`
+and the rest of the queue; the card view reads the live row. Metered on the free plan → the line offers
+Subscribe; the paywall is presented from the card sheet / the session cover themselves (the root can't
+present over them). XCUI
 `FlashcardsUITests` (`-uiTestFreePlan` = `StubSubscriptionManaging(.free)` in the stub boot). The tab bar (standalone `UITabBar`) and
 sideways-only tab swipes from 1.5.3 (3) ship here too. Main screens put the large title in the
 gear's row (`.toolbarTitleDisplayMode(.inlineLarge)`, set in `SettingsTrigger`).

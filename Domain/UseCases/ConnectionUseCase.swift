@@ -44,7 +44,7 @@ public struct ConnectionHealthInteractor: ConnectionHealthUseCase {
             case .offline: return .failed(.offline)
             case .timedOut: return .failed(.timeout)
             case .responseTooLong: return .failed(.badResponse)   // not expected for the tiny health ping
-            case .requestFailed: return .failed(.unavailable)
+            case .requestFailed, .requestRejected: return .failed(.unavailable)
             case .invalidOutput: return .failed(.badResponse)
             case .cancelled: return .cancelled   // sheet dismissed mid-check — not a connectivity fault
             case .subscriptionRequired: return .ok   // reachable and authorised; only the plan limits it

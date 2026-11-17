@@ -161,6 +161,58 @@ import Presentation
         #expect(vm.translations.first?.text == "банк")
     }
 
+    /// Leaving while the request is still OUT: the request is the user's own and finishes behind
+    /// the tab (not cancelled) — and the edit typed meanwhile is dropped right then, so the answer
+    /// lands under the text it is about (it used to stay until the NEXT leave: "river" above the
+    /// translation of "bank").
+    @Test func leavingScreenWhileTheRequestIsOutRevertsUnsubmittedEdit() async throws {
+        UserDefaults.standard.set("russian", forKey: "targetLanguage")
+        UserDefaults.standard.set("english", forKey: "studiedLanguage")
+        let vm = makeVM(llm: StubLLMClient(behavior: .success, latency: .milliseconds(150)))
+        vm.selectMode(.translate)
+        vm.source = "bank"
+        vm.submit()
+        #expect(vm.phase == .processing)
+
+        vm.source = "river"                     // edited while the request is out, never submitted
+        vm.screenDisappeared()                  // ← tab switched away
+
+        #expect(vm.source == "bank")
+        #expect(vm.phase == .processing)        // the sent request goes on
+        try await waitUntil { vm.phase == .result }
+        #expect(!vm.translations.isEmpty)       // …and its answer landed
+        #expect(vm.source == "bank")
+    }
+
+    /// A whitespace-only difference isn't an edit while the request is out either.
+    @Test func leavingScreenWhileTheRequestIsOutIgnoresWhitespaceOnlyDifference() async throws {
+        let vm = makeVM(llm: StubLLMClient(behavior: .success, latency: .milliseconds(150)))
+        vm.selectMode(.translate)
+        vm.source = "bank "
+        vm.submit()
+        vm.screenDisappeared()
+        #expect(vm.source == "bank ")
+        try await waitUntil { vm.phase == .result }
+    }
+
+    /// A mode switch while the request is out re-runs the input that was SENT — the same rule as
+    /// with a result on screen: an unsubmitted draft never goes to the model.
+    @Test func modeSwitchWhileTheRequestIsOutRerunsTheSentInputNotDraft() async throws {
+        UserDefaults.standard.set("russian", forKey: "targetLanguage")
+        UserDefaults.standard.set("english", forKey: "studiedLanguage")
+        let vm = makeVM(llm: StubLLMClient(behavior: .success, latency: .milliseconds(150)))
+        vm.selectMode(.translate)
+        vm.source = "bank"
+        vm.submit()
+        #expect(vm.phase == .processing)
+
+        vm.source = "river"                     // edited, never submitted
+        vm.selectMode(.explain)
+        #expect(vm.source == "bank")            // draft dropped — the sent input re-runs
+        try await waitUntil { vm.phase == .result }
+        #expect(vm.explanation != nil)
+    }
+
     /// With nothing generated there is nothing to mismatch — a draft survives leaving the screen.
     @Test func leavingScreenKeepsDraftWhenNothingGenerated() {
         let vm = makeVM()

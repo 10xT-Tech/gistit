@@ -3,7 +3,10 @@
 //  EnglishHelper — Presentation
 //
 //  Full-screen flashcard practice: the prompt on a glass card (tap it or "Show answer" to reveal),
-//  then four rating buttons, each labelled with when the card would come back.
+//  then four rating buttons, each labelled with when the card would come back. With the answer shown,
+//  a wand next to the speaker sends the card to the model to fix it and fill in what's missing
+//  (`CardFix.swift`); the paywall for its limit is presented from here (the root can't present over
+//  this full-screen cover).
 //
 
 import SwiftUI
@@ -13,7 +16,9 @@ import DesignSystem
 public struct FlashcardSessionView: View {
     @State private var model: FlashcardSessionViewModel
     private let onClose: () -> Void
+    @State private var showPaywall = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(SubscriptionState.self) private var subscription
 
     public init(model: FlashcardSessionViewModel, onClose: @escaping () -> Void) {
         self.model = model
@@ -32,6 +37,7 @@ public struct FlashcardSessionView: View {
             .padding(.bottom, Tokens.Space.s16)
         }
         .task { await model.start() }
+        .sheet(isPresented: $showPaywall) { PaywallView().environment(subscription) }
         .sensoryFeedback(.selection, trigger: model.reviewedCount)
         .alert(Loc.t("Карточки", "Flashcards"), isPresented: errorBinding) {
             Button("OK", role: .cancel) {}
@@ -161,6 +167,9 @@ public struct FlashcardSessionView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(Loc.t("Озвучить", "Play"))
                 }
+                if model.isRevealed, let cardFix = model.cardFix {
+                    FixCardButton(status: cardFix.status(for: expression)) { model.fixCurrent() }
+                }
             }
 
             // A long card (an example, synonyms and notes at the larger sizes) scrolls inside the card.
@@ -176,6 +185,7 @@ public struct FlashcardSessionView: View {
                         Divider().overlay(Tokens.Hairline.default)
                         CardBack(answer: recognition ? expression.ru : expression.en, expression: expression)
                             .transition(.opacity)
+                        CardFixStatusLine(status: model.cardFix?.status(for: expression)) { showPaywall = true }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

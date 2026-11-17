@@ -182,7 +182,6 @@ import Presentation
 
         let phrase = try #require(list.expressions.first)
         list.moveToFlashcards(phrase)
-        #expect(list.expressions.count == 1)                      // leaves the list at once
         var tries = 0
         while try await cards.all().count != 2, tries < 200 {
             tries += 1

@@ -85,6 +85,13 @@ public protocol RequestHistoryUseCase: Sendable {
     func recent(limit: Int) async throws -> [HistoryEntry]
     /// Remove one entry (user swipe-delete) — including its session recording, if it has one.
     func delete(_ entry: HistoryEntry) async throws
+    /// Delete the session recordings no history entry refers to (a crash mid-session, a session of
+    /// the in-memory fallback store, a failed save) — only the ones created before `createdBefore`
+    /// (the launch), so a session recording right now keeps its file. Does NOTHING when history can't
+    /// vouch for what it refers to: `usingFallbackStore` (the store on disk didn't open, history is
+    /// an empty stand-in — the real rows still point at these files), an entry that can't be read, or
+    /// a failed read. Deleting a recording is irreversible; leaving an orphan costs only disk space.
+    func sweepOrphanedRecordings(createdBefore: Date, usingFallbackStore: Bool) async
 }
 
 public struct RequestHistoryInteractor: RequestHistoryUseCase {
@@ -104,9 +111,15 @@ public struct RequestHistoryInteractor: RequestHistoryUseCase {
     public func delete(_ entry: HistoryEntry) async throws {
         try await history.delete(id: entry.id)
         // Row is gone — the audio file (if any) must go with it, or it leaks forever.
-        if case .liveTranslation(_, _, let fileName?, _) = entry.result {
+        if let fileName = entry.result.recordingFileName {
             await recordings?.delete(fileName: fileName)
         }
+    }
+
+    public func sweepOrphanedRecordings(createdBefore: Date, usingFallbackStore: Bool) async {
+        guard !usingFallbackStore, let recordings,
+              let referenced = try? await history.referencedRecordings() else { return }
+        await recordings.sweep(keeping: referenced, createdBefore: createdBefore)
     }
 }
 

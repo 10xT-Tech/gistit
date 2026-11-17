@@ -15,11 +15,15 @@
 //    the model again — after the matching changed; the sheet shows one only if a merge is proposed in it.
 //  - Exact duplicates (on the device, no model): the same expression (`PhraseKey` without lemmas) with
 //    the same translation — a merge is proposed at once; a group made only of them needs no check.
-//  - Check (the model, `DuplicatesTemplate`, batches of `batchSize` groups, up to `inFlight` requests at
-//    once — an answer takes a while, and small batches keep the progress moving): the merges each group
-//    needs — a duplicate (one expression, one meaning) or senses (the very same expression, several
-//    meanings: one card, numbered "1) … 2) …") — with the card each makes; a card in none stays apart.
-//  - Merge: the oldest phrase in flashcards stays with the merged texts (in lower case except "I", as
+//  - Check (the model, `DuplicatesTemplate`): the merges each group needs — a duplicate (one expression,
+//    one meaning) or senses (the very same expression, several meanings: one card, numbered
+//    "1) … 2) …") — with the card each makes; a card in none stays apart. `check` is ONE request for
+//    one batch of groups; the caller keeps the LINE to the model — `batchSize` groups a request, up to
+//    `inFlight` requests at once (an answer takes a while, and small batches keep the progress moving)
+//    — because the line outlives a call: the sheet adds a group to it whenever its own Check is tapped
+//    (`DuplicatesViewModel`), and a ceiling kept inside each call was no ceiling for them.
+//  - Merge (never half-done: the cards change in one all-or-nothing write, `replaceCards`; a failed
+//    step leaves a state the next try completes): the oldest phrase in flashcards stays with the merged texts (in lower case except "I", as
 //    Fix cards writes them; a field left empty keeps its text); the others go. Each direction keeps
 //    ONE card: for a duplicate the best-known one (its knowledge is proven), for several meanings the
 //    least-known one (the card now asks for all of them). Answers stay in the log.
@@ -101,25 +105,6 @@ public struct DuplicateScanStep: Sendable, Equatable {
     }
 }
 
-/// The model's check: groups sent, groups answered, and the proposals of this step's batch.
-public struct DuplicateCheckStep: Sendable, Equatable {
-    public let sent: Int
-    public let answered: Int
-    public let total: Int
-    /// Groups the model's answer was unusable for (they stay unchecked).
-    public let failed: Int
-    /// The merges the model proposes, by group key — an empty list: all of the group stays apart.
-    public let proposals: [String: [DuplicateMerge]]
-
-    public init(sent: Int, answered: Int, total: Int, failed: Int = 0, proposals: [String: [DuplicateMerge]] = [:]) {
-        self.sent = sent
-        self.answered = answered
-        self.total = total
-        self.failed = failed
-        self.proposals = proposals
-    }
-}
-
 /// Where the first 2.0 builds kept "not duplicates" (sets of phrase ids, `DuplicateGroup.memberID`) —
 /// read once, turned into `NotDuplicatePair`s with the cards, then cleared.
 public protocol DuplicateDismissalStoring: Sendable {
@@ -140,11 +125,14 @@ public protocol DuplicatesUseCase: Sendable {
     /// progress while reading. Groups whose phrases are all marked "not duplicates" are left out, and
     /// marked pairs are never proposed for merging — unless `full`: a full re-check ignores the marks.
     func scan(studiedLanguage: String, full: Bool) -> AsyncThrowingStream<DuplicateScanStep, Error>
-    /// The merges the model proposes for each group, in batches — progress as they're sent and
-    /// answered. Ends by throwing when going on can't help (offline, the plan's limit, no API key,
-    /// cancellation).
-    func check(_ groups: [DuplicateGroup], studiedLanguage: String, nativeLanguage: String)
-        -> AsyncThrowingStream<DuplicateCheckStep, Error>
+    /// ONE request: the merges the model proposes for each of these groups, by group key — an empty
+    /// list: all of the group stays apart. A group MISSING from the result got no answer (unusable
+    /// twice, or the request rejected): it stays unchecked, and the next request may well go through.
+    /// THROWS when the service doesn't answer (twice) or asking again can't help now (offline, the
+    /// plan's limit, no API key, cancellation — `RunFailure`): a Check of many requests stops there
+    /// instead of sending the rest to a dead service.
+    func check(_ groups: [DuplicateGroup], studiedLanguage: String, nativeLanguage: String) async throws
+        -> [String: [DuplicateMerge]]
     /// The merges for one set of phrases (a phrase from Caught and its look-alikes): exact duplicates
     /// on the device; otherwise the model's proposals.
     func proposals(for expressions: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
@@ -155,6 +143,14 @@ public protocol DuplicatesUseCase: Sendable {
     /// Merge the phrases into one card (see the file header).
     func merge(_ expressions: [Expression], into card: CardText, as kind: DuplicateKind,
                studiedLanguage: String, nativeLanguage: String) async throws
+    /// The user chose "Merge" for a caught phrase and its look-alikes in flashcards: once the check
+    /// has answered, it IS merged — into the look-alike(s) the exact check or the model names, and if
+    /// the model names none (it sees another phrase) into the oldest look-alike, as one more meaning
+    /// of it, with a card put together on the device. But the model must have ANSWERED: if it can't
+    /// be reached, fails, or the plan's limit is spent, this throws and nothing is changed — the
+    /// phrase stays on Caught and the user is told.
+    func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
+                     studiedLanguage: String, nativeLanguage: String) async throws
     /// "Don't merge": these phrases are linked to each other as not duplicates — a search leaves them
     /// be (a full re-check aside).
     func markNotDuplicates(_ expressionIDs: [UUID]) async throws
@@ -163,8 +159,9 @@ public protocol DuplicatesUseCase: Sendable {
 }
 
 public struct DuplicatesInteractor: DuplicatesUseCase {
+    /// Groups in one request of a Check.
     public static let batchSize = 5
-    /// Requests out at the same time.
+    /// Requests of a Check out at the same time — everything asked from one sheet counts.
     public static let inFlight = 3
     /// Reading progress is reported every this many phrases.
     static let progressStep = 50
@@ -350,57 +347,19 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
 
     // MARK: Check
 
-    public func check(_ groups: [DuplicateGroup], studiedLanguage: String, nativeLanguage: String)
-        -> AsyncThrowingStream<DuplicateCheckStep, Error> {
-        let llm = self.llm
+    public func check(_ groups: [DuplicateGroup], studiedLanguage: String, nativeLanguage: String) async throws
+        -> [String: [DuplicateMerge]] {
+        guard !groups.isEmpty else { return [:] }
         let template = DuplicatesTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let batches = stride(from: 0, to: groups.count, by: Self.batchSize).map {
-                        Array(groups[$0..<min($0 + Self.batchSize, groups.count)])
-                    }
-                    var sent = 0, answered = 0, failed = 0, next = 0
-                    continuation.yield(DuplicateCheckStep(sent: 0, answered: 0, total: groups.count))
-                    try await withThrowingTaskGroup(of: (Int, [String: DuplicateVerdict]?).self) { requests in
-                        /// Send the next batch.
-                        func send() {
-                            let index = next
-                            next += 1
-                            sent += batches[index].count
-                            continuation.yield(DuplicateCheckStep(sent: sent, answered: answered, total: groups.count,
-                                                                  failed: failed))
-                            let items = batches[index].map { Self.item($0.key, $0.expressions) }
-                            requests.addTask { (index, try await Self.ask(llm, template, about: items)) }
-                        }
-                        while next < min(Self.inFlight, batches.count) { send() }
-                        while let (index, verdicts) = try await requests.next() {
-                            let batch = batches[index]
-                            answered += batch.count
-                            var proposals: [String: [DuplicateMerge]] = [:]
-                            for group in batch {
-                                if let verdict = verdicts?[group.key] {
-                                    proposals[group.key] = Self.merges(verdict, among: group.expressions,
-                                                                       language: studiedLanguage,
-                                                                       excluding: group.excluded)
-                                }
-                            }
-                            failed += batch.count - proposals.count
-                            continuation.yield(DuplicateCheckStep(sent: sent, answered: answered, total: groups.count,
-                                                                  failed: failed, proposals: proposals))
-                            if next < batches.count {
-                                try Task.checkCancellation()
-                                send()
-                            }
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        let items = groups.map { Self.item($0.key, $0.expressions) }
+        guard let verdicts = try await Self.ask(llm, template, about: items) else { return [:] }
+        var proposals: [String: [DuplicateMerge]] = [:]
+        for group in groups {
+            guard let verdict = verdicts[group.key] else { continue }
+            proposals[group.key] = Self.merges(verdict, among: group.expressions, language: studiedLanguage,
+                                               excluding: group.excluded)
         }
+        return proposals
     }
 
     public func proposals(for group: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
@@ -443,20 +402,19 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         }
     }
 
-    /// The model's answers for a batch, by group id — one retry; nil when the answer is unusable twice.
-    /// Failures the next batch would hit too are thrown.
+    /// The model's answers for a batch, by group id; nil when there's no answer for THIS batch (unusable
+    /// twice, or the request rejected). THROWS when the service doesn't answer (twice) or asking again
+    /// can't help now (`RunFailure`).
     private static func ask(_ llm: LLMClient, _ template: DuplicatesTemplate,
                             about items: [DuplicateGroupItem]) async throws -> [String: DuplicateVerdict]? {
-        for attempt in 1...2 {
-            do {
-                let result = try await llm.run(template, input: items)
-                return Dictionary(result.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            } catch {
-                guard CatchCardsFromPhotosInteractor.canGoOn(after: error) else { throw error }
-                if attempt == 2 { return nil }
-            }
+        switch try await RunRequest.send({ try await llm.run(template, input: items) }) {
+        case .answer(let result):
+            return Dictionary(result.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        case .none(let error, .service):
+            throw error
+        case .none:
+            return nil
         }
-        return nil
     }
 
     // MARK: Merge
@@ -468,6 +426,9 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         let groupCards = try await cards.all().filter { ids.contains($0.expressionID) }
         let enrolled = Set(groupCards.map(\.expressionID))
         let ordered = group.sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+        // A merge is into flashcards: with no card in the group there's no progress to keep, and going
+        // on would only delete phrases (a group whose cards were lost must not lose its phrases too).
+        guard !enrolled.isEmpty else { throw RepositoryError.notFound }
         guard let keep = Self.kept(of: group, enrolled: enrolled) else { return }
 
         try await expressions.update(Self.texts(card, onto: keep, studiedLanguage: studiedLanguage,
@@ -484,11 +445,62 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                                        lastReview: chosen.lastReview, firstReview: chosen.firstReview))
             }
         }
-        for id in enrolled { try await cards.delete(expressionID: id) }
-        try await cards.saveAll(kept)
+        // Each step leaves a state a retry completes, and none loses progress: the texts first (the
+        // phrases and cards still as they were), then the cards in ONE all-or-nothing write (the other
+        // phrases are left without cards — on Caught — until the last step), then the other phrases.
+        try await cards.replaceCards(of: enrolled, with: kept)
         let gone = Set(ordered.map(\.id)).subtracting([keep.id])
         for id in gone { try await expressions.delete(id: id) }
         try? await marks.unmark(involving: gone)
+    }
+
+    public func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
+                            studiedLanguage: String, nativeLanguage: String) async throws {
+        guard !lookAlikes.isEmpty else { throw RepositoryError.notFound }
+        let group = lookAlikes + [caught]
+        // A failed check (offline, no answer, the plan's limit) stops here, before anything is written.
+        let proposed = try await proposals(for: group, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+            .first { $0.expressionIDs.contains(caught.id) }
+        if let proposed {
+            try await merge(group.filter { proposed.expressionIDs.contains($0.id) }, into: proposed.card, as: proposed.kind,
+                            studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+            return
+        }
+        let target = lookAlikes.min { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) } ?? lookAlikes[0]
+        let forced = Self.forcedMerge(of: caught, into: target, language: studiedLanguage)
+        try await merge([target, caught], into: forced.card, as: forced.kind,
+                        studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+
+    /// The card of a merge the model didn't word — it answered, and named none — (see `mergeCaught`), from the two phrases' own texts: the
+    /// look-alike's expression (with its "to" / article), the same translation once — or the caught one
+    /// added as one more numbered meaning ("1) … 2) …", continuing a card that already numbers its
+    /// meanings); the examples likewise; the synonyms of both; the look-alike's note, else the caught one's.
+    public static func forcedMerge(of caught: Expression, into target: Expression, language: String) -> DuplicateMerge {
+        let same = translationKey(target.ru) == translationKey(caught.ru) || caught.ru.isEmpty
+        var synonyms: [String] = []
+        for synonym in target.synonyms + caught.synonyms
+        where !synonyms.contains(where: { $0.lowercased() == synonym.lowercased() }) {
+            synonyms.append(synonym)
+        }
+        let card = CardText(
+            expression: keepingMarker(target.en, of: [target, caught], language: language),
+            translation: same ? target.ru : numbered(target.ru, adding: caught.ru),
+            example: same || caught.example.isEmpty || target.example.isEmpty
+                ? (target.example.isEmpty ? caught.example : target.example)
+                : numbered(target.example, adding: caught.example),
+            synonyms: Array(synonyms.prefix(4)),
+            context: target.context.isEmpty ? caught.context : target.context)
+        return DuplicateMerge(expressionIDs: [target.id, caught.id], kind: same ? .duplicate : .senses,
+                              card: card, isExact: false)
+    }
+
+    /// "a" + "b" → "1) a 2) b"; "1) a 2) b" + "c" → "1) a 2) b 3) c".
+    public static func numbered(_ text: String, adding more: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let numbers = trimmed.matches(of: /(?:^|\s)(\d+)\)\s/).compactMap { Int($0.output.1) }
+        guard trimmed.hasPrefix("1)"), let last = numbers.max() else { return "1) \(trimmed) 2) \(more)" }
+        return "\(trimmed) \(last + 1)) \(more)"
     }
 
     /// The phrase a merge of `group` keeps: the oldest one in flashcards (the oldest of all if none is).

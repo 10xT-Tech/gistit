@@ -28,6 +28,11 @@ public enum AnalyticsEvent: String, CaseIterable, Sendable {
     case photoExplainCompleted   = "Photo.explainCompleted"
     /// "Get it" Online: a live listening session finished with some recognized speech.
     case liveTranslationCompleted = "Live.translationCompleted"
+    /// "Get it" Online: a session's end ran out of time before its last audio was SENT — the words
+    /// of that audio aren't in the saved text (they are in the recording).
+    case liveTailNotSent         = "Live.tailNotSent"
+    /// "Get it" Online: the last audio was sent, the service didn't finish answering in time.
+    case liveTailNotAnswered     = "Live.tailNotAnswered"
     /// A NEW expression was enriched and stored in the study list (de-dup returns don't count).
     case expressionSaved         = "Library.expressionSaved"
     /// The study list was exported as a deck file (AlgoApp or Anki).

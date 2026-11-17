@@ -15,8 +15,8 @@ public protocol LiveTranslateUseCase: Sendable {
     func start(studiedLanguage: String, nativeLanguage: String) -> AsyncThrowingStream<LiveTranslationEvent, Error>
     /// Quickly mute/unmute the running session (see `LiveTranslating.setPaused`).
     func setPaused(_ paused: Bool) async
-    /// Reverse the translation direction mid-session (see `LiveTranslating.switchLanguages`).
-    func switchLanguages() async
+    /// Set the running session's direction (see `LiveTranslating.setLanguages`).
+    func setLanguages(studiedLanguage: String, nativeLanguage: String) async
     /// Gracefully end the current session (drains remaining text; the stream then completes).
     func stop() async
 }
@@ -28,14 +28,21 @@ public struct LiveTranslateInteractor: LiveTranslateUseCase {
     /// the file is orphaned forever. Nil in lean test setups.
     private let recordings: (any SessionRecordingsManaging)?
     private let analytics: (any AnalyticsTracking)?
+    /// Keeps the app running from the moment a session starts to end until its History row is
+    /// written. Behind the screen the microphone was the app's reason to run: once it is off the
+    /// system may suspend the app while the last words are still coming, and a suspended app can be
+    /// discarded — with the whole session's text. Nil in tests.
+    private let background: (any BackgroundTimeHolding)?
 
     public init(live: any LiveTranslating, history: HistoryRepository,
                 recordings: (any SessionRecordingsManaging)? = nil,
-                analytics: (any AnalyticsTracking)? = nil) {
+                analytics: (any AnalyticsTracking)? = nil,
+                background: (any BackgroundTimeHolding)? = nil) {
         self.live = live
         self.history = history
         self.recordings = recordings
         self.analytics = analytics
+        self.background = background
     }
 
     public func start(studiedLanguage: String, nativeLanguage: String) -> AsyncThrowingStream<LiveTranslationEvent, Error> {
@@ -43,6 +50,7 @@ public struct LiveTranslateInteractor: LiveTranslateUseCase {
         let history = self.history
         let recordings = self.recordings
         let analytics = self.analytics
+        let background = self.background
         return AsyncThrowingStream { continuation in
             let task = Task {
                 // Track the latest snapshot so the finished session can be logged even when the
@@ -51,6 +59,14 @@ public struct LiveTranslateInteractor: LiveTranslateUseCase {
                 var lastText = LiveTranslationText.empty
                 var recording: LiveSessionRecording?
                 var sawFinish = false
+                var releaseBackgroundTime: (@Sendable () async -> Void)?
+
+                /// From the first sign of the end (`.ending`; `.finished` when the session failed at
+                /// once) until the session is saved.
+                func holdBackgroundTime() async {
+                    guard releaseBackgroundTime == nil else { return }
+                    releaseBackgroundTime = await background?.hold("live-session.save")
+                }
 
                 func saveIfMeaningful() async {
                     guard sawFinish else { return }   // aborted (task cancelled) sessions are discarded
@@ -80,15 +96,23 @@ public struct LiveTranslateInteractor: LiveTranslateUseCase {
                     for try await event in upstream {
                         switch event {
                         case .text(let text): lastText = text
-                        case .finished(let rec): recording = rec; sawFinish = true
+                        case .ending: await holdBackgroundTime()
+                        case .cutShort(let part):
+                            analytics?.track(part == .sending ? .liveTailNotSent : .liveTailNotAnswered)
+                        case .finished(let rec):
+                            recording = rec
+                            sawFinish = true
+                            await holdBackgroundTime()
                         case .listening, .level: break
                         }
                         continuation.yield(event)
                     }
                     await saveIfMeaningful()
+                    await releaseBackgroundTime?()
                     continuation.finish()
                 } catch {
                     await saveIfMeaningful()
+                    await releaseBackgroundTime?()
                     continuation.finish(throwing: error)
                 }
             }
@@ -98,7 +122,9 @@ public struct LiveTranslateInteractor: LiveTranslateUseCase {
 
     public func setPaused(_ paused: Bool) async { await live.setPaused(paused) }
 
-    public func switchLanguages() async { await live.switchLanguages() }
+    public func setLanguages(studiedLanguage: String, nativeLanguage: String) async {
+        await live.setLanguages(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
 
     public func stop() async { await live.stop() }
 }

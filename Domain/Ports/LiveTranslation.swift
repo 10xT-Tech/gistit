@@ -49,9 +49,25 @@ public enum LiveTranslationEvent: Sendable, Equatable {
     case text(LiveTranslationText)
     /// Microphone input level 0…1 (a few times per second) — drives the on-button sound diagram.
     case level(Float)
-    /// The session ended gracefully (user stop, silence auto-stop, interruption). Always the last
-    /// event before the stream finishes; `recording` is nil when nothing could be recorded.
+    /// The session is ENDING (user stop, silence auto-stop, interruption): the microphone goes off
+    /// now, the last words are still being collected — `.text` updates may follow, then `.finished`.
+    /// Whoever saves the session keeps the app running from here (`BackgroundTimeHolding`): behind
+    /// the screen, the microphone was what kept it awake.
+    case ending
+    /// The end didn't collect everything in the time it has — see `LiveCutShort`. Comes before
+    /// `.finished`; what WAS received (the provisional tail included) and the recording are saved.
+    case cutShort(LiveCutShort)
+    /// The session ended. Always the last event before the stream finishes (also before it throws);
+    /// `recording` is nil when nothing could be recorded.
     case finished(recording: LiveSessionRecording?)
+}
+
+/// Which part of a session's end ran out of time.
+public enum LiveCutShort: String, Sendable, Equatable {
+    /// The audio not sent yet didn't reach the service (a slow uplink, a socket still coming up).
+    case sending
+    /// It was all sent; the service didn't finish answering.
+    case waiting
 }
 
 public enum LiveTranslationError: Error, Sendable, Equatable {
@@ -62,6 +78,7 @@ public enum LiveTranslationError: Error, Sendable, Equatable {
     case offline
     case serviceUnavailable    // server-side failure / overload / rate limit
     case subscriptionRequired  // live translation is a subscriber feature
+    case resumeFailed          // the microphone couldn't be started again after a pause; the session ended (and is saved)
     case underlying(String)
 }
 
@@ -77,11 +94,15 @@ public protocol LiveTranslating: Sendable {
     /// session is running. The silence auto-stop keeps counting — a forgotten paused session still
     /// ends (and saves) itself.
     func setPaused(_ paused: Bool) async
-    /// Swap the recognition/translation direction MID-SESSION: the current tail is finalized, a
-    /// separator line is appended to both transcripts, and the stream continues with the languages
-    /// reversed — same session, same recording. No-op when no session is running (the next start
-    /// simply receives the languages the caller wants).
-    func switchLanguages() async
+    /// Set the recognition/translation direction of the running session to THESE languages (the
+    /// same codes as `start`). A state, not a "swap" command: asking twice, or while a change is
+    /// still under way, or before the microphone is up, always ends with the session in the
+    /// languages asked for LAST — a command that could be dropped left the screen's direction and
+    /// the session's pointing opposite ways for the rest of the session. A real change mid-session
+    /// finalizes the current tail, appends a separator line to both transcripts and continues —
+    /// same session, same recording. No-op when no session is running (the next start simply
+    /// receives the languages the caller wants).
+    func setLanguages(studiedLanguage: String, nativeLanguage: String) async
     /// Gracefully end the current session (no-op when none is running).
     func stop() async
 }
@@ -109,7 +130,9 @@ public protocol SessionRecordingsManaging: Sendable {
     func exists(fileName: String) -> Bool
     /// Best-effort removal of the recording file (called when its history row is deleted).
     func delete(fileName: String) async
-    /// Remove every stored recording NOT in `keeping` — reconciles the store against history
-    /// (crashes mid-session, the in-memory fallback store, and skipped saves all orphan files).
-    func sweep(keeping: Set<String>) async
+    /// Remove every stored recording NOT in `keeping` that was created before `createdBefore` —
+    /// reconciles the store against history (crashes mid-session, the in-memory fallback store, and
+    /// skipped saves all orphan files). The date spares a session being recorded right now: its file
+    /// isn't in history until the session ends. A file whose date can't be read stays.
+    func sweep(keeping: Set<String>, createdBefore: Date) async
 }

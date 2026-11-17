@@ -215,6 +215,30 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(await session.rejections == 1)
     }
 
+    /// A 4xx about the request itself (bad, too large) is `requestRejected` — never retried: the same
+    /// content can't pass — while a 5xx stays `requestFailed`, the service's trouble.
+    @Test func aRefusedRequestIsToldApartFromAFailingService() async throws {
+        defer { StubURLProtocol.statusCode = 529; StubURLProtocol.responseBody = nil }
+        StubURLProtocol.responseBody = Data(#"{"error":{"type":"invalid_request_error"}}"#.utf8)
+        for (status, rejected) in [(400, true), (413, true), (422, true), (408, false), (500, false)] {
+            StubURLProtocol.statusCode = status
+            StubURLProtocol.callCount = 0
+            do {
+                _ = try await makeClient().run(HealthCheckTemplate(), input: ())
+                Issue.record("expected a failure for HTTP \(status)")
+            } catch let error as LLMError {
+                if case .requestRejected = error {
+                    #expect(rejected, "HTTP \(status) isn't about the request")
+                    #expect(StubURLProtocol.callCount == 1)
+                } else if case .requestFailed = error {
+                    #expect(!rejected, "HTTP \(status) is about the request")
+                } else {
+                    Issue.record("HTTP \(status): \(error)")
+                }
+            }
+        }
+    }
+
     /// HTTP 402 from our backend = the free plan's limit: surfaced with its wait, and NEVER retried.
     @Test func freePlanLimitIsNotRetried() async throws {
         StubURLProtocol.statusCode = 402

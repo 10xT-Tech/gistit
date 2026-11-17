@@ -9,6 +9,7 @@
 
 import Testing
 import Foundation
+import SwiftData
 import Domain
 import Adapters
 
@@ -85,6 +86,28 @@ struct SplitMix64: RandomNumberGenerator {
     }
 
     /// Recall waits until the phrase is recognised: recognition graduated to review, on an earlier day.
+    /// Moving the same phrase in many times at once leaves it two cards — one per direction — and a
+    /// later move adds nothing. In memory and in the SwiftData store.
+    @Test func parallelMovesOfOnePhraseLeaveTwoCards() async throws {
+        let phrase = expression("jump the gun")
+        let container = try ModelContainer(for: ReviewCardModel.self, ReviewLogModel.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let stores: [any ReviewCardRepository] = [MockReviewCardRepository(),
+                                                  SwiftDataReviewCardRepository(modelContainer: container)]
+        for store in stores {
+            let sut = FlashcardsInteractor(expressions: MockExpressionRepository(seed: [phrase]), cards: store)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0..<20 { group.addTask { try await sut.enroll(phrase.id, now: now) } }
+                try await group.waitForAll()
+            }
+            try await sut.enroll(phrase.id, now: now)
+            let cards = try await store.all()
+            #expect(cards.count == 2)
+            #expect(Set(cards.map(\.direction)) == Set(CardDirection.allCases))
+            #expect(cards.allSatisfy { $0.expressionID == phrase.id && $0.state == .new })
+        }
+    }
+
     @Test func recallWaitsForRecognitionToGraduate() async throws {
         let e = expression("a", ageDays: 3)
         let recall = ReviewCard(expressionID: e.id, direction: .recall, due: now.addingTimeInterval(-2 * day))
@@ -256,6 +279,110 @@ struct SplitMix64: RandomNumberGenerator {
         #expect(try await sut.queue(now: now.addingTimeInterval(day)).contains { $0.id == card.id })
     }
 
+    /// Today's answers are the answers of TODAY. The phone's clock was a week ahead, the day's set
+    /// was done, the clock was put right: those answers must not count as today's on every day until
+    /// theirs comes (the goal read "10 of 10" with nothing answered, Start gave an empty set, and the
+    /// 7-day bars said 0 for the same day).
+    @Test func answersStampedOnALaterDayArentTodays() async throws {
+        let phrases = (0..<30).map { expression("p\($0)", ageDays: Double($0 + 2)) }
+        let cards = phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) }
+        let (sut, _) = make(phrases, cards: cards, goal: 10)
+        let ahead = now.addingTimeInterval(7 * day)
+        let set = try await sut.queue(now: ahead)
+        #expect(set.count == 10)
+        for (index, card) in set.enumerated() {
+            _ = try await sut.rate(card.card, .easy, now: ahead.addingTimeInterval(Double(index)))
+        }
+        #expect(try await sut.stats(now: ahead.addingTimeInterval(60)).today.goalReached)   // that day's goal: done
+
+        for back in [0.0, 3, 6] {                                   // the real days before that date
+            let at = now.addingTimeInterval(back * day)
+            let stats = try await sut.stats(now: at)
+            #expect(stats.today.studied == 0)
+            #expect(stats.today.remaining == 10)
+            #expect(stats.reviewsByDay.last?.count == 0)            // the bars agree with the goal
+            #expect(try await sut.answersToday(now: at).isEmpty)
+        }
+        #expect(try await sut.queue(now: now).count == 10)          // Start has a set to give
+        // The day the clock really gets there, the answers are that day's (they can't be told apart).
+        #expect(try await sut.stats(now: ahead).today.studied == 10)
+        #expect(try await sut.stats(now: ahead.addingTimeInterval(day)).today.studied == 0)
+    }
+
+    /// The hard cards answered three times on that later day aren't over TODAY's limit.
+    @Test func theDaysLimitCountsTodaysAnswersOnly() async throws {
+        let hard = expression("hard"), easy = expression("easy")
+        let cards = newCards(hard, movedAt: now.addingTimeInterval(-day)) + newCards(easy, movedAt: now.addingTimeInterval(-day))
+        let (sut, _) = make([hard, easy], cards: cards, goal: 2)
+        let ahead = now.addingTimeInterval(7 * day)
+        var card = try #require(try await sut.queue(now: ahead).first { $0.expression.id == hard.id }).card
+        for minute in 0..<PracticeDay.maxAnswersPerCard {
+            card = try await sut.rate(card, .again, now: ahead.addingTimeInterval(Double(minute) * 60))
+        }
+        #expect(try await sut.answersToday(now: ahead)[card.id] == PracticeDay.maxAnswersPerCard)
+        #expect(try await sut.answersToday(now: now)[card.id] == nil)
+        #expect(try await sut.queue(now: now).contains { $0.id == card.id })      // a learning card: waiting today
+    }
+
+    /// A clock put back by an hour: the answers later than "now" were still given today.
+    @Test func answersLaterTodayAreTodays() async throws {
+        let e = expression("a")
+        let (sut, _) = make([e], cards: newCards(e, movedAt: now.addingTimeInterval(-day)), goal: 5)
+        let card = try #require(try await sut.queue(now: now).first).card
+        _ = try await sut.rate(card, .good, now: now.addingTimeInterval(3600))
+        #expect(try await sut.answersToday(now: now)[card.id] == 1)
+        #expect(try await sut.stats(now: now).today.studied == 1)
+    }
+
+    /// Deleting a phrase doesn't take the day's work back: its answers were given (they stay in the
+    /// log, and the bars count them), so the goal keeps them too — it used to drop to "4 of 5" and
+    /// Start drew one more card.
+    @Test func deletingAPhraseAnsweredTodayKeepsTheDaysCount() async throws {
+        let phrases = (0..<20).map { expression("p\($0)", ageDays: Double($0 + 2)) }
+        let repo = MockReviewCardRepository(seed: phrases.flatMap { newCards($0, movedAt: now.addingTimeInterval(-day)) })
+        let expressions = MockExpressionRepository(seed: phrases)
+        let sut = FlashcardsInteractor(expressions: expressions, cards: repo, dailyGoal: { 5 }, calendar: calendar,
+                                       makeRandom: { SplitMix64(seed: 1) })
+        let set = try await sut.queue(now: now)
+        #expect(set.count == 5)
+        for (index, card) in set.enumerated() {
+            _ = try await sut.rate(card.card, .easy, now: now.addingTimeInterval(Double(index)))
+        }
+        let later = now.addingTimeInterval(60)
+        try await StudyListInteractor(repository: expressions, cards: repo).delete(id: set[0].expression.id)
+
+        let stats = try await sut.stats(now: later)
+        #expect(stats.inStudy == 19)
+        #expect(stats.today.studied == 5 && stats.today.goalReached)
+        #expect(stats.reviewsByDay.last?.count == 5)                // the same number as the bars' "today"
+        #expect(try await sut.queue(now: later).isEmpty)            // nothing to make up for
+        // Everything deleted: the day's work is still the day's work.
+        for phrase in try await expressions.all() {
+            try await StudyListInteractor(repository: expressions, cards: repo).delete(id: phrase.id)
+        }
+        #expect(try await sut.stats(now: later).today.studied == 5)
+    }
+
+    /// Merging two duplicates answered today drops one card of each direction — not its answer.
+    @Test func mergingDuplicatesAnsweredTodayKeepsTheDaysCount() async throws {
+        let a = expression("hit the roof", ageDays: 3), b = expression("to hit the roof", ageDays: 2)
+        let repo = MockReviewCardRepository(seed: newCards(a, movedAt: now.addingTimeInterval(-day))
+                                                  + newCards(b, movedAt: now.addingTimeInterval(-day)))
+        let expressions = MockExpressionRepository(seed: [a, b])
+        let sut = FlashcardsInteractor(expressions: expressions, cards: repo, dailyGoal: { 2 }, calendar: calendar,
+                                       makeRandom: { SplitMix64(seed: 1) })
+        let set = try await sut.queue(now: now)
+        #expect(Set(set.map(\.expression.id)) == [a.id, b.id])
+        for card in set { _ = try await sut.rate(card.card, .easy, now: now) }
+
+        let text = CardText(expression: "to hit the roof", translation: "взбеситься", example: "", synonyms: [], context: "")
+        try await DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions, cards: repo)
+            .merge([a, b], into: text, as: .duplicate, studiedLanguage: "English", nativeLanguage: "Russian")
+        #expect(try await repo.all().count == 2)                    // one phrase, one card per direction
+        let plan = try await sut.stats(now: now.addingTimeInterval(60)).today
+        #expect(plan.studied == 2 && plan.goalReached)
+    }
+
     // MARK: Randomness
 
     @Test func setsAreRandomButReproducible() async throws {
@@ -308,7 +435,7 @@ struct SplitMix64: RandomNumberGenerator {
         let answered = try await sut.rate(card, .good, now: now)
         #expect(answered.state == .learning)
         #expect(try await repo.all().first { $0.id == card.id } == answered)
-        let logs = try await repo.logs(since: now.addingTimeInterval(-60))
+        let logs = try await repo.logs(in: now.addingTimeInterval(-60)..<now.addingTimeInterval(60))
         #expect(logs.map(\.rating) == [.good])
         #expect(logs.first?.state == .new)
         // Still waiting today — it's mid-steps.

@@ -11,20 +11,59 @@
 //  A run goes through every phrase in flashcards, or only the incomplete ones (`FixScope`): those
 //  with an empty example, synonyms or note. Cards go in a stable order (oldest first) and the position
 //  after each batch is kept per scope (`CardFixProgressStoring`), so a run of thousands of cards can
-//  be stopped at any time and resumed later without sending a card twice; "start over" goes through
-//  all of them again. Learning progress (the review cards) is untouched — only the texts change.
+//  be stopped at any time and resumed later without sending an answered card twice; "start over" goes
+//  through all of them again. Learning progress (the review cards) is untouched — only the texts change.
+//
+//  A phrase is DONE only when the model answered for it. What a failed request means is `RunFailure`'s
+//  business (shared with the duplicates Check and cards from photos); here:
+//  - the SERVICE doesn't answer (a timeout, an overload, a server error — after one more try): the run
+//    stops with that error and the position stays BEFORE the batch, so the next run sends it again.
+//    (Going on would walk the whole deck through a dead service and mark it all as passed.)
+//  - the ANSWER leaves phrases out — unusable twice, the request rejected, or a card missing from a
+//    good answer: the run goes on (one bad batch mustn't block the rest), those phrases get letter case
+//    only and are remembered in the checkpoint (`unanswered`). The next run asks about each of them
+//    ALONE, before anything else: answered → done; no answer even alone → GIVEN UP (`givenUp`: left as
+//    it is, not sent again until "start over") — so a phrase the model can't take neither holds others
+//    back nor is asked about forever.
+//  - Nothing answers at all: `barrenLimit` requests in a row without one answer is not "this
+//    request's trouble" — the run stops with the last error. And a phrase is given up only on
+//    evidence that the model does answer: another request of the same run got its answer, or the
+//    phrase went unanswered alone in two runs (`askedAlone` marks the first time). Until a run has
+//    that evidence, phrases asked alone wait behind the batches.
 //
 
 import Foundation
 
-/// Where the last run stopped: the last card fixed, in the run's order.
+/// Where the last run stopped: the last card it went past, in the run's order — and what became of the
+/// phrases before it that the model gave no answer for.
 public struct CardFixCheckpoint: Codable, Sendable, Equatable {
     public let createdAt: Date
     public let id: UUID
+    /// Went unanswered: the next run asks about each alone.
+    public let unanswered: Set<UUID>
+    /// Those of `unanswered` already asked alone once, to no answer — while nothing showed that the
+    /// model was answering at all. Once more, and they're given up.
+    public let askedAlone: Set<UUID>
+    /// No answer even alone: left as they are, not sent again until "start over".
+    public let givenUp: Set<UUID>
 
-    public init(createdAt: Date, id: UUID) {
+    public init(createdAt: Date, id: UUID, unanswered: Set<UUID> = [], askedAlone: Set<UUID> = [],
+                givenUp: Set<UUID> = []) {
         self.createdAt = createdAt
         self.id = id
+        self.unanswered = unanswered
+        self.askedAlone = askedAlone
+        self.givenUp = givenUp
+    }
+
+    /// Checkpoints stored by earlier builds have only the position.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        id = try container.decode(UUID.self, forKey: .id)
+        unanswered = try container.decodeIfPresent(Set<UUID>.self, forKey: .unanswered) ?? []
+        askedAlone = try container.decodeIfPresent(Set<UUID>.self, forKey: .askedAlone) ?? []
+        givenUp = try container.decodeIfPresent(Set<UUID>.self, forKey: .givenUp) ?? []
     }
 }
 
@@ -62,19 +101,24 @@ public struct FixProgress: Sendable, Equatable {
     public let total: Int
     /// Phrases whose card changed.
     public let changed: Int
-    /// Phrases left as they were because the model's answer for their batch was unusable.
+    /// Phrases still without the model's answer after this run's requests (an unusable answer for their
+    /// batch, a card left out of it): only their letter case was fixed, and the next run asks about
+    /// each of them alone.
     public let failed: Int
+    /// Phrases given up in this run — no answer even when asked about alone: left as they are.
+    public let givenUp: Int
 
     public var fraction: Double { total == 0 ? 1 : Double(processed) / Double(total) }
     public var sentFraction: Double { total == 0 ? 1 : Double(sent) / Double(total) }
 
     /// `sent` defaults to `processed` (nothing waiting for an answer).
-    public init(processed: Int, total: Int, changed: Int, failed: Int, sent: Int? = nil) {
+    public init(processed: Int, total: Int, changed: Int, failed: Int, sent: Int? = nil, givenUp: Int = 0) {
         self.processed = processed
         self.sent = sent ?? processed
         self.total = total
         self.changed = changed
         self.failed = failed
+        self.givenUp = givenUp
     }
 }
 
@@ -112,13 +156,32 @@ public protocol FixCardsUseCase: Sendable {
     /// while reading.
     func survey() -> AsyncThrowingStream<FixSurvey, Error>
     /// Yields progress at the start and after every batch. Ends by throwing when going on can't help —
-    /// offline, the plan's limit, no API key, cancellation — keeping what's done (and where it stopped).
+    /// offline, the plan's limit, no API key, a service that doesn't answer, request after request
+    /// without an answer, cancellation — keeping what's done and where it stopped.
     func callAsFunction(_ scope: FixScope, studiedLanguage: String, nativeLanguage: String, restart: Bool)
         -> AsyncThrowingStream<FixProgress, Error>
+    /// Before phrases move from Caught into flashcards: the ones that lack something (`needsCompletion`
+    /// — a translation, an example, synonyms or a note) are filled in by the model, in requests of
+    /// `batchSize`, and stored; the rest are returned as they are, with no request. Returns all of
+    /// them, in order. THROWS — and stores nothing more — when the model can't be reached, the plan's
+    /// limit is spent, there's no key, or a phrase is still without an answer after a second request:
+    /// the move must stop there, so a phrase never goes into flashcards without the model having seen
+    /// it. (What it did answer for is stored, so the next try asks only about the rest.)
+    func complete(_ expressions: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
+        -> [Expression]
+    /// One card, on the user's request (the wand on a flashcard): it is ALWAYS sent to the model —
+    /// complete or not — which fixes it and fills in what's missing, as a Fix cards run would; the
+    /// result is stored and returned (equal to `expression` when the model changed nothing). Throws,
+    /// changing nothing, when the model can't be reached, the plan's limit is spent, or it gives no
+    /// usable answer for this card. The learning progress is never touched.
+    func fix(_ expression: Expression, studiedLanguage: String, nativeLanguage: String) async throws -> Expression
 }
 
 public struct FixCardsInteractor: FixCardsUseCase {
     public static let batchSize = 20
+    /// Requests in a row without a single answer after which it isn't "this request's trouble" any
+    /// more: the run stops.
+    public static let barrenLimit = 3
 
     private let llm: LLMClient
     private let expressions: ExpressionRepository
@@ -135,7 +198,8 @@ public struct FixCardsInteractor: FixCardsUseCase {
 
     public func remaining(_ scope: FixScope) async throws -> (left: Int, total: Int) {
         let all = try await inFlashcards(scope)
-        return (Self.after(await progress.load(scope), in: all).count, all.count)
+        let checkpoint = await progress.load(scope)
+        return (all.filter { Self.isPending($0, checkpoint) }.count, all.count)
     }
 
     public func survey() -> AsyncThrowingStream<FixSurvey, Error> {
@@ -150,10 +214,10 @@ public struct FixCardsInteractor: FixCardsUseCase {
                     var all = 0, allLeft = 0, incomplete = 0, incompleteLeft = 0
                     for (index, expression) in studied.enumerated() {
                         all += 1
-                        if Self.isAfter(expression, allMark) { allLeft += 1 }
+                        if Self.isPending(expression, allMark) { allLeft += 1 }
                         if Self.isIncomplete(expression) {
                             incomplete += 1
-                            if Self.isAfter(expression, incompleteMark) { incompleteLeft += 1 }
+                            if Self.isPending(expression, incompleteMark) { incompleteLeft += 1 }
                         }
                         if (index + 1) % 50 == 0, index + 1 < studied.count {
                             try Task.checkCancellation()
@@ -181,30 +245,79 @@ public struct FixCardsInteractor: FixCardsUseCase {
             let task = Task {
                 do {
                     if restart { await progress.reset(scope) }
-                    let todo = Self.after(await progress.load(scope), in: try await self.inFlashcards(scope))
-                    var processed = 0, changed = 0, failed = 0
-                    continuation.yield(FixProgress(processed: 0, total: todo.count, changed: 0, failed: 0))
-                    for start in stride(from: 0, to: todo.count, by: Self.batchSize) {
+                    let start = await progress.load(scope)
+                    let all = try await self.inFlashcards(scope)
+                    // Left unanswered by an earlier run: each alone, first. Then the batches.
+                    let again = all.filter { start?.unanswered.contains($0.id) ?? false }
+                    var queue = again.map { Step(phrases: [$0], isAlone: true) }
+                        + Self.chunks(Self.after(start, in: all), of: Self.batchSize).map { Step(phrases: $0, isAlone: false) }
+                    var tally = Tally(start, keeping: Set(all.map(\.id)), again: again.count,
+                                      total: queue.reduce(0) { $0 + $1.phrases.count })
+                    /// Something in this run was answered: the model does answer.
+                    var hasEvidence = false
+                    /// Asked alone to no answer before there was evidence — given up as soon as there is.
+                    var suspects: [UUID] = []
+                    var barren = 0
+                    var lastError: any Error = LLMError.invalidOutput("no card in the answer")
+                    var isDeferred = false
+                    continuation.yield(tally.progress())
+
+                    var index = 0
+                    while index < queue.count {
+                        let step = queue[index]
+                        if step.isAlone, !hasEvidence, barren >= Self.barrenLimit {
+                            // Nothing has answered yet: the phrases' trouble, or the model's? The
+                            // batches will tell — these wait behind them. No batches: stop.
+                            let ahead = queue[index...]
+                            guard !isDeferred, ahead.contains(where: { !$0.isAlone }) else { throw lastError }
+                            queue = Array(queue[..<index]) + ahead.filter { !$0.isAlone } + ahead.filter(\.isAlone)
+                            isDeferred = true
+                            continue
+                        }
+                        index += 1
                         try Task.checkCancellation()
-                        let batch = Array(todo[start..<min(start + Self.batchSize, todo.count)])
-                        continuation.yield(FixProgress(processed: processed, total: todo.count, changed: changed,
-                                                       failed: failed, sent: processed + batch.count))
-                        let fixes = try await Self.ask(llm, template, about: batch)
-                        if fixes == nil { failed += batch.count }
-                        for expression in batch {
-                            let fixed = Self.apply(fixes?[expression.id.uuidString], to: expression,
+                        continuation.yield(tally.progress(sending: step.phrases.count))
+
+                        let answer = try await Self.ask(llm, template, about: step.phrases)
+                        var fixes: [String: FixCardItem] = [:]
+                        switch answer {
+                        case .success(let cards): fixes = cards
+                        case .failure(let error): lastError = error
+                        }
+                        if step.phrases.contains(where: { fixes[$0.id.uuidString] != nil }) {
+                            barren = 0
+                            hasEvidence = true
+                            suspects.forEach { tally.giveUp($0) }
+                            suspects = []
+                        } else {
+                            barren += 1
+                        }
+                        for expression in step.phrases {
+                            let fix = fixes[expression.id.uuidString]
+                            if step.isAlone { tally.waiting -= 1 }
+                            if fix != nil {
+                                tally.answered(expression.id)
+                            } else if !step.isAlone {
+                                tally.unanswered.insert(expression.id)
+                            } else if hasEvidence || tally.askedAlone.contains(expression.id) {
+                                tally.giveUp(expression.id)
+                            } else {
+                                tally.askedAlone.insert(expression.id)
+                                suspects.append(expression.id)
+                            }
+                            let fixed = Self.apply(fix, to: expression,
                                                    studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
                             if fixed != expression {
                                 try await expressions.update(fixed)
-                                changed += 1
+                                tally.changed += 1
                             }
                         }
-                        if let last = batch.last {
-                            await progress.save(CardFixCheckpoint(createdAt: last.createdAt, id: last.id), for: scope)
-                        }
-                        processed += batch.count
-                        continuation.yield(FixProgress(processed: processed, total: todo.count,
-                                                       changed: changed, failed: failed))
+                        // The position moves only with the batches; a phrase asked alone lies before it.
+                        if !step.isAlone, let last = step.phrases.last { tally.position = (last.createdAt, last.id) }
+                        tally.processed += step.phrases.count
+                        if let checkpoint = tally.checkpoint { await progress.save(checkpoint, for: scope) }
+                        continuation.yield(tally.progress())
+                        if !step.isAlone, barren >= Self.barrenLimit { throw lastError }
                     }
                     continuation.finish()
                 } catch {
@@ -212,6 +325,61 @@ public struct FixCardsInteractor: FixCardsUseCase {
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    // MARK: Run
+
+    /// One request of a run: a batch of phrases it hasn't reached, or one phrase an earlier run left
+    /// unanswered, asked alone.
+    private struct Step {
+        let phrases: [Expression]
+        let isAlone: Bool
+    }
+
+    /// What the run's next checkpoint and progress step are made of.
+    private struct Tally {
+        var position: (createdAt: Date, id: UUID)?
+        var unanswered: Set<UUID>
+        var askedAlone: Set<UUID>
+        var givenUp: Set<UUID>
+        var processed = 0, changed = 0, gaveUp = 0
+        /// Phrases an earlier run left unanswered that this one hasn't asked about yet.
+        var waiting: Int
+        let total: Int
+
+        /// Only phrases still in the scope are kept (not the deleted, nor — in "only incomplete" —
+        /// those completed since).
+        init(_ checkpoint: CardFixCheckpoint?, keeping ids: Set<UUID>, again: Int, total: Int) {
+            position = checkpoint.map { ($0.createdAt, $0.id) }
+            unanswered = (checkpoint?.unanswered ?? []).intersection(ids)
+            askedAlone = (checkpoint?.askedAlone ?? []).intersection(unanswered)
+            givenUp = (checkpoint?.givenUp ?? []).intersection(ids)
+            waiting = again
+            self.total = total
+        }
+
+        mutating func answered(_ id: UUID) {
+            unanswered.remove(id)
+            askedAlone.remove(id)
+        }
+
+        mutating func giveUp(_ id: UUID) {
+            answered(id)
+            givenUp.insert(id)
+            gaveUp += 1
+        }
+
+        var checkpoint: CardFixCheckpoint? {
+            position.map {
+                CardFixCheckpoint(createdAt: $0.createdAt, id: $0.id, unanswered: unanswered,
+                                  askedAlone: askedAlone, givenUp: givenUp)
+            }
+        }
+
+        func progress(sending: Int = 0) -> FixProgress {
+            FixProgress(processed: processed, total: total, changed: changed, failed: unanswered.count - waiting,
+                        sent: processed + sending, givenUp: gaveUp)
         }
     }
 
@@ -225,6 +393,57 @@ public struct FixCardsInteractor: FixCardsUseCase {
             .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
     }
 
+    public func complete(_ expressions: [Expression], studiedLanguage: String, nativeLanguage: String) async throws
+        -> [Expression] {
+        let lacking = expressions.filter(Self.needsCompletion)
+        guard !lacking.isEmpty else { return expressions }
+        let template = FixCardsTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        var completed: [UUID: Expression] = [:]
+        for start in stride(from: 0, to: lacking.count, by: Self.batchSize) {
+            try Task.checkCancellation()
+            let batch = Array(lacking[start..<min(start + Self.batchSize, lacking.count)])
+            // Asked once more about whatever the first answer left out. (An unusable answer was
+            // already asked for twice.)
+            var waiting = batch
+            for _ in 1...2 where !waiting.isEmpty {
+                guard case .success(let fixes) = try await Self.ask(llm, template, about: waiting) else { break }
+                for expression in waiting {
+                    guard let fix = fixes[expression.id.uuidString] else { continue }
+                    completed[expression.id] = try await store(fix, onto: expression, studiedLanguage: studiedLanguage,
+                                                               nativeLanguage: nativeLanguage)
+                }
+                waiting = waiting.filter { completed[$0.id] == nil }
+            }
+            guard waiting.isEmpty else {
+                throw LLMError.invalidOutput("no answer for \(waiting.count) of the phrases to complete")
+            }
+        }
+        return expressions.map { completed[$0.id] ?? $0 }
+    }
+
+    public func fix(_ expression: Expression, studiedLanguage: String, nativeLanguage: String) async throws -> Expression {
+        let template = FixCardsTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        // Asked for by hand, about one card: an answer without it is a failure, not "letter case only".
+        guard case .success(let fixes) = try await Self.ask(llm, template, about: [expression]),
+              let fix = fixes[expression.id.uuidString] else {
+            throw LLMError.invalidOutput("no usable answer for the card")
+        }
+        return try await store(fix, onto: expression, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+
+    /// The card with the model's fix applied (`apply`), stored if anything changed.
+    private func store(_ fix: FixCardItem?, onto expression: Expression, studiedLanguage: String,
+                       nativeLanguage: String) async throws -> Expression {
+        let fixed = Self.apply(fix, to: expression, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        if fixed != expression { try await expressions.update(fixed) }
+        return fixed
+    }
+
+    /// What a phrase needs before it becomes flashcards: a translation, an example, synonyms or a note.
+    public static func needsCompletion(_ expression: Expression) -> Bool {
+        expression.ru.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isIncomplete(expression)
+    }
+
     /// An example, synonyms or a note is missing.
     public static func isIncomplete(_ expression: Expression) -> Bool {
         let blank = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -236,30 +455,41 @@ public struct FixCardsInteractor: FixCardsUseCase {
         all.filter { isAfter($0, checkpoint) }
     }
 
+    /// Whether the next run would send `expression`: the last one hasn't reached it, or went past it
+    /// without the model's answer.
+    static func isPending(_ expression: Expression, _ checkpoint: CardFixCheckpoint?) -> Bool {
+        isAfter(expression, checkpoint) || (checkpoint?.unanswered.contains(expression.id) ?? false)
+    }
+
+    static func chunks(_ expressions: [Expression], of size: Int) -> [[Expression]] {
+        stride(from: 0, to: expressions.count, by: size).map {
+            Array(expressions[$0..<min($0 + size, expressions.count)])
+        }
+    }
+
     /// Whether a run that stopped at `checkpoint` hasn't reached `expression` yet.
     static func isAfter(_ expression: Expression, _ checkpoint: CardFixCheckpoint?) -> Bool {
         guard let checkpoint else { return true }
         return (expression.createdAt, expression.id.uuidString) > (checkpoint.createdAt, checkpoint.id.uuidString)
     }
 
-    /// The model's fixes for a batch, by card id — one retry; nil when the answer is unusable twice
-    /// (those cards still get their letter case fixed). Failures the next batch would hit too are thrown.
+    /// The model's fixes for these phrases, by card id (a card it left out isn't there), or why there's
+    /// no answer for this request (`RunFailure.answer` / `.rejected` — the next one may well go
+    /// through). THROWS when the service doesn't answer (twice), or asking again can't help now.
     private static func ask(_ llm: LLMClient, _ template: FixCardsTemplate,
-                            about batch: [Expression]) async throws -> [String: FixCardItem]? {
+                            about batch: [Expression]) async throws -> Result<[String: FixCardItem], any Error> {
         let items = batch.map {
             FixCardItem(id: $0.id.uuidString, expression: $0.en, translation: $0.ru, example: $0.example,
                         synonyms: $0.synonyms, context: $0.context)
         }
-        for attempt in 1...2 {
-            do {
-                let result = try await llm.run(template, input: items)
-                return Dictionary(result.cards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            } catch {
-                guard CatchCardsFromPhotosInteractor.canGoOn(after: error) else { throw error }
-                if attempt == 2 { return nil }
-            }
+        switch try await RunRequest.send({ try await llm.run(template, input: items) }) {
+        case .answer(let result):
+            return .success(Dictionary(result.cards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
+        case .none(let error, .service):
+            throw error
+        case .none(let error, _):
+            return .failure(error)
         }
-        return nil
     }
 
     /// The card with the model's fix (if any) — a field it left empty keeps what the card had — every

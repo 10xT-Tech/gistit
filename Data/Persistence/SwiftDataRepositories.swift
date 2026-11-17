@@ -5,6 +5,16 @@
 //  @ModelActor isolates each repository's ModelContext to its own actor, so persistence runs off
 //  the main thread and is Sendable-safe under Swift 6.
 //
+//  THE DECK IS KEPT IN MEMORY. Reading every phrase and every card out of SwiftData costs about a
+//  second on a 10k-phrase deck (0.3 s the phrases, 0.5–1 s the cards), and the app asks for "all of
+//  them" all the time — the dashboard on every appearance, the start and the end of a practice set,
+//  every list, the duplicate check. So the expression and the review-card repositories read the store
+//  ONCE and answer `all()` from memory afterwards, keeping that copy in step with every write they
+//  make (after the save succeeded; a failed save is rolled back and the copy is still right). This
+//  holds because each is the ONLY writer of its table: ONE instance per store — a second instance, or
+//  another process writing the store, would leave the copy stale. `footprint()` says how much it holds
+//  (Settings).
+//
 
 import Foundation
 import SwiftData
@@ -14,52 +24,90 @@ import Domain
 private let persistenceLog = Logger(subsystem: "tech.10xt.englishhelper", category: "persistence")
 
 @ModelActor
-public actor SwiftDataExpressionRepository: ExpressionRepository {
+public actor SwiftDataExpressionRepository: ExpressionRepository, DeckFootprintReporting {
+    /// Every expression, newest first (as `all()` returns them) — read once, then kept in step with
+    /// every write (see the file header). Nil until the first read.
+    private var cache: [Domain.Expression]?
+
     public func all() async throws -> [Domain.Expression] {
+        if let cache { return cache }
         let descriptor = FetchDescriptor<ExpressionModel>(
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        return try modelContext.fetch(descriptor).map { $0.toDomain() }
+        let all = try modelContext.fetch(descriptor).map { $0.toDomain() }
+        cache = all
+        return all
     }
 
     public func add(_ expression: Domain.Expression) async throws {
-        modelContext.insert(ExpressionModel(expression))
-        try save()
+        try await addAll([expression])
     }
 
     public func addAll(_ expressions: [Domain.Expression]) async throws {
-        for expression in expressions { modelContext.insert(ExpressionModel(expression)) }
+        guard !expressions.isEmpty else { return }
+        let models = expressions.map(ExpressionModel.init)
+        for model in models { modelContext.insert(model) }
         try save()
+        remember {
+            $0.append(contentsOf: models.map { $0.toDomain() })
+            $0.sort { $0.createdAt > $1.createdAt }
+        }
     }
 
     public func update(_ expression: Domain.Expression) async throws {
         guard let model = try fetchModel(id: expression.id) else { throw RepositoryError.notFound }
         model.apply(expression)
         try save()
+        let stored = model.toDomain()                      // what the row holds now (its date never changes)
+        remember { list in
+            if let index = list.firstIndex(where: { $0.id == stored.id }) { list[index] = stored }
+        }
     }
 
     public func delete(id: Domain.Expression.ID) async throws {
         guard let model = try fetchModel(id: id) else { return }
         modelContext.delete(model)
         try save()
+        remember { $0.removeAll { $0.id == id } }
+    }
+
+    public func deleteAll(ids: Set<Domain.Expression.ID>) async throws {
+        guard !ids.isEmpty else { return }
+        // One read, matched in memory (an IN over thousands of ids would hit SQLite's parameter limit).
+        for model in try modelContext.fetch(FetchDescriptor<ExpressionModel>()) where ids.contains(model.id) {
+            modelContext.delete(model)
+        }
+        try save()
+        remember { $0.removeAll { ids.contains($0.id) } }
     }
 
     public func setLearned(_ learned: Bool, id: Domain.Expression.ID) async throws {
         guard let model = try fetchModel(id: id) else { throw RepositoryError.notFound }
         model.learned = learned
         try save()
+        remember { list in
+            if let index = list.firstIndex(where: { $0.id == id }) { list[index].learned = learned }
+        }
     }
 
     public func find(en: String) async throws -> Domain.Expression? {
-        // Case-insensitive/trimmed match in memory: the study list is small (single user) and
-        // SwiftData #Predicate can't express the same normalization reliably.
+        // Case-insensitive/trimmed match in memory: SwiftData #Predicate can't express the same
+        // normalization reliably. Oldest first → the original of several.
         let key = SwiftDataExpressionRepository.normalizedKey(en)
-        let descriptor = FetchDescriptor<ExpressionModel>(
-            sortBy: [SortDescriptor(\.createdAt, order: .forward)]   // oldest first → return the original
-        )
-        return try modelContext.fetch(descriptor)
-            .first { SwiftDataExpressionRepository.normalizedKey($0.en) == key }?
-            .toDomain()
+        return try await all().last { SwiftDataExpressionRepository.normalizedKey($0.en) == key }
+    }
+
+    /// Bring the in-memory copy in step with a write that was just SAVED (no copy yet → nothing to do:
+    /// the first read will see the store as it is).
+    private func remember(_ change: (inout [Domain.Expression]) -> Void) {
+        guard var list = cache else { return }
+        cache = nil                                        // one owner while it changes: no copy of the storage
+        change(&list)
+        cache = list
+    }
+
+    public func footprint() async -> DeckFootprint {
+        DeckFootprint(expressions: (try? await all()) ?? [])
     }
 
     private func fetchModel(id: UUID) throws -> ExpressionModel? {
@@ -68,28 +116,45 @@ public actor SwiftDataExpressionRepository: ExpressionRepository {
         return try modelContext.fetch(descriptor).first
     }
 
+    /// A failed save is rolled back: its changes must not stay pending in the context and ride along
+    /// with the NEXT save — applying, later and half, a write the caller was told had failed.
     private func save() throws {
         do { try modelContext.save() }
-        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+        catch {
+            modelContext.rollback()
+            throw RepositoryError.persistenceFailed(error.localizedDescription)
+        }
     }
 }
 
 @ModelActor
-public actor SwiftDataReviewCardRepository: ReviewCardRepository {
+public actor SwiftDataReviewCardRepository: ReviewCardRepository, DeckFootprintReporting {
+    /// Every card, by id — read once, then kept in step with every write (see the file header). Nil
+    /// until the first read. Answering a card stores ONE card and updates one entry here, so the end
+    /// of a practice set doesn't read the deck again.
+    private var cache: [UUID: ReviewCard]?
+
     public func all() async throws -> [ReviewCard] {
-        try modelContext.fetch(FetchDescriptor<ReviewCardModel>()).compactMap { $0.toDomain() }
+        if let cache { return Array(cache.values) }
+        let all = try modelContext.fetch(FetchDescriptor<ReviewCardModel>()).compactMap { $0.toDomain() }
+        cache = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return all
     }
 
     public func save(_ card: ReviewCard) async throws {
         let id = card.id
         var descriptor = FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        if let model = try modelContext.fetch(descriptor).first {
-            model.apply(card)
+        let model: ReviewCardModel
+        if let existing = try modelContext.fetch(descriptor).first {
+            existing.apply(card)
+            model = existing
         } else {
-            modelContext.insert(ReviewCardModel(card))
+            model = ReviewCardModel(card)
+            modelContext.insert(model)
         }
         try save()
+        remember(stored: [model])
     }
 
     public func saveAll(_ cards: [ReviewCard]) async throws {
@@ -97,16 +162,109 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
         // SQLite's parameter limit.
         let existing = try modelContext.fetch(FetchDescriptor<ReviewCardModel>())
         let byID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var stored: [ReviewCardModel] = []
         for card in cards {
-            if let model = byID[card.id] { model.apply(card) } else { modelContext.insert(ReviewCardModel(card)) }
+            if let model = byID[card.id] {
+                model.apply(card)
+                stored.append(model)
+            } else {
+                let model = ReviewCardModel(card)
+                modelContext.insert(model)
+                stored.append(model)
+            }
         }
         try save()
+        remember(stored: stored)
+    }
+
+    /// Bring the in-memory copy in step with rows that were just SAVED — as the ROWS hold them (an
+    /// update never moves a card to another expression, whatever the value passed in said) — and
+    /// rows that were deleted. No copy yet → nothing to do: the first read will see the store as it is.
+    private func remember(stored: [ReviewCardModel] = [], deleted: [UUID] = []) {
+        guard var all = cache else { return }
+        cache = nil                                        // one owner while it changes: no copy of the storage
+        for id in deleted { all[id] = nil }
+        for model in stored { all[model.id] = model.toDomain() }
+        cache = all
+    }
+
+    public func footprint() async -> DeckFootprint {
+        DeckFootprint(cardCount: ((try? await all()) ?? []).count)
+    }
+
+    /// Check and insert inside one actor call with no suspension in between, and one save. A few
+    /// expressions (a move from Caught): only their cards are read; many (a file import): the deck is
+    /// read once — an IN over thousands of ids would hit SQLite's parameter limit.
+    public func addMissing(_ cards: [ReviewCard]) async throws {
+        guard !cards.isEmpty else { return }
+        let expressionIDs = Set(cards.map(\.expressionID))
+        var existing: [ReviewCardModel] = []
+        if expressionIDs.count <= Self.narrowReadLimit {
+            for expressionID in expressionIDs {
+                existing += try modelContext.fetch(
+                    FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.expressionID == expressionID }))
+            }
+        } else {
+            existing = try modelContext.fetch(FetchDescriptor<ReviewCardModel>())
+        }
+        var taken = Set(existing.map { Slot(expressionID: $0.expressionID, direction: $0.directionRaw) })
+        var inserted: [ReviewCardModel] = []
+        for card in cards
+        where taken.insert(Slot(expressionID: card.expressionID, direction: card.direction.rawValue)).inserted {
+            let model = ReviewCardModel(card)
+            modelContext.insert(model)
+            inserted.append(model)
+        }
+        guard !inserted.isEmpty else { return }
+        try save()
+        remember(stored: inserted)
+    }
+
+    /// Up to this many expressions, `addMissing` reads their cards one expression at a time.
+    private static let narrowReadLimit = 20
+
+    /// One card per expression and direction.
+    private struct Slot: Hashable {
+        let expressionID: UUID
+        let direction: String
     }
 
     public func delete(expressionID: UUID) async throws {
         let descriptor = FetchDescriptor<ReviewCardModel>(predicate: #Predicate { $0.expressionID == expressionID })
-        for model in try modelContext.fetch(descriptor) { modelContext.delete(model) }
+        let models = try modelContext.fetch(descriptor)
+        guard !models.isEmpty else { return }
+        let ids = models.map(\.id)
+        for model in models { modelContext.delete(model) }
         try save()
+        remember(deleted: ids)
+    }
+
+    /// One save for the whole replacement; a failed save is rolled back (`save()`), so the cards are
+    /// either all as before or all replaced.
+    public func replaceCards(of expressionIDs: Set<UUID>, with cards: [ReviewCard]) async throws {
+        let replacement = Dictionary(cards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var written: Set<UUID> = []
+        var stored: [ReviewCardModel] = [], deleted: [UUID] = []
+        // One read, matched in memory (an IN over many ids would hit SQLite's parameter limit).
+        for model in try modelContext.fetch(FetchDescriptor<ReviewCardModel>()) {
+            if let card = replacement[model.id] {
+                model.expressionID = card.expressionID       // a kept card may move to the kept phrase
+                model.directionRaw = card.direction.rawValue
+                model.apply(card)
+                written.insert(model.id)
+                stored.append(model)
+            } else if expressionIDs.contains(model.expressionID) {
+                deleted.append(model.id)
+                modelContext.delete(model)
+            }
+        }
+        for card in cards where !written.contains(card.id) {
+            let model = ReviewCardModel(card)
+            modelContext.insert(model)
+            stored.append(model)
+        }
+        try save()
+        remember(stored: stored, deleted: deleted)
     }
 
     public func appendLog(_ log: ReviewLog) async throws {
@@ -114,14 +272,20 @@ public actor SwiftDataReviewCardRepository: ReviewCardRepository {
         try save()
     }
 
-    public func logs(since date: Date) async throws -> [ReviewLog] {
-        let descriptor = FetchDescriptor<ReviewLogModel>(predicate: #Predicate { $0.reviewedAt >= date })
+    public func logs(in period: Range<Date>) async throws -> [ReviewLog] {
+        let from = period.lowerBound, to = period.upperBound
+        let descriptor = FetchDescriptor<ReviewLogModel>(predicate: #Predicate { $0.reviewedAt >= from && $0.reviewedAt < to })
         return try modelContext.fetch(descriptor).compactMap { $0.toDomain() }
     }
 
+    /// A failed save is rolled back: its changes must not stay pending in the context and ride along
+    /// with the NEXT save — applying, later and half, a write the caller was told had failed.
     private func save() throws {
         do { try modelContext.save() }
-        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+        catch {
+            modelContext.rollback()
+            throw RepositoryError.persistenceFailed(error.localizedDescription)
+        }
     }
 }
 
@@ -150,9 +314,14 @@ public actor SwiftDataNotDuplicateMarks: NotDuplicateMarking {
         try save()
     }
 
+    /// A failed save is rolled back: its changes must not stay pending in the context and ride along
+    /// with the NEXT save — applying, later and half, a write the caller was told had failed.
     private func save() throws {
         do { try modelContext.save() }
-        catch { throw RepositoryError.persistenceFailed(error.localizedDescription) }
+        catch {
+            modelContext.rollback()
+            throw RepositoryError.persistenceFailed(error.localizedDescription)
+        }
     }
 }
 
@@ -208,11 +377,7 @@ public actor SwiftDataHistoryRepository: HistoryRepository {
         let stale = try modelContext.fetch(descriptor)
         guard !stale.isEmpty else { return }
         // Collect referenced recordings BEFORE deleting the rows (the file name lives in the blob).
-        let orphanedAudio: [String] = stale.compactMap { model in
-            guard let entry = try? model.toDomain(),
-                  case .liveTranslation(_, _, let fileName?, _) = entry.result else { return nil }
-            return fileName
-        }
+        let orphanedAudio: [String] = stale.compactMap { (try? $0.toDomain())?.result.recordingFileName }
         for model in stale { modelContext.delete(model) }
         do {
             try modelContext.save()
@@ -223,6 +388,20 @@ public actor SwiftDataHistoryRepository: HistoryRepository {
             throw RepositoryError.persistenceFailed(error.localizedDescription)
         }
         for fileName in orphanedAudio { await recordings?.delete(fileName: fileName) }
+    }
+
+    /// Every row's recording — nil as soon as one row can't be decoded: its recording (if it has one)
+    /// is unknown, and the sweep must not take it for an orphan.
+    public func referencedRecordings() async throws -> Set<String>? {
+        var names: Set<String> = []
+        for model in try modelContext.fetch(FetchDescriptor<HistoryModel>()) {
+            guard let entry = try? model.toDomain() else {
+                persistenceLog.error("Undecodable history row kind=\(model.kindRaw, privacy: .public): the recordings sweep is skipped")
+                return nil
+            }
+            if let name = entry.result.recordingFileName { names.insert(name) }
+        }
+        return names
     }
 
     public func recent(limit: Int) async throws -> [HistoryEntry] {

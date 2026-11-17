@@ -19,12 +19,15 @@ public final class StudyDashboardViewModel {
 
     private let flashcards: any FlashcardsUseCase
     private let pronounce: any PlayPronunciationUseCase
+    /// For the wand on a card in practice (fix it with the model); nil = no wand.
+    private let fixCards: (any FixCardsUseCase)?
     private let now: () -> Date
 
     public init(flashcards: any FlashcardsUseCase, pronounce: any PlayPronunciationUseCase,
-                now: @escaping () -> Date = Date.init) {
+                fixCards: (any FixCardsUseCase)? = nil, now: @escaping () -> Date = Date.init) {
         self.flashcards = flashcards
         self.pronounce = pronounce
+        self.fixCards = fixCards
         self.now = now
     }
 
@@ -36,7 +39,8 @@ public final class StudyDashboardViewModel {
     /// check for the free plan is the view's (it owns the plan).
     public func startPractice(extra: Bool = false) {
         guard session == nil else { return }
-        session = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce, extra: extra, now: now)
+        session = FlashcardSessionViewModel(flashcards: flashcards, pronounce: pronounce, extra: extra,
+                                            fixCards: fixCards, now: now)
     }
 
     /// The session screen closed.

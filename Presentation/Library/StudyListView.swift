@@ -27,6 +27,9 @@ public struct StudyListView: View {
     @State private var showImporter = false
     /// In flashcards: the card opened for a look.
     @State private var previewed: Domain.Expression?
+    /// "Subscribe" was chosen in the limit sheet: the paywall opens once that sheet is gone (the root
+    /// can't present it over a sheet that is still closing).
+    @State private var subscribeAfterLimit = false
     @Environment(AppUIState.self) private var ui
     @Environment(SubscriptionState.self) private var subscription
 
@@ -131,15 +134,18 @@ public struct StudyListView: View {
             FixCardsView(model: session) { model.fixSession = nil }
                 .environment(subscription)
         }
-        .sheet(item: $model.duplicatesSession, onDismiss: { model.endDuplicates() }) { session in
-            DuplicatesView(model: session) { model.duplicatesSession = nil }
+        // However the sheet goes away — Done, or swiped down, where SwiftUI clears the item before any
+        // onDismiss — it ends through `endDuplicates` while the session is still there to be stopped.
+        .sheet(item: Binding(get: { model.duplicatesSession },
+                             set: { if $0 == nil { model.endDuplicates() } })) { session in
+            DuplicatesView(model: session) { model.endDuplicates() }
                 .environment(subscription)
         }
         .sheet(item: $model.lookAlike) { lookAlike in
             ConfirmSheet(icon: "square.on.square",
                          title: Loc.t("Похоже, уже есть во флеш-картах", "Looks like it's already in flashcards"),
-                         message: Loc.t("«\(lookAlike.caught.en)» похоже на эти карточки. «Объединить» — модель соберёт одну карточку (несколько значений пронумерует), прогресс изучения сохранится.",
-                                        "\"\(lookAlike.caught.en)\" looks like these cards. Merge — the model makes one card (numbering several meanings), and the learning progress stays."),
+                         message: Loc.t("«\(lookAlike.caught.en)» похоже на эти карточки. «Объединить» — фраза станет одной карточкой с похожей (несколько значений пронумеруются) и уйдёт из «Пойманных»; прогресс изучения сохранится.",
+                                        "\"\(lookAlike.caught.en)\" looks like these cards. Merge — it becomes one card with its look-alike (several meanings are numbered) and leaves Caught; the learning progress stays."),
                          actions: [
                              ConfirmAction(Loc.t("Объединить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci"),
                                            icon: "arrow.triangle.merge") { model.mergeIntoFlashcards(lookAlike) },
@@ -150,21 +156,15 @@ public struct StudyListView: View {
                 PhraseList(phrases: lookAlike.existing.map { ($0.en, $0.ru) })
             }
         }
-        .sheet(item: $model.notADuplicate) { lookAlike in
-            ConfirmSheet(icon: "questionmark.square.dashed",
-                         title: Loc.t("Похоже, это другая фраза", "Looks like another phrase"),
-                         message: Loc.t("Модель не нашла среди похожих карточек ту же фразу, что «\(lookAlike.caught.en)» — объединять не с чем.",
-                                        "The model found none of the look-alikes to be the same phrase as \"\(lookAlike.caught.en)\" — nothing to merge with."),
-                         actions: [
-                             ConfirmAction(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément",
-                                                 "Mover por separado", "Separat verschieben", "Sposta separatamente"),
-                                           icon: "rectangle.stack.badge.plus") { model.moveSeparately(lookAlike) },
-                         ])
-        }
-        .sheet(item: $previewed) { expression in
+        .sheet(item: $previewed, onDismiss: { model.cardFix?.clear() }) { opened in
+            // The row as it is now: the wand may have fixed the card while its view is open.
+            let expression = model.expressions.first { $0.id == opened.id } ?? opened
             CardPreviewView(expression: expression, cards: model.cards(for: expression),
                             isPlaying: model.isPlaying(expression), onPlay: { model.play(expression) },
-                            notDuplicates: model.notDuplicates(of: expression))
+                            notDuplicates: model.notDuplicates(of: expression),
+                            fixStatus: model.cardFix?.status(for: expression),
+                            onFix: model.cardFix == nil ? nil : { model.fixCard(expression) })
+                .environment(subscription)
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
@@ -232,24 +232,26 @@ public struct StudyListView: View {
                          }])
         }
         .sheet(isPresented: $model.showMoveAllConfirmation) {
-            let all = model.expressions.count, alike = model.moveAllLookAlikes.count
+            let all = model.expressions.count, alike = model.expressions.filter(model.isLookAlike).count
             ConfirmSheet(icon: "rectangle.stack.badge.plus",
                          title: Loc.t("Перенести все во флеш-карты?", "Move all to flashcards?"),
                          message: alike == 0
                             ? Loc.t("Все фразы из «Пойманных» станут флеш-картами, список очистится.",
                                     "Every phrase in Caught becomes flashcards, and the list empties.")
-                            : Loc.t("Похожи на фразы во флеш-картах: \(alike). Без них они останутся в «Пойманных» — их можно перенести по одной и объединить.",
-                                    "Look like phrases in flashcards: \(alike). Leave them out, and they stay in Caught — move them one by one to merge."),
+                            : Loc.t("Похожи на фразы во флеш-картах: \(alike) — они отмечены в списке. «Перенести новые» оставит их в «Пойманных»: их можно перенести по одной и объединить.",
+                                    "Look like phrases in flashcards: \(alike) — they're marked in the list. \"Move new\" leaves them in Caught: move them one by one to merge."),
                          actions: (alike > 0 && alike < all ? [
-                             ConfirmAction(Loc.t("Перенести без похожих (\(all - alike))", "Move all but look-alikes (\(all - alike))",
-                                                 "Déplacer sauf les similaires (\(all - alike))", "Mover salvo las parecidas (\(all - alike))",
-                                                 "Ohne ähnliche verschieben (\(all - alike))", "Sposta tranne le simili (\(all - alike))")) {
+                             ConfirmAction(Loc.t("Перенести новые (\(all - alike))", "Move new (\(all - alike))",
+                                                 "Déplacer les nouvelles (\(all - alike))", "Mover las nuevas (\(all - alike))",
+                                                 "Neue verschieben (\(all - alike))", "Sposta le nuove (\(all - alike))"),
+                                           accessibilityID: "caught.moveNew") {
                                  model.moveAllToFlashcards(skippingLookAlikes: true)
                              },
                          ] : []) + [
-                             ConfirmAction(Loc.t("Перенести (\(all))", "Move (\(all))", "Déplacer (\(all))", "Mover (\(all))",
-                                                 "Verschieben (\(all))", "Sposta (\(all))"),
-                                           role: alike > 0 && alike < all ? .secondary : .primary) {
+                             ConfirmAction(Loc.t("Перенести все (\(all))", "Move all (\(all))", "Tout déplacer (\(all))",
+                                                 "Mover todas (\(all))", "Alle verschieben (\(all))", "Sposta tutte (\(all))"),
+                                           role: alike > 0 && alike < all ? .secondary : .primary,
+                                           accessibilityID: "caught.moveAll.confirm") {
                                  model.moveAllToFlashcards()
                              },
                          ])
@@ -275,6 +277,20 @@ public struct StudyListView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(model.actionError ?? "")
+        }
+        // The free plan's limit stopped a move or a merge: the same message, with the way out.
+        .sheet(item: limitNoticeBinding, onDismiss: {
+            guard subscribeAfterLimit else { return }
+            subscribeAfterLimit = false
+            ui.showPaywall = true
+        }) { notice in
+            ConfirmSheet(icon: "hourglass",
+                         title: Loc.t("Лимит бесплатного плана", "Free plan limit", "Limite de l'offre gratuite",
+                                      "Límite del plan gratuito", "Limit des kostenlosen Plans", "Limite del piano gratuito"),
+                         message: notice.message,
+                         actions: [ConfirmAction(Loc.t("Оформить подписку", "Subscribe"), icon: "sparkles",
+                                                 accessibilityID: "limit.subscribe") { subscribeAfterLimit = true }],
+                         cancelTitle: Loc.t("Не сейчас", "Not now", "Pas maintenant", "Ahora no", "Nicht jetzt", "Non ora"))
         }
     }
 
@@ -351,9 +367,16 @@ public struct StudyListView: View {
     private var list: some View {
         List {
             if model.canMoveToFlashcards && !model.isSearching {
-                EHButton(Loc.t("Перенести все во флеш-карты", "Move all to flashcards"),
-                         icon: "rectangle.stack.badge.plus", kind: .tonal, fillWidth: true,
-                         accessibilityID: "caught.moveAll") { model.prepareMoveAll() }
+                Group {
+                    if let bulk = model.bulkMove {
+                        BulkMoveProgress(move: bulk) { model.stopMoving() }
+                    } else {
+                        EHButton(Loc.t("Перенести все во флеш-карты", "Move all to flashcards"),
+                                 icon: "rectangle.stack.badge.plus", kind: .tonal, fillWidth: true,
+                                 accessibilityID: "caught.moveAll") { model.prepareMoveAll() }
+                            .disabled(!model.movingIDs.isEmpty)
+                    }
+                }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: Tokens.Space.s4, leading: Tokens.Space.s16,
@@ -365,7 +388,9 @@ public struct StudyListView: View {
                          onPlay: { model.play(expression) },
                          onExplain: { ui.pendingExplain = ExplainRequest(text: expression.en) },
                          onStudy: model.canMoveToFlashcards ? { model.moveToFlashcards(expression) } : nil,
+                         isMoving: model.isMoving(expression),
                          cards: model.cards(for: expression),
+                         isLookAlike: caught && model.isLookAlike(expression),
                          onOpen: caught ? nil : { previewed = expression })
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -408,8 +433,15 @@ public struct StudyListView: View {
         Binding(get: { model.importMessage != nil }, set: { if !$0 { model.clearImportMessage() } })
     }
 
+    /// The plain alert — for every action error but the plan's limit, which gets `limitNoticeBinding`.
     private var actionErrorBinding: Binding<Bool> {
-        Binding(get: { model.actionError != nil }, set: { if !$0 { model.clearActionError() } })
+        Binding(get: { model.actionError != nil && !model.actionNeedsSubscription },
+                set: { if !$0 { model.clearActionError() } })
+    }
+
+    private var limitNoticeBinding: Binding<LimitNotice?> {
+        Binding(get: { model.actionNeedsSubscription ? model.actionError.map(LimitNotice.init) : nil },
+                set: { if $0 == nil { model.clearActionError() } })
     }
 
     private func writeTemp(_ deck: ExportedDeck) -> URL? {
@@ -430,8 +462,12 @@ private struct StudyRow: View {
     let onExplain: () -> Void
     /// Move into flashcards; nil hides the action (flashcards not wired).
     let onStudy: (() -> Void)?
+    /// Caught: being completed and moved into flashcards right now.
+    var isMoving = false
     /// In flashcards: the expression's cards — shown as status tags (stage + reviews).
     var cards: [ReviewCard] = []
+    /// Caught: a check found the phrase to look like one already in flashcards.
+    var isLookAlike = false
     /// In flashcards: tapping the row opens the whole card.
     var onOpen: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -451,6 +487,10 @@ private struct StudyRow: View {
                     Text(expression.synonyms.joined(separator: " · "))
                         .textStyle(Tokens.Text.footnote)
                         .foregroundStyle(Tokens.Content.tertiary)
+                }
+                if isLookAlike {
+                    LookAlikeTag()
+                        .padding(.top, Tokens.Space.s4)
                 }
                 if !cards.isEmpty {
                     // Two tags side by side; stacked when they don't fit (narrow width, large text).
@@ -488,7 +528,13 @@ private struct StudyRow: View {
                     ShareButton(expression.cardText, style: .icon,
                                 accessibilityLabel: Loc.t("Поделиться карточкой", "Share card"))
                 }
-                if let onStudy {
+                if isMoving {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: Tokens.Icon.cardAction, height: Tokens.Icon.cardAction)
+                        .accessibilityLabel(Loc.t("Переносится во флеш-карты", "Moving to flashcards"))
+                        .accessibilityIdentifier("saved.moving")
+                } else if let onStudy {
                     // The swipe-right action, as a visible button.
                     Button(action: onStudy) {
                         Image(systemName: "rectangle.stack.badge.plus")
@@ -541,6 +587,64 @@ private struct OpenAction: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// What the limit sheet says — its own value, so the text stays put while the sheet closes.
+private struct LimitNotice: Identifiable {
+    let message: String
+    var id: String { message }
+}
+
+/// "Move all" under way: how many have moved (each leaves the list as it does) and Stop.
+private struct BulkMoveProgress: View {
+    let move: StudyListViewModel.BulkMove
+    let onStop: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s8) {
+            HStack {
+                Text(Loc.t("Переношу во флеш-карты: \(move.done) из \(move.total)",
+                           "Moving to flashcards: \(move.done) of \(move.total)",
+                           "Déplacement vers les cartes : \(move.done) sur \(move.total)",
+                           "Moviendo a tarjetas: \(move.done) de \(move.total)",
+                           "Verschiebe zu Lernkarten: \(move.done) von \(move.total)",
+                           "Spostamento nelle schede: \(move.done) di \(move.total)"))
+                    .textStyle(Tokens.Text.subhead)
+                    .foregroundStyle(Tokens.Content.primary)
+                    .monospacedDigit()
+                Spacer()
+                Button(Loc.t("Стоп", "Stop"), action: onStop)
+                    .accessibilityIdentifier("caught.moveStop")
+            }
+            ProgressLine(done: move.total == 0 ? 0 : Double(move.done) / Double(move.total), breathes: false)
+            Text(Loc.t("Неполные фразы дозаполняются моделью.", "Phrases that lack fields are completed by the model."))
+                .textStyle(Tokens.Text.footnote)
+                .foregroundStyle(Tokens.Content.secondary)
+        }
+        .padding(Tokens.Space.s16)
+        .glassPanel(cornerRadius: Tokens.Radius.card)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("caught.moveProgress")
+    }
+}
+
+/// Caught: the phrase looks like one already in flashcards — moving it asks whether to merge.
+private struct LookAlikeTag: View {
+    var body: some View {
+        HStack(spacing: Tokens.Space.s4) {
+            Image(systemName: "square.on.square")
+                .imageScale(.small)
+            Text(Loc.t("Похожая есть во флеш-картах", "Looks like a card you learn", "Ressemble à une carte étudiée",
+                       "Se parece a una tarjeta que estudias", "Ähnelt einer Lernkarte", "Simile a una scheda che studi"))
+        }
+        .textStyle(Tokens.Text.caption)
+        .foregroundStyle(Tokens.Content.secondary)
+        .padding(.horizontal, Tokens.Space.s8)
+        .padding(.vertical, 3)
+        .background(Tokens.Fill.subtle, in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("caught.lookAlike")
     }
 }
 

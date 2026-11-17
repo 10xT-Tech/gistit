@@ -2,7 +2,67 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
-## 2.0.0 — in development
+## 2.0.1 — in development
+
+**Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap
+the **wand** next to the speaker — on the card in In flashcards, or in practice once the answer is
+shown — and that card goes through the model again: it's corrected and what's missing is filled in,
+right there, and a line under the card says what happened ("The card is updated", or that it was fine
+as it is). Your progress on the card isn't touched, and in practice you still rate it yourself.
+Without a subscription it shares the free plan's one request every 5 minutes; when that's spent, the
+card says so and offers **Subscribe**.
+
+**Moving to flashcards makes a full card.** A phrase that still lacks something — an example, synonyms
+or a note on when it's said — is now completed before it moves, so every flashcard is a full card. A
+phrase leaves Caught only once it really is in flashcards, one after another, with a progress line
+and **Stop** for a long list. If that can't be done — no connection, or the free plan's request limit —
+the move stops, says how far it got and why (with **Subscribe** when it was the limit), and the rest
+stays in Caught. A phrase that looks like one you already learn is marked in the list, and **Move all**
+offers **Move new** (everything but the look-alikes) or **Move all**.
+
+**Faster with a big deck.** With thousands of cards, the Study screen, the start of a practice set and
+the lists used to take a second or two to appear, every time. The app now reads your deck once, when it
+starts, and keeps it at hand: the dashboard, Start and Continue, and the lists open at once. Settings →
+**Disk and memory usage** has a new line, **Phrases and flashcards**: how many phrases and cards you
+have, how much room they take on disk, and how much memory they take while the app is open.
+
+**Fix cards doesn't lose a card.** If the model gives no answer for some cards, they aren't skipped:
+the sheet says how many, and the next run asks about each of them again, one by one. A card the model
+can't handle even on its own is left as it is, and you're told how many. If the service itself stops
+answering, the run stops there instead of going on through the deck — and so do the duplicates check
+and cards from photos.
+
+**Find duplicates, one thing at a time.** A group's own **Check** joins the same queue as the big one —
+tap several in a row and they're asked about together, with one progress line and **Stop**. **Merge all
+duplicates** shows its progress and can be stopped, and a group the model is still checking waits for
+its answer before it can be merged. Tapping twice no longer merges anything twice.
+
+**Online keeps your last words.** When a live session ends, Gist It now gives the last words more room
+to arrive: on a slow connection the wait starts only once everything you said has been sent, and if you
+stop right after switching the direction, what you said after the switch is still translated. A
+session that ends while the phone is locked — you tapped Stop on the Lock Screen, it went quiet for
+five minutes, or a call came in — is saved to History straight away, not when you next open the app.
+
+**Long Online sessions stay smooth.** A lecture or a meeting that runs for an hour or more no longer
+makes the transcript heavier to show with every new word: the screen now updates only the part that is
+still being written.
+
+**A changed clock no longer closes your day.** If the phone's date was ahead while you practised and was
+then put right, those answers used to count as today's on every day until that date came: the daily goal
+looked reached, **Start** had nothing to give, and cards you'd answered three times stayed locked. Now
+only what you answered today counts for today.
+
+**Deleting a phrase doesn't undo your day.** If you delete a phrase you've already answered today — or
+merge it into its duplicate — today's goal keeps that answer. Before, a reached goal could turn into
+"4 of 5" and **Start** asked for one more card.
+
+**The text always matches the answer.** Sent a request on Get it or Say it, typed something else while
+waiting and went to another screen? The answer still arrives — a request you sent is never dropped —
+and the field now shows the text it was for, right away. Before, the new text stayed above an answer
+to the old one until you left the screen once more. Changing the mode or the tone while you wait
+re-runs what you sent, not the unfinished text.
+
+## 2.0.0
 
 **Flashcards.** Practise the words and phrases you've saved right in the app. Tap **Start** and go
 through your cards one by one: see the phrase, recall what it means, tap **Show answer** (or the card)

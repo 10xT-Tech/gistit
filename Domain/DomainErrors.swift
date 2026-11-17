@@ -18,6 +18,10 @@ public enum LLMError: Error, Sendable, Equatable {
     case timedOut                   // the request did not complete within the timeout
     case responseTooLong            // output hit the token budget and was truncated (stop_reason=max_tokens)
     case requestFailed(String)      // any other transport/HTTP failure (detail is diagnostic, NOT a category)
+    /// The service refused THIS request as it is (HTTP 4xx other than key / plan / rate limits — a bad
+    /// or too large request): sending the same content again can't help, while another request may
+    /// well go through. A run of many requests skips it and goes on (`RunFailure`).
+    case requestRejected(String)
     case invalidOutput(String)      // model output did not satisfy the template schema
     case cancelled                  // superseded / task cancelled — never a real failure
     /// The free plan's allowance for this model is used up (App Store build without a subscription).

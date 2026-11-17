@@ -240,9 +240,9 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
                              nextSet: StageCounts(new: pending.new + next.new, learning: pending.learning + next.learning,
                                                   young: pending.young + next.young, mature: pending.mature + next.mature))
 
-        let startOfToday = calendar.startOfDay(for: now)
-        let firstDay = calendar.date(byAdding: .day, value: -(StudyStats.days - 1), to: startOfToday) ?? startOfToday
-        let logs = try await cards.logs(since: firstDay)
+        let thisDay = calendarDay(of: now)
+        let firstDay = calendar.date(byAdding: .day, value: -(StudyStats.days - 1), to: thisDay.lowerBound) ?? thisDay.lowerBound
+        let logs = try await cards.logs(in: firstDay..<thisDay.upperBound)
         var perDay: [Date: Int] = [:]
         for log in logs { perDay[calendar.startOfDay(for: log.reviewedAt), default: 0] += 1 }
         let reviewsByDay = (0..<StudyStats.days).compactMap { offset -> DailyReviews? in
@@ -280,14 +280,16 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
     }
 
     public func answersToday(now: Date) async throws -> [UUID: Int] {
-        try await answers(since: calendar.startOfDay(for: now))
+        try await answers(in: calendarDay(of: now))
     }
 
     public func enroll(_ expressionID: UUID, now: Date) async throws {
-        let existing = Set(try await cards.all().filter { $0.expressionID == expressionID }.map(\.direction))
-        for direction in CardDirection.allCases where !existing.contains(direction) {
-            try await cards.save(ReviewCard(expressionID: expressionID, direction: direction, due: now))
-        }
+        // One step in the store — not "read every card, then save the missing ones", which two
+        // enrolls of the same phrase could interleave (four cards) and which read the whole deck
+        // for every phrase moved.
+        try await cards.addMissing(CardDirection.allCases.map {
+            ReviewCard(expressionID: expressionID, direction: $0, due: now)
+        })
     }
 
     public func enrolledExpressionIDs() async throws -> Set<UUID> {
@@ -337,7 +339,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         /// The day had no set yet (the first Start of the day saves one, even if empty).
         let isNew: Bool
         let answers: [UUID: Int]
-        /// Distinct cards answered today.
+        /// Distinct cards answered today, whether they are still in the deck or not.
         let studied: Int
         /// The day's set, still to do: unanswered, or learning and under the day's limit.
         let pending: [Flashcard]
@@ -350,7 +352,7 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         let stored = await days.load()
         let isNew = stored?.day != startOfToday
         let day = isNew ? PracticeDay(day: startOfToday) : stored!
-        let answers = try await answers(since: startOfToday)
+        let answers = try await answers(in: calendarDay(of: now))
 
         var byID: [UUID: Flashcard] = [:]
         for expression in deck.enrolled {
@@ -369,7 +371,11 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         }
         let drawable = available(deck, now: now).byStage.values.joined()
             .filter { !inSet.contains($0.id) && (answers[$0.id] ?? 0) < limit }
-        let studied = answers.keys.filter { byID[$0] != nil }.count
+        // Every card answered today counts — a card deleted since (its phrase deleted, or merged into
+        // its duplicate) too: the answers were given, and they stay in the log (the 7-day bars count
+        // them). Counting only the cards still there, deleting a phrase took the day's work back:
+        // "5 of 5, goal reached" became "4 of 5" and Start drew one more card.
+        let studied = answers.count
         return Today(day: day, isNew: isNew, answers: answers, studied: studied, pending: pending,
                      drawable: Array(drawable))
     }
@@ -382,16 +388,27 @@ public struct FlashcardsInteractor: FlashcardsUseCase {
         return max(0, goal - today.studied - unanswered)
     }
 
-    private func answers(since start: Date) async throws -> [UUID: Int] {
+    /// The calendar day `now` is in, midnight to midnight.
+    private func calendarDay(of now: Date) -> Range<Date> {
+        let start = calendar.startOfDay(for: now)
+        return start..<(calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400))
+    }
+
+    /// How many times each card was answered on `day`. The DAY, not "since its midnight": answers
+    /// stamped on a later day (the clock was ahead when they were given, then put right) counted as
+    /// today's on every day until theirs came — the goal looked reached with nothing answered, and
+    /// the cards answered three times stayed over the day's limit all that while. Nor "up to now":
+    /// a clock put back by an hour leaves answers later than now that WERE given today.
+    private func answers(in day: Range<Date>) async throws -> [UUID: Int] {
         var counts: [UUID: Int] = [:]
-        for log in try await cards.logs(since: start) { counts[log.cardID, default: 0] += 1 }
+        for log in try await cards.logs(in: day) { counts[log.cardID, default: 0] += 1 }
         return counts
     }
 
     /// What's waiting today, by stage.
     private func available(_ deck: Deck, now: Date) -> (byStage: [CardStage: [Flashcard]], counts: StageCounts) {
-        let startOfToday = calendar.startOfDay(for: now)
-        let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? now
+        let today = calendarDay(of: now)
+        let startOfToday = today.lowerBound, endOfToday = today.upperBound
         var pools: [CardStage: [Flashcard]] = [:]
         for expression in deck.enrolled {
             let cards = deck.byExpression[expression.id] ?? [:]

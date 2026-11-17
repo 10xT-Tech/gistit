@@ -7,7 +7,11 @@
 //  green catching up — over the groups: each with its phrases and their progress, the proposed
 //  merges (exact duplicates at once, the model's after the check) with the card each makes, and two
 //  buttons — Merge / Don't merge ("not duplicates", kept with the cards); a group nobody checked yet
-//  offers Check instead of Merge. "Merge all duplicates" takes the clear cases at once; "Full
+//  offers Check instead of Merge — it joins the sheet's one line to the model, with the same progress
+//  and Stop as "Check" — and a group put to the model waits for the answer ("The model is checking…",
+//  Merge off). "Merge all duplicates" takes the clear cases at once
+//  — a run with its own progress line in place of the button, Stop in the toolbar, its groups
+//  spinning until merged; "Full
 //  re-check" searches again and has the model check the groups marked "not duplicates" too — they
 //  show up only where it proposes a merge. The paywall is presented from here (a second sheet can't
 //  open from the root).
@@ -34,7 +38,24 @@ struct DuplicatesView: View {
                             showPaywall = true
                         }
                     }
-                    if !model.duplicateMerges.isEmpty {
+                    if let run = model.mergeAll {
+                        VStack(alignment: .leading, spacing: Tokens.Space.s8) {
+                            ProgressLine(done: run.fraction)
+                            Text(Loc.t("Сливаю дубли: \(run.done) из \(run.total)", "Merging duplicates: \(run.done) of \(run.total)",
+                                       "Fusion des doublons : \(run.done) sur \(run.total)",
+                                       "Uniendo duplicados: \(run.done) de \(run.total)",
+                                       "Duplikate werden zusammengeführt: \(run.done) von \(run.total)",
+                                       "Unione dei duplicati: \(run.done) di \(run.total)"))
+                                .textStyle(Tokens.Text.subhead)
+                                .foregroundStyle(Tokens.Content.secondary)
+                                .monospacedDigit()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Tokens.Space.s16)
+                        .glassPanel(cornerRadius: Tokens.Radius.card)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("dups.mergingAll")
+                    } else if !model.duplicateMerges.isEmpty {
                         let count = model.duplicateMerges.count
                         EHButton(Loc.t("Слить все дубли (\(count))", "Merge all duplicates (\(count))",
                                        "Fusionner tous les doublons (\(count))", "Unir todos los duplicados (\(count))",
@@ -46,7 +67,7 @@ struct DuplicatesView: View {
                     ForEach(model.shownGroups) { group in
                         GroupCard(group: group, proposals: model.proposals[group.key] ?? [],
                                   isChecked: model.checkedKeys.contains(group.key), isSettled: model.isSettled(group),
-                                  isBusy: model.busy.contains(group.key),
+                                  isBusy: model.busy.contains(group.key), isAwaited: model.awaiting.contains(group.key),
                                   onMerge: { model.mergeGroup(group) }, onCheck: { check { model.checkGroup(group) } },
                                   onKeepApart: { model.keepApart(group) })
                     }
@@ -70,7 +91,7 @@ struct DuplicatesView: View {
             }
             .sheet(isPresented: $showPaywall) { PaywallView().environment(subscription) }
         }
-        .interactiveDismissDisabled(model.phase == .checking)
+        .interactiveDismissDisabled(model.phase == .checking || model.mergeAll != nil)
         .task { model.start() }
         // Checking hundreds of groups takes a while: keep the screen on while it works.
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
@@ -116,6 +137,7 @@ struct DuplicatesView: View {
                                    "Prüfen (\(model.unchecked.count))", "Controlla (\(model.unchecked.count))"),
                              icon: "sparkles", kind: .primary, fillWidth: true,
                              accessibilityID: "dups.check") { check { model.startCheck() } }
+                        .disabled(model.mergeAll != nil)                 // "Merge all" first: it changes the groups
                         .padding(.top, Tokens.Space.s4)
                 }
                 if model.merged > 0 {
@@ -136,9 +158,10 @@ struct DuplicatesView: View {
                     caption(Loc.t("Модель не ответила по \(model.check.failed) — их можно проверить ещё раз.",
                                   "No answer for \(model.check.failed) — you can check them again."))
                 }
-                if !model.isBusy, !model.unchecked.isEmpty, model.check.total > 0 {
-                    EHButton(Loc.t("Проверить оставшиеся (\(model.unchecked.count))",
-                                   "Check the rest (\(model.unchecked.count))"),
+                // Also while a group's own Check is out: the rest can join the same line.
+                if model.mergeAll == nil, !model.notAsked.isEmpty, model.check.total > 0 {
+                    EHButton(Loc.t("Проверить оставшиеся (\(model.notAsked.count))",
+                                   "Check the rest (\(model.notAsked.count))"),
                              icon: "sparkles", kind: .tonal, fillWidth: true,
                              accessibilityID: "dups.check") { check { model.startCheck() } }
                 }
@@ -213,6 +236,8 @@ private struct GroupCard: View {
     /// A phrase in no proposal stays apart (the model checked the group, or it's only exact duplicates).
     let isSettled: Bool
     let isBusy: Bool
+    /// The running Check has asked the model about this group: Merge / Check wait for the answer.
+    let isAwaited: Bool
     let onMerge: () -> Void
     let onCheck: () -> Void
     let onKeepApart: () -> Void
@@ -278,10 +303,12 @@ private struct GroupCard: View {
                         EHButton(Loc.t("Слить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci"),
                                  icon: "arrow.triangle.merge", kind: .primary, fillWidth: true,
                                  accessibilityID: "dups.merge", action: onMerge)
+                            .disabled(isAwaited)
                     } else if !isChecked {
                         EHButton(Loc.t("Проверить", "Check", "Vérifier", "Revisar", "Prüfen", "Controlla"),
                                  icon: "sparkles", kind: .primary, fillWidth: true,
                                  accessibilityID: "dups.checkGroup", action: onCheck)
+                            .disabled(isAwaited)
                     }
                     EHButton(Loc.t("Не сливать", "Don't merge", "Ne pas fusionner", "No unir", "Nicht zusammenführen",
                                    "Non unire"),
@@ -369,6 +396,10 @@ private struct GroupCard: View {
     }
 
     private var status: String {
+        if isAwaited {
+            return Loc.t("Модель проверяет…", "The model is checking…", "Le modèle vérifie…", "El modelo revisa…",
+                         "Das Modell prüft…", "Il modello controlla…")
+        }
         if isChecked {
             return proposals.isEmpty
                 ? Loc.t("Разные фразы", "Different phrases", "Expressions différentes", "Frases distintas",
