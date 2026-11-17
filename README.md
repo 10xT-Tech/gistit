@@ -232,7 +232,7 @@ CHANGELOG.md     user-facing release notes
 
 ## Status
 
-**v2.0.1 (in development)** — the fixes of the 2.0.0 (2) code review (see `CHANGELOG.md`).
+**v2.0.1 (build 1 in TestFlight, going to the App Store; 2.0.0 is live since 2026-11-14)** — the fixes of the 2.0.0 (2) code review (see `CHANGELOG.md`).
 
 **v2.0.0** — **Study becomes a place to learn.** A dashboard with a daily goal;
 **Caught** (saved, typed or photographed phrases, each a full card); in-app **flashcards** with FSRS

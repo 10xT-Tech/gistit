@@ -2,7 +2,7 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
-## 2.0.1 — in development
+## 2.0.1
 
 **Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap
 the **wand** next to the speaker — on the card in In flashcards, or in practice once the answer is
@@ -62,7 +62,7 @@ and the field now shows the text it was for, right away. Before, the new text st
 to the old one until you left the screen once more. Changing the mode or the tone while you wait
 re-runs what you sent, not the unfinished text.
 
-## 2.0.0
+## 2.0.0 — 2026-11-14
 
 **Flashcards.** Practise the words and phrases you've saved right in the app. Tap **Start** and go
 through your cards one by one: see the phrase, recall what it means, tap **Show answer** (or the card)
