@@ -8,29 +8,30 @@
 сообщения, поэтому вместо даты последнего поста указано число участников онлайн.
 
 Это рабочий список для фазы 2 [маркетингового плана](MARKETING_PLAN.md): посты в 10–15 каналах, до $100
-на всё, промокоды на Pro блогерам. Перед размещением цену и условия уточнять у контакта: в списке их нет.
+на всё, промокоды на Pro блогерам. Цены и условия размещения — в [TELEGRAM_AD_TERMS.md](TELEGRAM_AD_TERMS.md).
 
 ## С чего начать
 
-Пятнадцать мест с лучшим соотношением охвата, цены и попадания в аудиторию. Сначала то, что бесплатно.
+Пятнадцать мест с лучшим соотношением охвата, цены и попадания в аудиторию, с учётом собранных условий.
+Сначала то, что бесплатно.
 
 | # | Канал | Что сделать | Почему первым |
 | --- | --- | --- | --- |
 | 1 | [@productradar_official](https://t.me/productradar_official) | Бесплатный запуск через productradar.ru/submit | Русский Product Hunt, анонс в канале на 15.6K |
-| 2 | [@productradar_chat](https://t.me/productradar_chat) | Попросить обратную связь по проекту | Правила чата прямо это разрешают |
+| 2 | [@productradar_chat](https://t.me/productradar_chat) | Пост с тегом `#мойпродукт` | Бесплатно, лучшие посты переносят в канал |
 | 3 | [@iphonesru](https://t.me/iphonesru) | Новость через @iphonesreport_bot | 58.7K читателей Apple-медиа, бесплатная подача |
 | 4 | [@d_code](https://t.me/d_code) | Релиз через @relizopriemnik_kd_bot | 405K, есть бот для релизов |
-| 5 | [@lifehackerru](https://t.me/lifehackerru) | Предложить в подборку через @lifehacker_telegram_bot | Регулярные подборки полезных приложений |
-| 6 | [@iosgr](https://t.me/iosgr), [@iosdev](https://t.me/iosdev) | Ссылка на статью Habr «как сделано» | Профильная аудитория SwiftUI |
-| 7 | [@kakskazaty](https://t.me/kakskazaty) | Бартер: промокод Pro за обзор | Тема «Как сказать…?» — это Say it |
-| 8 | [@EngInPhrases](https://t.me/EngInPhrases) | Бартер или недорогой пост | Учат готовыми фразами, как на карточках |
-| 9 | [@francaissodvora](https://t.me/francaissodvora) | Бартер или пост | Сленг и тон фразы — ровно то, что объясняет приложение |
-| 10 | [@giocondaitaliana](https://t.me/giocondaitaliana) | Бартер: промокод Pro | Разговорный итальянский, один автор |
-| 11 | [@lingua_strategy](https://t.me/lingua_strategy) | Бартер: обзор FSRS-карточек | Автор пишет про интервальные повторения |
-| 12 | [@nemusli](https://t.me/nemusli) | Недорогой пост через @krispromo | 30K о быте в Германии и Австрии |
-| 13 | [@movetospain](https://t.me/movetospain), [@nolucrativa](https://t.me/nolucrativa) | Недорогой пост | Микроканалы о документах и быте в Испании |
-| 14 | [@tatiana_in_austria](https://t.me/tatiana_in_austria) | Бартер или пост | Авторский блог о жизни в Вене |
-| 15 | [@plyushkiforelt](https://t.me/plyushkiforelt) | Пост с готовой колодой для учителей | 13K учителей английского, рекламу дают |
+| 5 | Tproger: [@neuro_channel](https://t.me/neuro_channel), [@mobi_dev](https://t.me/mobi_dev) | Пресс-релиз на news@tproger.ru | Бесплатно, но попадание в канал не гарантировано |
+| 6 | [@iosgr](https://t.me/iosgr), [@iosdev](https://t.me/iosdev) | Ссылка на статью Habr «как сделано» | Профильная аудитория SwiftUI; @iosgr — от 2 797 ₽ |
+| 7 | Сеть @andry_english: [@le_francais_french](https://t.me/le_francais_french), [@espanol_spanish_castellano](https://t.me/espanol_spanish_castellano), [@italiano_russo](https://t.me/italiano_russo) | Три поста по €22 | 38–44K в каждом языке, оплата в евро |
+| 8 | [@berlinwelle](https://t.me/berlinwelle) | Строка на доске объявлений за €30 | Берлин, оплата в евро |
+| 9 | [@inspired_with_english](https://t.me/inspired_with_english), [@un_pamplemousse](https://t.me/un_pamplemousse) | Бартер: промокод Pro за обзор | Рекламу не продают, но пишут о том, что попробовали сами |
+| 10 | [@kakskazaty](https://t.me/kakskazaty) | Бартер или пост | Тема «Как сказать…?» — это Say it |
+| 11 | [@francaissodvora](https://t.me/francaissodvora) | Взаимный пиар или пост | Сленг и тон фразы — ровно то, что объясняет приложение |
+| 12 | [@veryenglink](https://t.me/veryenglink), [@hot_idioms](https://t.me/hot_idioms) | Пост через telega.in, 1 538 и 1 818 ₽ | 55K и 54K, идиомы; только при оплате в рублях |
+| 13 | [@russian_in_cyprus](https://t.me/russian_in_cyprus) | Пост через telega.in, 1 818 ₽ | Чат Кипра, рабочий английский |
+| 14 | [@lingua_strategy](https://t.me/lingua_strategy) | Обзор FSRS-карточек | Автор пишет про интервальные повторения, берёт нативную рекламу |
+| 15 | [@giocondaitaliana](https://t.me/giocondaitaliana) | Бартер: промокод Pro | Разговорный итальянский, один автор |
 
 В чатах (тип «чат») сначала читать правила: реклама обычно запрещена или продаётся отдельно. Сеть
 ExpatFM (Париж, Лондон, Лос-Анджелес) продаёт размещение через одного менеджера — @otkidachos. В
