@@ -805,6 +805,8 @@ private final class SpyLiveActivity: LiveSessionActivityPresenting {
 /// Deterministic empty clipboard (never reads the simulator's real one).
 private struct EmptyPasteboard: PasteboardReading {
     var hasText: Bool { false }
+    var changeCount: Int { 0 }
+    func readText() async -> String? { nil }
 }
 
 /// Counts the holds and their releases — and, at each release, how many History rows were there.

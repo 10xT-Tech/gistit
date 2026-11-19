@@ -232,6 +232,9 @@ CHANGELOG.md     user-facing release notes
 
 ## Status
 
+**v2.0.2 (in development)** — the Paste button on Say it / Get it no longer turns into an empty gap
+when iOS stops drawing its paste control for the app (see `CHANGELOG.md`).
+
 **v2.0.1 (build 1 in TestFlight, going to the App Store; 2.0.0 is live since 2026-11-14)** — the fixes of the 2.0.0 (2) code review (see `CHANGELOG.md`).
 
 **v2.0.0** — **Study becomes a place to learn.** A dashboard with a daily goal;

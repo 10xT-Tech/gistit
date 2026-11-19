@@ -2,6 +2,23 @@
 
 Release notes for **Gist It** (formerly EnglishHelper), written for the people who use it.
 
+## 2.0.2 — in development
+
+**The Paste button no longer goes missing.** On **Get it** and **Say it**, with text copied and the
+field empty, the place of the **Paste** button could turn into an empty gap that did nothing — and
+stayed that way on every screen until you closed the app and opened it again. That button is drawn by
+iOS itself, and iOS sometimes stops drawing it for an app that has been open for a long time. Gist It
+now notices and puts its own **Paste** button there instead. With that one, iOS may ask "Allow
+Paste?" first — answer **Allow Paste** and the text goes into the field as usual.
+
+**Paste keeps up with dark and light.** If the phone switched between light and dark while the Paste
+button was on screen, the button kept the old colors — on a dark screen it was a black button you
+could hardly see. It now changes with everything else.
+
+**Paste only when there is something to paste.** Copied formatted text that has no plain-text form, or
+"text" that is empty or only spaces? The button used to turn into a Paste that pasted nothing, and
+**Translate** / **Explain** was gone from the screen. Now the button stays what it was.
+
 ## 2.0.1
 
 **Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap

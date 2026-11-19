@@ -42,9 +42,10 @@ public final class VoiceViewModel {
         // re-check the clipboard so the action button can flip to Paste (or disable) immediately.
         didSet { if intent.isEmpty && !oldValue.isEmpty { refreshClipboardState() } }
     }
-    /// Last observed "clipboard holds text" state (refreshed on appear / foreground / field clear).
-    /// Drives the action button's Paste mode; the metadata check never triggers the iOS paste banner.
-    public private(set) var clipboardHasText = false
+    /// The clipboard holds text the Paste button can take (`ClipboardWatch` — refreshed on appear /
+    /// foreground / field clear and every second while the screen is visible). Drives the action
+    /// button's Paste mode; the check is metadata only and never triggers the iOS paste banner.
+    public var clipboardHasText: Bool { clipboard.hasText }
     /// Tone/register for the generated phrases — chosen on-screen, persisted (shared with the
     /// "Понять" compose path via `ToneOfVoice.current`).
     public var tone: ToneOfVoice = ToneOfVoice.current {
@@ -97,8 +98,8 @@ public final class VoiceViewModel {
     private let saveExpression: any SaveExpressionUseCase
     private let studyList: any StudyListUseCase
     private let isConfigured: Bool
-    /// Clipboard access for the Paste affordance (injected so tests can can content).
-    private let pasteboard: any PasteboardReading
+    /// The clipboard behind the Paste affordance (the pasteboard is injected so tests can can content).
+    private let clipboard: ClipboardWatch
 
     private var captureTask: Task<Void, Never>?
     private var requestTask: Task<Void, Never>?
@@ -125,7 +126,7 @@ public final class VoiceViewModel {
         self.saveExpression = saveExpression
         self.studyList = studyList
         self.isConfigured = isConfigured
-        self.pasteboard = pasteboard
+        self.clipboard = ClipboardWatch(pasteboard)
     }
 
     // MARK: Derived
@@ -148,27 +149,14 @@ public final class VoiceViewModel {
     /// The action button is tappable: either there's input to submit or a clipboard text to paste.
     public var hasActionAvailable: Bool { canSubmit || clipboardHasText }
 
-    /// Re-read the clipboard's has-text METADATA (never triggers the iOS paste banner). Called on
-    /// screen appear, on returning to the foreground, and when the field is cleared.
-    public func refreshClipboardState() {
-        let hasText = pasteboard.hasText
-        if hasText != clipboardHasText { clipboardHasText = hasText }   // equal → no @Observable churn
-    }
+    /// Look at the clipboard again (metadata only). Called on screen appear, on returning to the
+    /// foreground (the clipboard changes while backgrounded), and when the field is cleared.
+    public func refreshClipboardState() { clipboard.refresh() }
 
-    /// Keep `clipboardHasText` honest for as long as the screen is visible. iOS posts
-    /// `UIPasteboard.changedNotification` only for changes made by THIS app or when the app becomes
-    /// active — a change made by another process while we are already in the foreground (Universal
-    /// Clipboard from a Mac, a password manager's auto-clear, Shortcuts, a keyboard extension) is
-    /// silent. Left unrefreshed, the slot either kept a Paste control the system had already greyed
-    /// out (no Explain/Translate anywhere on the screen) or a disabled mode button with text one tap
-    /// away. `hasText` is a metadata read and never triggers the paste banner; the interval is a
-    /// parameter so tests can run the loop fast. Runs until cancelled — bind it to the screen with
-    /// `.task`.
+    /// Keep the Paste affordance honest for as long as the screen is visible — see
+    /// `ClipboardWatch.monitor`. Runs until cancelled; bind it to the screen with `.task`.
     public func monitorClipboard(every interval: Duration = .seconds(1)) async {
-        while !Task.isCancelled {
-            refreshClipboardState()
-            try? await Task.sleep(for: interval)
-        }
+        await clipboard.monitor(every: interval)
     }
 
     /// Fill the input with what the SYSTEM paste control delivered (its tap IS the pasteboard
@@ -177,13 +165,20 @@ public final class VoiceViewModel {
     /// submits DELIBERATELY — pasting never auto-runs the request.
     public func pasteIntoInput(_ text: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            // Nothing USABLE (whitespace-only — where `hasText` would still say true). Mark the
-            // clipboard unusable so the slot flips back to the mode action instead of staying a
-            // do-nothing Paste.
-            clipboardHasText = false
+            // Nothing USABLE (empty or whitespace-only — where the clipboard still "has text"). The
+            // slot goes back to the mode action and stays there until the clipboard changes.
+            clipboard.markUnusable()
             return
         }
         intent = text
+    }
+
+    /// The app's OWN Paste button (shown when iOS can't draw the system control — `PasteAction`):
+    /// read the clipboard here. iOS asks the user to allow it; a "no" leaves nothing to paste.
+    public func pasteFromClipboard() async {
+        let text = await clipboard.read() ?? ""
+        guard !canSubmit else { return }   // something got into the field while iOS was asking
+        pasteIntoInput(text)
     }
     public func isSaved(_ variant: PhraseVariant) -> Bool { savedVariantIDs.contains(variant.id) }
     public func isPlaying(_ variant: PhraseVariant) -> Bool { playingVariantID == variant.id }

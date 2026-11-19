@@ -157,16 +157,19 @@ public struct InView: View {
 
                 // One slot, two personas: with an EMPTY field and text on the clipboard it is the
                 // SYSTEM paste control — its tap IS the pasteboard consent, so iOS never shows the
-                // "Allow Paste?" dialog (a programmatic read prompts on every new clipboard).
+                // "Allow Paste?" dialog (a programmatic read prompts on every new clipboard) — or the
+                // app's own Paste button when iOS can't draw that control (`PasteAction`).
                 // Otherwise it is Translate/Explain. Every tap gives an impact haptic.
                 if model.showsPasteAction {
-                    EHPasteButton { text in
+                    PasteAction(accessibilityID: "getit.action") { text in
                         fieldFocused = false
                         actionTapCount += 1
                         model.pasteIntoInput(text)
+                    } onReadAndPaste: {
+                        fieldFocused = false
+                        actionTapCount += 1
+                        Task { await model.pasteFromClipboard() }
                     }
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .accessibilityIdentifier("getit.action")
                 } else {
                     EHButton(actionTitle, icon: actionIcon, kind: .primary, fillWidth: true,
                              accessibilityID: "getit.action") {

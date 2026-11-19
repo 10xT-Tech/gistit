@@ -464,6 +464,16 @@ private final class HoldingRecognizer: SpeechRecognizing, @unchecked Sendable {
         #expect(!vm.showsPasteAction)   // disarmed, not a do-nothing Paste button
     }
 
+    /// The app's own Paste button (iOS couldn't draw the system control) reads the clipboard itself.
+    @Test func theAppsOwnPasteButtonReadsTheClipboard() async {
+        let vm = makeVM(pasteboard: VoiceMockPasteboard(text: "как сказать спасибо"))
+        vm.refreshClipboardState()
+        await vm.pasteFromClipboard()
+        #expect(vm.intent == "как сказать спасибо")
+        #expect(!vm.showsPasteAction)   // the mode action again
+        #expect(vm.phase == .idle)      // never auto-submits
+    }
+
     /// Clearing the field re-arms Paste (the didSet refresh path).
     @Test func clearingFieldReArmsPaste() {
         let pasteboard = VoiceMockPasteboard(text: nil)
@@ -478,8 +488,11 @@ private final class HoldingRecognizer: SpeechRecognizing, @unchecked Sendable {
 }
 
 /// Deterministic canned clipboard for the Say-it Paste affordance tests (mirrors Get it's double).
-private final class VoiceMockPasteboard: PasteboardReading, @unchecked Sendable {
-    var text: String?
+@MainActor
+private final class VoiceMockPasteboard: PasteboardReading {
+    var text: String? { didSet { changeCount += 1 } }
+    private(set) var changeCount = 0
     init(text: String?) { self.text = text }
     var hasText: Bool { text != nil }
+    func readText() async -> String? { text }
 }

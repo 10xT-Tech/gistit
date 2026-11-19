@@ -146,6 +146,40 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
+**v2.0.2 (in development, on `main`; version bumped so local builds aren't taken for the 2.0.1 (1)
+sent to App Review) — the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
+or — empty field + text on the clipboard — Paste (`PasteAction`, Presentation/Support, shared by both
+screens). Paste is normally the SYSTEM control (`EHPasteButton` = `UIPasteControl`: its tap is the consent,
+iOS never asks "Allow Paste?"). THAT CONTROL IS DRAWN BY ANOTHER PROCESS, iOS's
+`com.apple.UIKit.SecureControlService`, and once that service has died under a running app the app never
+gets the picture again: every control created afterwards — a tab switch, back from Online, a cleared
+field, new text on the clipboard — is an EMPTY, DEAD rectangle (accessibility still says "Paste,
+enabled") on both screens until the app is relaunched; the control already on screen keeps its picture
+and still pastes. A user's screenshot showed it; reproduced on the Simulator by `kill -9` of that service
+(`xcrun simctl spawn <id> launchctl list | grep SecureControl` gives the pid) — ~100 combinations of tab
+switches, modes, backgrounding and clipboard contents WITHOUT the kill never produced it, and restarting
+the service / going behind and back don't bring it back in-process. Apple's forums describe the same
+("UIPasteControl sometimes disappears", "restart helps"), no fix. So the control CHECKS ITSELF
+(`PasteControlCheck`: on screen and app active, `intrinsicContentSize` is zero when no picture came — two
+looks 150 ms apart) → `SystemPasteControl.shared.markUnavailable()`, kept for the process → the slot is
+the app's own `EHButton` "Paste", which READS the clipboard (`PasteboardReading.readText` →
+`pasteFromClipboard()`, asynchronous through the item provider — `UIPasteboard.string` holds the main
+thread until the question is answered); iOS then asks "Allow Paste?" for content from another app (not for content the
+user already pasted with the system control). A refused read = nothing usable. `ClipboardWatch`
+(Presentation/Support/Pasteboard.swift) is the one owner of "may the slot offer Paste", used by both view
+models: `hasText` goes by the types the control ACCEPTS (`EHPasteButton.acceptedTypeIdentifiers`, any
+item) — not `hasStrings`, which is also true for rich text with no plain-text form, where the control
+greys itself out (the slot held a dead Paste and no Translate) — and content that gave nothing usable
+(empty, spaces, a refused read) keeps Paste OFF until `changeCount` changes (it used to come back a second
+later, with the next look at the clipboard). The control takes its colors once, when made:
+`EHPasteButton` is re-made on a light/dark switch (`.id(colorScheme)`) — it used to stay a black pill on a
+dark screen. XCUI `PasteAffordanceUITests`: DEBUG launch argument `-uiTestPasteControlUnavailable` forces
+the app's own button; the iOS 27.0 Simulator can't show "Allow Paste?" at all (its `pasted` isn't
+entitled to post the alert — the read is refused at once), the iOS 26.4 Simulator and devices do, so
+those tests accept both ends. Unit: `PasteControlTests`, the paste tests in `InViewModelTests` /
+`VoiceViewModelTests`. NOT verified on a device: that iOS's service death is what happened on the user's
+phone (the app was running there with no such service process — consistent, not proof).
+
 **v2.0.1 (on `main` — PR #12 merged `code_review_2.0.0-2`; 2.0.1 (1), uploaded to TestFlight 2026-11-16, is the build chosen for the App Store — submitting it to App Review is done by the user in App Store Connect)** — the code review of
 2.0.0 (2) and what came after that build: every fix is described in place in the 2.0.0 text below (look for
 "the review"), user-facing in `CHANGELOG.md` → 2.0.1. The landing (`docs/marketing/landing`) marks what

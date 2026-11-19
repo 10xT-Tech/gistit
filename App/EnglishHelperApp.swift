@@ -33,6 +33,13 @@ struct EnglishHelperApp: App {
         if !Self.isUITest, !Self.isUnitTestHost, let dsn = config.sentryDSN {
             SentryCrashReporter.start(dsn: dsn)
         }
+        #if DEBUG
+        // XCUI: `-uiTestPasteControlUnavailable` = iOS can't draw its paste control in this process
+        // (in real life: its drawing service died under the app) — the Paste slot is the app's own button.
+        if ProcessInfo.processInfo.arguments.contains("-uiTestPasteControlUnavailable") {
+            SystemPasteControl.shared.markUnavailable()
+        }
+        #endif
         let networkUI = NetworkMonitor()
         network = networkUI
         // NWPathMonitor (Adapters) pushes every path change to the UI monitor on the main actor.

@@ -525,6 +525,64 @@ import Presentation
         #expect(!vm.hasActionAvailable)                   // button disables
     }
 
+    /// …and it STAYS off while the clipboard is the same: the look at the clipboard a second later
+    /// used to bring the do-nothing Paste back, tap after tap. New content arms it again.
+    @Test func aClipboardWithNothingUsableStaysOffUntilItChanges() async throws {
+        let pasteboard = MockPasteboard(text: "   \n")
+        let vm = makeVM(pasteboard: pasteboard)
+        vm.refreshClipboardState()
+        vm.pasteIntoInput("   \n")
+        #expect(!vm.showsPasteAction)
+        vm.refreshClipboardState()                        // the monitor's next look
+        #expect(!vm.showsPasteAction)
+        vm.source = "typed"; vm.source = ""               // clearing the field looks too
+        #expect(!vm.showsPasteAction)
+
+        pasteboard.text = "break a leg"                   // something else was copied
+        vm.refreshClipboardState()
+        #expect(vm.showsPasteAction)
+    }
+
+    /// iOS couldn't draw its paste control (`SystemPasteControl`), so the slot is the app's own
+    /// Paste button: it reads the clipboard itself and fills the field — without submitting.
+    @Test func theAppsOwnPasteButtonReadsTheClipboard() async {
+        let vm = makeVM(pasteboard: MockPasteboard(text: "break a leg"))
+        vm.refreshClipboardState()
+        #expect(vm.showsPasteAction)
+        await vm.pasteFromClipboard()
+        #expect(vm.source == "break a leg")
+        #expect(!vm.showsPasteAction)                     // Translate/Explain again
+        #expect(vm.phase == .idle)
+    }
+
+    /// What was typed while iOS was asking stays: the answer doesn't overwrite it.
+    @Test func aPasteAnsweredAfterTypingDoesNotOverwriteTheField() async {
+        let vm = makeVM(pasteboard: MockPasteboard(text: "break a leg"))
+        vm.refreshClipboardState()
+        async let pasting: Void = vm.pasteFromClipboard()
+        vm.source = "typed meanwhile"
+        await pasting
+        #expect(vm.source == "typed meanwhile")
+    }
+
+    /// The user answered "Don't Allow Paste": nothing is pasted and the button doesn't stay a Paste
+    /// that asks again on every tap — it is off until the clipboard changes.
+    @Test func aRefusedPasteLeavesTheFieldEmptyAndThePasteOff() async {
+        let pasteboard = MockPasteboard(text: "break a leg")
+        pasteboard.allowsReading = false
+        let vm = makeVM(pasteboard: pasteboard)
+        vm.refreshClipboardState()
+        await vm.pasteFromClipboard()
+        #expect(vm.source.isEmpty)
+        #expect(!vm.showsPasteAction)
+        vm.refreshClipboardState()
+        #expect(!vm.showsPasteAction)
+
+        pasteboard.text = "another phrase"
+        vm.refreshClipboardState()
+        #expect(vm.showsPasteAction)
+    }
+
     /// A clipboard change made by ANOTHER process while the app is in the foreground posts no
     /// notification — the monitor must pick it up both ways: text gone → the (disabled) mode button
     /// comes back instead of a greyed-out Paste; text arrives → Paste.
@@ -627,9 +685,13 @@ import Presentation
 /// the simulator's real (nondeterministic) pasteboard.
 @MainActor
 private final class MockPasteboard: PasteboardReading {
-    var text: String?
+    var text: String? { didSet { changeCount += 1 } }
+    private(set) var changeCount = 0
+    /// The user's answer to iOS's "Allow Paste?" when the APP reads the clipboard.
+    var allowsReading = true
     init(text: String?) { self.text = text }
     var hasText: Bool { text?.isEmpty == false }
+    func readText() async -> String? { allowsReading ? text : nil }
 }
 
 /// A capture stream that behaves like the LIVE mic under push-to-talk: yields a partial (if any)
