@@ -165,8 +165,8 @@ opens `mergeOffer` (`MergeOfferSheet`) with the merged card worked out AT ONCE �
 look-alike as `NotDuplicatePair` — those pairs only); a failed check shows why, with Try again (or
 Subscribe) and still "separate".
 
-**v2.0.2 (in development, on `main`; version bumped so local builds aren't taken for the 2.0.1 (1)
-sent to App Review) — the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
+**v2.0.2 (on `main` — PR #13 merged `caught-marks`; 2.0.2 (1) uploaded to TestFlight 2026-11-19) — the
+Caught marks / moving by merge / strict verb-noun / duplicate statistics above, and the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
 or — empty field + text on the clipboard — Paste (`PasteAction`, Presentation/Support, shared by both
 screens). Paste is normally the SYSTEM control (`EHPasteButton` = `UIPasteControl`: its tap is the consent,
 iOS never asks "Allow Paste?"). THAT CONTROL IS DRAWN BY ANOTHER PROCESS, iOS's
