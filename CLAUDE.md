@@ -364,13 +364,9 @@ phrases, groups already marked): a normal scan reports the all-linked groups it 
 `NotDuplicateMarking.unmark(_ pairs:)`; the group joins the candidates with its exact merges recomputed)
 and "Merge" (`mergeSettled`: unmark, then an exact merge at once, else `checkGroup` — Pro, the view gates
 it via `needsModel(toMerge:)`). The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
-Caught: moving a phrase checks `lookAlikesInFlashcards` (on the device; a found one marks the row —
-`lookAlikeIDs`, "Looks like a card you learn") → sheet Merge / Move separately. Merge =
-`DuplicatesUseCase.mergeCaught` — the user's decision, so once the check ANSWERED the phrase is merged
-and leaves Caught: exact first, else the model's merge containing it, and if the model names none
-(another phrase, it thinks) `forcedMerge` into the oldest look-alike as one more numbered meaning; but if
-the model can't be reached / the limit is spent it THROWS — nothing merged, the phrase stays, the error
-shows. Move all checks the whole list first and offers "Move new" (all but look-alikes) / "Move all". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
+Caught → flashcards (2.0.2 — see "What enters Caught" at the top): new phrases move at once, a look-alike
+only by a merge shown first (`mergeOffer`, `caughtMerge`) or as a separate card linked "not duplicates";
+`mergeCaught` (= `caughtMerge` + `merge`) stays for callers that merge without asking. In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
 progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
 two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
 "Merge all duplicates" (never a linked pair), "Full re-check". EVERY WRITE TO A GROUP IS ONE AT A TIME
