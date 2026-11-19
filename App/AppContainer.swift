@@ -131,7 +131,8 @@ public final class AppContainer: Sendable {
         self.flashcards = FlashcardsInteractor(expressions: expressions, cards: reviewCards,
                                                dailyGoal: { DailyGoal.current }, days: practiceDays,
                                                analytics: analytics)
-        self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, analytics: analytics)
+        self.catchFromPhotos = CatchCardsFromPhotosInteractor(llm: llm, repository: expressions, cards: reviewCards,
+                                                             analytics: analytics)
         self.cardTransfer = CardTransferInteractor(expressions: expressions, cards: reviewCards, marks: notDuplicates)
         self.fixCards = FixCardsInteractor(llm: llm, expressions: expressions, cards: reviewCards,
                                            progress: cardFixProgress)
@@ -148,7 +149,7 @@ public final class AppContainer: Sendable {
                                                                tier: { .standard },
                                                                analytics: analytics)
         self.saveExpression = SaveExpressionInteractor(
-            enrich: EnrichExpressionInteractor(llm: llm), repository: expressions,
+            enrich: EnrichExpressionInteractor(llm: llm), repository: expressions, cards: reviewCards,
             analytics: analytics
         )
         self.voiceCapture = VoiceCaptureInteractor(recognizer: speechRecognizer)

@@ -4,7 +4,8 @@
 //
 //  Caught → "From photos": each photo (one LLM request per photo — the backend takes one image per
 //  request) becomes vocabulary cards (`PhotoCardsTemplate`), stored on the Caught list as they come.
-//  Expressions already saved are skipped, so re-running a photo never duplicates cards.
+//  Every phrase is stored — one already in FLASHCARDS too (Caught marks it) — except one the Caught
+//  list already holds as it is (`CaughtPhrases`), so re-running a photo never doubles a Caught row.
 //
 
 import Foundation
@@ -22,21 +23,24 @@ public struct CatchProgress: Sendable, Equatable {
     public let empty: Int
     /// Why the last failed photo failed — the sheet says it.
     public let lastError: LLMError?
-    /// Phrases skipped because a card had them already (as written there) — a repeat within the batch
+    /// Phrases not added because Caught had them already (as written there) — a repeat within the batch
     /// isn't listed.
-    public let alreadySaved: [String]
+    public let alreadyInCaught: [String]
+    /// Phrases added although flashcards have them — the Caught list marks them.
+    public let inFlashcards: [String]
 
     public var fraction: Double { total == 0 ? 1 : Double(processed) / Double(total) }
 
     public init(processed: Int, total: Int, added: Int, failed: Int, empty: Int = 0, lastError: LLMError? = nil,
-                alreadySaved: [String] = []) {
+                alreadyInCaught: [String] = [], inFlashcards: [String] = []) {
         self.processed = processed
         self.total = total
         self.added = added
         self.failed = failed
         self.empty = empty
         self.lastError = lastError
-        self.alreadySaved = alreadySaved
+        self.alreadyInCaught = alreadyInCaught
+        self.inFlashcards = inFlashcards
     }
 }
 
@@ -52,24 +56,28 @@ public protocol CatchCardsFromPhotosUseCase: Sendable {
 public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
     private let llm: LLMClient
     private let repository: ExpressionRepository
+    private let caught: CaughtPhrases
     private let analytics: (any AnalyticsTracking)?
 
-    public init(llm: LLMClient, repository: ExpressionRepository, analytics: (any AnalyticsTracking)? = nil) {
+    /// `cards`: what's in flashcards (nil = nothing is).
+    public init(llm: LLMClient, repository: ExpressionRepository, cards: (any ReviewCardRepository)? = nil,
+                analytics: (any AnalyticsTracking)? = nil) {
         self.llm = llm
         self.repository = repository
+        self.caught = CaughtPhrases(expressions: repository, cards: cards)
         self.analytics = analytics
     }
 
     public func callAsFunction(_ images: [RecognizableImage], studiedLanguage: String, nativeLanguage: String)
         -> AsyncThrowingStream<CatchProgress, Error> {
-        let llm = self.llm, repository = self.repository, analytics = self.analytics
+        let llm = self.llm, repository = self.repository, caught = self.caught, analytics = self.analytics
         let template = PhotoCardsTemplate(studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 var added = 0, failed = 0, empty = 0
                 var lastError: LLMError?
-                var alreadySaved: [String] = []
-                var addedNow = Set<UUID>()             // cards this batch stored — repeats, not "already saved"
+                var alreadyInCaught: [String] = [], inFlashcards: [String] = []
+                var addedNow = Set<UUID>()             // cards this batch stored — repeats, not "already in Caught"
                 continuation.yield(CatchProgress(processed: 0, total: images.count, added: 0, failed: 0))
                 /// Photos in a row the service gave no answer for.
                 var unanswered = 0
@@ -89,11 +97,14 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                         do {
                             if result.cards.isEmpty { empty += 1 }
                             for draft in result.cards {
-                                if let existing = try await repository.find(en: draft.expression) {
-                                    if !addedNow.contains(existing.id), !alreadySaved.contains(existing.en) {
-                                        alreadySaved.append(existing.en)
+                                if let existing = try await caught.inCaught(draft.expression) {
+                                    if !addedNow.contains(existing.id), !alreadyInCaught.contains(existing.en) {
+                                        alreadyInCaught.append(existing.en)
                                     }
                                     continue
+                                }
+                                if try await caught.inFlashcards(draft.expression) {
+                                    inFlashcards.append(draft.expression)
                                 }
                                 // The letter case Fix cards writes, whatever the model did ("i'm" → "I'm").
                                 let studied = { FixCardsInteractor.lettercase($0, language: studiedLanguage) }
@@ -120,7 +131,8 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                     }
                     continuation.yield(CatchProgress(processed: index + 1, total: images.count,
                                                       added: added, failed: failed, empty: empty,
-                                                      lastError: lastError, alreadySaved: alreadySaved))
+                                                      lastError: lastError, alreadyInCaught: alreadyInCaught,
+                                                      inFlashcards: inFlashcards))
                     if let stoppedBy {
                         continuation.finish(throwing: stoppedBy)
                         return

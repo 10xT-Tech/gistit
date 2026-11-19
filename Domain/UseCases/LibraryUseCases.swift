@@ -50,21 +50,24 @@ public protocol SaveExpressionUseCase: Sendable {
 public struct SaveExpressionInteractor: SaveExpressionUseCase {
     private let enrich: EnrichExpressionUseCase
     private let repository: ExpressionRepository
+    private let caught: CaughtPhrases
     /// Optional product analytics (nil = disabled, e.g. tests / mock boot). Events carry NO user content.
     private let analytics: (any AnalyticsTracking)?
 
+    /// `cards`: what's in flashcards — a phrase there is saved into Caught again (and marked there);
+    /// nil = nothing is (every saved phrase counts as Caught).
     public init(enrich: EnrichExpressionUseCase, repository: ExpressionRepository,
-                analytics: (any AnalyticsTracking)? = nil) {
+                cards: (any ReviewCardRepository)? = nil, analytics: (any AnalyticsTracking)? = nil) {
         self.enrich = enrich
         self.repository = repository
+        self.caught = CaughtPhrases(expressions: repository, cards: cards)
         self.analytics = analytics
     }
 
     public func callAsFunction(en: String, knownRU: String? = nil, context: String = "") async throws -> Expression {
-        // Content-level de-dup FIRST: if this phrase is already saved, return it instead of inserting a
-        // duplicate study row (which would also become a duplicate exported card). Doing it before
-        // enrich also avoids a wasted paid LLM call.
-        if let existing = try await repository.find(en: en) { return existing }
+        // The very same phrase already in Caught: return it instead of a second row (and without a paid
+        // enrich call). One in flashcards doesn't stop it — Caught then marks the new row (`CaughtPhrases`).
+        if let existing = try await caught.inCaught(en) { return existing }
         let enrichment = try await enrich(EnrichInput(en: en, ru: knownRU))
         let expression = Expression(
             en: en,

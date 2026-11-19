@@ -102,13 +102,33 @@ import Presentation
         #expect(steps.map(\.processed) == [0, 1, 2])
         // "discard" was saved before (as "Discard"): listed once; photo 2's "threshold" is a repeat of
         // photo 1's — not listed.
-        #expect(steps.last == CatchProgress(processed: 2, total: 2, added: 1, failed: 0, alreadySaved: ["Discard"]))
+        #expect(steps.last == CatchProgress(processed: 2, total: 2, added: 1, failed: 0, alreadyInCaught: ["Discard"]))
         let stored = try await repo.all().map(\.en)
         #expect(stored.sorted() == ["Discard", "threshold"])     // "discard" matched the saved "Discard"
         let card = try #require(try await repo.all().first { $0.en == "threshold" })
         #expect(card.ru == "порог / граница")
         #expect(card.synonyms == ["limit", "boundary", "cutoff"])
         #expect(card.context == "нейтрально; о пределе значения.")      // the usage note is stored
+    }
+
+    /// A phrase already in FLASHCARDS is added to Caught all the same (and reported); one already in
+    /// Caught isn't added again.
+    @Test func aPhraseInFlashcardsIsAddedAgain() async throws {
+        let studied = Domain.Expression(en: "Discard", ru: "отбросить")
+        let repo = MockExpressionRepository(seed: [studied])
+        let cards = MockReviewCardRepository(seed: CardDirection.allCases.map {
+            ReviewCard(expressionID: studied.id, direction: $0, due: Date())
+        })
+        let sut = CatchCardsFromPhotosInteractor(llm: MockLLMClient(), repository: repo, cards: cards)
+        var last: CatchProgress?
+        for try await step in sut([image(1), image(2)], studiedLanguage: "English", nativeLanguage: "Russian") { last = step }
+        #expect(last == CatchProgress(processed: 2, total: 2, added: 2, failed: 0, inFlashcards: ["discard"]))
+        #expect(try await repo.all().map(\.en).sorted() == ["Discard", "discard", "threshold"])
+
+        // Run again: both are in Caught now — nothing is added twice.
+        for try await step in sut([image(1)], studiedLanguage: "English", nativeLanguage: "Russian") { last = step }
+        #expect(last?.added == 0 && Set(last?.alreadyInCaught ?? []) == ["discard", "threshold"])
+        #expect(try await repo.all().count == 3)
     }
 
     /// A photo the model answers badly twice is skipped (why, is kept); the free plan's limit stops the
@@ -198,7 +218,7 @@ import Presentation
                                           studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
         vm.run([Data([1])])
         try await waitUntil { vm.phase == .done }
-        #expect(vm.progress.alreadySaved == ["Discard"] && vm.progress.added == 1)
+        #expect(vm.progress.alreadyInCaught == ["Discard"] && vm.progress.added == 1)
     }
 
     /// The sheet hears of the photos with nothing featured or marked (its hint to mark them).
@@ -264,19 +284,51 @@ import Presentation
     // MARK: Lists
 
     private func makeList(_ repo: MockExpressionRepository, _ cards: MockReviewCardRepository,
-                          scope: StudyListViewModel.Scope) -> StudyListViewModel {
+                          scope: StudyListViewModel.Scope, withDuplicates: Bool = false) -> StudyListViewModel {
         StudyListViewModel(
             studyList: StudyListInteractor(repository: repo, cards: cards),
             saveExpression: SaveExpressionInteractor(enrich: EnrichExpressionInteractor(llm: MockLLMClient()),
-                                                     repository: repo),
+                                                     repository: repo, cards: cards),
             exportAlgoApp: ExportDeckInteractor(repository: repo, exporter: AlgoAppXMLExporter()),
             exportAnki: ExportDeckInteractor(repository: repo, exporter: AnkiExporter()),
             pronounce: PlayPronunciationInteractor(synthesizer: MockSpeechSynthesizing()),
             isConfigured: true,
             flashcards: FlashcardsInteractor(expressions: repo, cards: cards),
             catchFromPhotos: CatchCardsFromPhotosInteractor(llm: MockLLMClient(), repository: repo),
-            scope: scope
+            duplicates: withDuplicates ? DuplicatesInteractor(llm: MockLLMClient(), expressions: repo, cards: cards) : nil,
+            scope: scope,
+            studiedLanguage: { "English" }
         )
+    }
+
+    /// Saving: a phrase in flashcards goes into Caught again (marked "Already in flashcards" there); the
+    /// very same phrase already in Caught doesn't (the form says so). The rest of Caught is "New", and a
+    /// phrase like one in flashcards is "Looks like a card you learn".
+    @Test func caughtMarksAndSavingRules() async throws {
+        let studied = Domain.Expression(en: "Hit the roof", ru: "взбеситься")
+        let alike = Domain.Expression(en: "hit the roof!", ru: "разозлиться")
+        let repo = MockExpressionRepository(seed: [studied, alike])
+        let cards = MockReviewCardRepository(seed: CardDirection.allCases.map {
+            ReviewCard(expressionID: studied.id, direction: $0, due: Date())
+        })
+        let save = SaveExpressionInteractor(enrich: EnrichExpressionInteractor(llm: MockLLMClient()),
+                                            repository: repo, cards: cards)
+        let copy = try await save(en: "hit the roof ")
+        #expect(copy.id != studied.id)                                         // in flashcards: added again
+        #expect(try await save(en: "HIT THE ROOF").id == copy.id)              // in Caught: not twice
+        let fresh = try await save(en: "jump the gun")
+
+        let caught = makeList(repo, cards, scope: .caught, withDuplicates: true)
+        await caught.load()
+        #expect(caught.expressions.count == 3)
+        #expect(caught.mark(copy) == .inFlashcards)
+        #expect(caught.mark(alike) == .lookAlike)
+        #expect(caught.mark(fresh) == .new)
+
+        caught.newEnglish = "Jump the gun"
+        caught.add()
+        #expect(caught.addError?.contains("already in Caught") == true)
+        #expect(try await repo.all().count == 4)
     }
 
     /// Move all: Caught empties at once, every phrase gets its cards, and In flashcards shows them —

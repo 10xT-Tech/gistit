@@ -19,6 +19,14 @@ could hardly see. It now changes with everything else.
 "text" that is empty or only spaces? The button used to turn into a Paste that pasted nothing, and
 **Translate** / **Explain** was gone from the screen. Now the button stays what it was.
 
+**Caught shows what's new.** Every phrase in **Caught** now says where it stands: a phrase you
+don't learn yet has a green frame and a **New** tag; one you already learn in flashcards is marked
+**Already in flashcards**; one like a phrase you learn, **Looks like a card you learn**. Saving a
+phrase you already learn now adds it to Caught all the same (with that mark) — only the very same
+phrase already in Caught isn't added twice, and **Generate from a phrase** says so instead of closing
+quietly. **From photos** adds every phrase the photos give, the ones you already learn included, and
+tells you which were already in flashcards and which were already in Caught.
+
 ## 2.0.1
 
 **Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap

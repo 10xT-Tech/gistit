@@ -644,7 +644,8 @@ import Presentation
         #expect(Set(try await cards.all().map(\.expressionID)) == [existing.id, other.id, alike.id])
     }
 
-    /// A single move that comes back to ask marks the row — before any "Move all" check.
+    /// The row is marked as soon as the list loads (no move or "Move all" check needed), and a move
+    /// that comes back to ask keeps it marked.
     @Test func aMoveThatAsksMarksTheRow() async throws {
         let existing = phrase("hit the roof", "взбеситься", 0)
         let alike = phrase("to hit the roof", "разозлиться", 1), other = phrase("jump the gun", "поторопиться", 2)
@@ -653,7 +654,7 @@ import Presentation
         let vm = list(expressions, cards, duplicates: DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions,
                                                                            cards: cards))
         await vm.load()
-        #expect(!vm.isLookAlike(alike))
+        #expect(vm.isLookAlike(alike) && vm.mark(alike) == .lookAlike && vm.mark(other) == .new)
         vm.moveToFlashcards(alike)
         try await wait { vm.lookAlike != nil }
         vm.lookAlike = nil                                                           // Cancel

@@ -146,6 +146,17 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
+**What enters Caught (2.0.2, the user's rule).** A phrase is NOT added to Caught only when Caught already
+holds the very same studied-language phrase (`Expression.matchKey`: letter case and end spaces aside,
+nothing else); one already in FLASHCARDS is added all the same. `CaughtPhrases` (Domain) answers
+`inCaught` / `inFlashcards` for `SaveExpressionInteractor` (every save — Say it, Get it, See it, History,
+"Generate from a phrase") and `CatchCardsFromPhotosInteractor` (`CatchProgress.alreadyInCaught` — not
+added — and `.inFlashcards` — added, reported). The form checks the list first and says "already in
+Caught" (`addError`). Every Caught row carries a mark (`StudyListViewModel.mark` → `CaughtMark`, worked
+out on each load by `lookAlikesInFlashcards`, off the main actor; no mark until it answered): `.new` —
+green frame (`Tokens.Signal.success`) + "New" tag; `.inFlashcards` — the very same phrase is there;
+`.lookAlike` — a `PhraseKey` look-alike is.
+
 **v2.0.2 (in development, on `main`; version bumped so local builds aren't taken for the 2.0.1 (1)
 sent to App Review) — the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
 or — empty field + text on the clipboard — Paste (`PasteAction`, Presentation/Support, shared by both
@@ -203,7 +214,7 @@ while a file with it is imported, keeps ONE card per direction); share menu → 
 `StudyListViewModel.deleteAll()`, optimistic, reload + error on a failed delete).
 "+" = Generate from a phrase (`EnrichCardTemplate`, now `.fast` = the translation model) or From
 photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
-photo — the backend allows one image — via `PhotoCardsTemplate`, skipping already-saved expressions;
+photo — the backend allows one image — via `PhotoCardsTemplate`, skipping ONLY a phrase Caught already holds (`CaughtPhrases.inCaught` — see below);
 a bad photo is skipped, offline / plan limit / no key stop the batch; `CatchFromPhotosView` shows the
 progress — `ProgressLine`, then a green check + `DoneChime` (DesignSystem: our `Resources/done.caf` as a
 system sound — follows the silent switch, touches no audio session — plus the success haptic; not after Stop); DEBUG `-uiTestCatchPhotos` fakes two images for XCUI). `PhotoCardsTemplate`'s opening is NOT

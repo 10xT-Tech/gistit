@@ -390,7 +390,7 @@ public struct StudyListView: View {
                          onStudy: model.canMoveToFlashcards ? { model.moveToFlashcards(expression) } : nil,
                          isMoving: model.isMoving(expression),
                          cards: model.cards(for: expression),
-                         isLookAlike: caught && model.isLookAlike(expression),
+                         mark: model.mark(expression),
                          onOpen: caught ? nil : { previewed = expression })
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -466,8 +466,8 @@ private struct StudyRow: View {
     var isMoving = false
     /// In flashcards: the expression's cards — shown as status tags (stage + reviews).
     var cards: [ReviewCard] = []
-    /// Caught: a check found the phrase to look like one already in flashcards.
-    var isLookAlike = false
+    /// Caught: whether the phrase is in flashcards already, looks like one there, or is new.
+    var mark: StudyListViewModel.CaughtMark?
     /// In flashcards: tapping the row opens the whole card.
     var onOpen: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -488,8 +488,8 @@ private struct StudyRow: View {
                         .textStyle(Tokens.Text.footnote)
                         .foregroundStyle(Tokens.Content.tertiary)
                 }
-                if isLookAlike {
-                    LookAlikeTag()
+                if let mark {
+                    CaughtMarkTag(mark: mark)
                         .padding(.top, Tokens.Space.s4)
                 }
                 if !cards.isEmpty {
@@ -550,8 +550,16 @@ private struct StudyRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
+        .overlay {
+            // A phrase not in flashcards yet: framed in green.
+            if mark == .new {
+                RoundedRectangle(cornerRadius: Tokens.Radius.card)
+                    .strokeBorder(Tokens.Signal.success, lineWidth: 1.5)
+            }
+        }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(([expression.en, expression.ru] + cards.map(CardStatusTag.spoken)).joined(separator: ". "))
+        .accessibilityLabel(([expression.en, expression.ru] + (mark.map { [CaughtMarkTag.title($0)] } ?? [])
+                             + cards.map(CardStatusTag.spoken)).joined(separator: ". "))
         .accessibilityAction(named: Loc.t("Озвучить", "Play")) { onPlay() }
         .accessibilityAction(named: Loc.t("Объяснить", "Explain")) { onExplain() }
         .accessibilityAction(named: Loc.t("Скопировать", "Copy")) {
@@ -629,22 +637,51 @@ private struct BulkMoveProgress: View {
     }
 }
 
-/// Caught: the phrase looks like one already in flashcards — moving it asks whether to merge.
-private struct LookAlikeTag: View {
+/// Caught: "New" (green — not in flashcards yet), "In flashcards" (the very same phrase is there) or
+/// "Looks like a card you learn" (a phrase like it is — moving it asks whether to merge).
+private struct CaughtMarkTag: View {
+    let mark: StudyListViewModel.CaughtMark
+
     var body: some View {
         HStack(spacing: Tokens.Space.s4) {
-            Image(systemName: "square.on.square")
+            Image(systemName: Self.icon(mark))
                 .imageScale(.small)
-            Text(Loc.t("Похожая есть во флеш-картах", "Looks like a card you learn", "Ressemble à une carte étudiée",
-                       "Se parece a una tarjeta que estudias", "Ähnelt einer Lernkarte", "Simile a una scheda che studi"))
+            Text(Self.title(mark))
         }
         .textStyle(Tokens.Text.caption)
-        .foregroundStyle(Tokens.Content.secondary)
+        .foregroundStyle(mark == .new ? Tokens.Content.onSignal : Tokens.Content.secondary)
         .padding(.horizontal, Tokens.Space.s8)
         .padding(.vertical, 3)
-        .background(Tokens.Fill.subtle, in: Capsule())
+        .background(mark == .new ? AnyShapeStyle(Tokens.Signal.success) : AnyShapeStyle(Tokens.Fill.subtle), in: Capsule())
+        .fixedSize()
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("caught.lookAlike")
+        .accessibilityIdentifier(Self.identifier(mark))
+    }
+
+    static func title(_ mark: StudyListViewModel.CaughtMark) -> String {
+        switch mark {
+        case .new: Loc.t("Новая", "New", "Nouvelle", "Nueva", "Neu", "Nuova")
+        case .inFlashcards: Loc.t("Уже во флеш-картах", "Already in flashcards", "Déjà dans les cartes",
+                                  "Ya en las tarjetas", "Schon in den Lernkarten", "Già nelle schede")
+        case .lookAlike: Loc.t("Похожая есть во флеш-картах", "Looks like a card you learn", "Ressemble à une carte étudiée",
+                               "Se parece a una tarjeta que estudias", "Ähnelt einer Lernkarte", "Simile a una scheda che studi")
+        }
+    }
+
+    private static func icon(_ mark: StudyListViewModel.CaughtMark) -> String {
+        switch mark {
+        case .new: "sparkle"
+        case .inFlashcards: "checkmark.rectangle.stack"
+        case .lookAlike: "square.on.square"
+        }
+    }
+
+    private static func identifier(_ mark: StudyListViewModel.CaughtMark) -> String {
+        switch mark {
+        case .new: "caught.new"
+        case .inFlashcards: "caught.inFlashcards"
+        case .lookAlike: "caught.lookAlike"
+        }
     }
 }
 

@@ -78,8 +78,25 @@ public final class StudyListViewModel {
     /// check before "Move all" (which goes through the whole list, so it replaces the set).
     public private(set) var lookAlikeIDs: Set<UUID> = []
 
+    /// Caught phrases that ARE in flashcards (the very same phrase, `Expression.matchKey`) — a subset of
+    /// `lookAlikeIDs`.
+    public private(set) var inFlashcardsIDs: Set<UUID> = []
+    /// Whether the marks are worked out for the rows shown (until then no row is called new).
+    public private(set) var marksKnown = false
+
     /// Whether a check found this caught phrase to look like one already in flashcards.
     public func isLookAlike(_ expression: Domain.Expression) -> Bool { lookAlikeIDs.contains(expression.id) }
+
+    /// What a Caught row says about flashcards: the very same phrase is there, one like it is, or it's new.
+    public enum CaughtMark: Equatable { case inFlashcards, lookAlike, new }
+
+    /// The mark of a Caught row — nil on In flashcards, or before the check answered.
+    public func mark(_ expression: Domain.Expression) -> CaughtMark? {
+        guard scope == .caught, marksKnown || duplicates == nil else { return nil }
+        if inFlashcardsIDs.contains(expression.id) { return .inFlashcards }
+        if lookAlikeIDs.contains(expression.id) { return .lookAlike }
+        return .new
+    }
     /// A caught phrase being moved that looks like one already in flashcards.
     public struct LookAlike: Identifiable, Equatable {
         public let caught: Domain.Expression
@@ -191,6 +208,7 @@ public final class StudyListViewModel {
             notDuplicateIDs = links
             expressions = items
             phase = items.isEmpty ? .empty : .loaded
+            if scope == .caught { await markCaught(items) }
         } catch {
             errorMessage = Loc.t("Не удалось загрузить список.", "Couldn't load the list.")
             phase = .failed
@@ -201,6 +219,14 @@ public final class StudyListViewModel {
         let english = newEnglish.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !english.isEmpty, !isAdding else { return }
         let context = newContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The very same phrase already in Caught isn't added again — say so instead of closing quietly.
+        if scope == .caught,
+           let existing = expressions.first(where: { Domain.Expression.matchKey($0.en) == Domain.Expression.matchKey(english) }) {
+            addError = Loc.t("«\(existing.en)» уже есть в «Пойманных».", "\"\(existing.en)\" is already in Caught.",
+                             "« \(existing.en) » est déjà dans « Capturées ».", "«\(existing.en)» ya está en «Atrapadas».",
+                             "„\(existing.en)“ ist schon in „Eingefangen“.", "«\(existing.en)» è già in «Catturate».")
+            return
+        }
         isAdding = true
         addError = nil
         Task { [weak self] in
@@ -322,6 +348,7 @@ public final class StudyListViewModel {
     private func removeRow(_ id: UUID) {
         expressions.removeAll { $0.id == id }
         lookAlikeIDs.remove(id)
+        inFlashcardsIDs.remove(id)
         if expressions.isEmpty { phase = .empty }
     }
 
@@ -361,6 +388,7 @@ public final class StudyListViewModel {
                                                  studiedLanguage: studied, nativeLanguage: native)
                 self.expressions.removeAll { $0.id == lookAlike.caught.id }
                 self.lookAlikeIDs.remove(lookAlike.caught.id)
+                self.inFlashcardsIDs.remove(lookAlike.caught.id)
                 if self.expressions.isEmpty { self.phase = .empty }
             } catch {
                 self.report(Loc.t("Не удалось объединить.", "Couldn't merge.") + " " + presentableError(error).message,
@@ -384,6 +412,28 @@ public final class StudyListViewModel {
 
     /// Whether Caught offers "move to flashcards" (flashcards wired).
     public var canMoveToFlashcards: Bool { flashcards != nil && scope == .caught }
+
+    /// Caught: which rows are in flashcards already (the very same phrase), which look like a phrase
+    /// there (`lookAlikesInFlashcards`, on the device), and — the rest — new. Off the main actor: keying
+    /// thousands of phrases takes a moment, and the list is already shown meanwhile.
+    private func markCaught(_ caught: [Domain.Expression]) async {
+        guard let duplicates, !caught.isEmpty else {
+            lookAlikeIDs = []
+            inFlashcardsIDs = []
+            marksKnown = true
+            return
+        }
+        let language = studiedLanguage()
+        let found = await Task.detached(priority: .userInitiated) {
+            (try? await duplicates.lookAlikesInFlashcards(for: caught, studiedLanguage: language)) ?? [:]
+        }.value
+        lookAlikeIDs = Set(found.keys)
+        inFlashcardsIDs = Set(caught.compactMap { phrase in
+            let key = Domain.Expression.matchKey(phrase.en)
+            return found[phrase.id]?.contains { Domain.Expression.matchKey($0.en) == key } == true ? phrase.id : nil
+        })
+        marksKnown = true
+    }
 
     /// "Move all": find the caught phrases that look like phrases already in flashcards, then ask.
     public func prepareMoveAll() {

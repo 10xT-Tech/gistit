@@ -54,7 +54,8 @@ public final class CatchFromPhotosViewModel: Identifiable {
                 for try await step in self.catchCards(images, studiedLanguage: studied, nativeLanguage: native) {
                     self.progress = CatchProgress(processed: step.processed + unreadable, total: unreadable + step.total,
                                                   added: step.added, failed: step.failed, empty: step.empty,
-                                                  lastError: step.lastError, alreadySaved: step.alreadySaved)
+                                                  lastError: step.lastError, alreadyInCaught: step.alreadyInCaught,
+                                                  inFlashcards: step.inFlashcards)
                 }
                 self.phase = .done
             } catch is CancellationError {
