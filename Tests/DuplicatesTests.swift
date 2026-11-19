@@ -682,6 +682,41 @@ import Presentation
         #expect(vm.expressions.contains { $0.id == alike.id })
     }
 
+    /// After the search: phrases read, candidates, and the groups already marked "not duplicates" — listed
+    /// on their own; "Unmark" puts a group back on the candidates (the links gone), "Merge" on an exact
+    /// pair merges it at once.
+    @Test func searchStatisticsAndTheMarkedGroups() async throws {
+        let roof1 = phrase("hit the roof", "взбеситься", 0), roof2 = phrase("to hit the roof", "взбеситься", 1)
+        let solid1 = phrase("solid", "надёжный", 2), solid2 = phrase("solid", "твёрдый", 3)
+        let gun1 = phrase("jump the gun", "поторопиться", 4), gun2 = phrase("to jump the gun", "поторопиться", 5)
+        let other = phrase("break the ice", "растопить лёд", 6)
+        let all = [roof1, roof2, solid1, solid2, gun1, gun2, other]
+        let expressions = MockExpressionRepository(seed: all)
+        let cards = MockReviewCardRepository(seed: all.flatMap(newCards))
+        let marks = InMemoryNotDuplicateMarks([NotDuplicatePair(solid1.id, solid2.id), NotDuplicatePair(gun1.id, gun2.id)])
+        let duplicates = DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions, cards: cards, marks: marks)
+        let vm = DuplicatesViewModel(duplicates: duplicates, studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+        vm.start()
+        try await wait { vm.phase != .scanning }
+        #expect(vm.phrasesChecked == 7)
+        #expect(vm.candidateGroups == 1 && vm.candidatePhrases == 2)                 // the roof
+        #expect(vm.settled.map(\.key) == ["solid", "jump the gun"] && vm.settledPhrases == 4)
+
+        vm.unmark(try #require(vm.settled.first))                                     // "solid"
+        #expect(vm.settled.map(\.key) == ["jump the gun"])
+        #expect(vm.groups.map(\.key) == ["hit the roof", "solid"])
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(try await marks.pairs() == [NotDuplicatePair(gun1.id, gun2.id)])
+
+        let gun = try #require(vm.settled.first)
+        #expect(!vm.needsModel(toMerge: gun))                                         // an exact pair
+        vm.mergeSettled(gun)
+        try await wait { vm.merged == 1 }
+        #expect(vm.settled.isEmpty)
+        #expect(try await expressions.all().contains { $0.id == gun2.id } == false)
+        #expect(try await marks.pairs().isEmpty)
+    }
+
     /// A bare "coat" sits in the verbs' group and in the nouns'; merged away in one, it leaves the other
     /// too — which, left with one phrase, is done.
     @Test func aPhraseInTwoGroupsLeavesBothWhenMerged() async throws {
@@ -1101,6 +1136,7 @@ private final class SlowMerges: DuplicatesUseCase, @unchecked Sendable {
         try await inner.caughtMerge(caught, into: lookAlikes, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
     }
     func keepApart(_ caught: UUID, from lookAlikes: [UUID]) async throws { try await inner.keepApart(caught, from: lookAlikes) }
+    func unmarkNotDuplicates(_ expressionIDs: [UUID]) async throws { try await inner.unmarkNotDuplicates(expressionIDs) }
     func markNotDuplicates(_ expressionIDs: [UUID]) async throws { try await inner.markNotDuplicates(expressionIDs) }
     func notDuplicates() async throws -> Set<NotDuplicatePair> { try await inner.notDuplicates() }
 }

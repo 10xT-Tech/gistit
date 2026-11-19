@@ -95,13 +95,17 @@ public struct DuplicateScanStep: Sendable, Equatable {
     public let checked: Int
     public let total: Int
     public let groups: [DuplicateGroup]?
+    /// A normal search's look-alike groups left out because ALL their phrases are marked "not
+    /// duplicates" of each other (empty for a full re-check, which keeps them in `groups`).
+    public let settled: [DuplicateGroup]
 
     public var fraction: Double { total == 0 ? 0 : Double(checked) / Double(total) }
 
-    public init(checked: Int, total: Int, groups: [DuplicateGroup]? = nil) {
+    public init(checked: Int, total: Int, groups: [DuplicateGroup]? = nil, settled: [DuplicateGroup] = []) {
         self.checked = checked
         self.total = total
         self.groups = groups
+        self.settled = settled
     }
 }
 
@@ -164,6 +168,8 @@ public protocol DuplicatesUseCase: Sendable {
     func markNotDuplicates(_ expressionIDs: [UUID]) async throws
     /// Every "not duplicates" link.
     func notDuplicates() async throws -> Set<NotDuplicatePair>
+    /// Take the "not duplicates" mark off these phrases — the links among them, no others.
+    func unmarkNotDuplicates(_ expressionIDs: [UUID]) async throws
 }
 
 public struct DuplicatesInteractor: DuplicatesUseCase {
@@ -215,7 +221,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                             await Task.yield()
                         }
                     }
-                    let groups = byKey
+                    let all = byKey
                         .filter { $0.value.count > 1 }
                         .flatMap { key, members in Self.lookAlikeSets(members, key: key, language: studiedLanguage) }
                         .map { key, members in
@@ -227,9 +233,11 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                                                         excluding: full ? [] : pairs),
                                 marked: pairs, honorsMarks: !full)
                         }
-                        .filter { full || !$0.isAllMarked }
                         .sorted { ($0.expressions[0].createdAt, $0.key) < ($1.expressions[0].createdAt, $1.key) }
-                    continuation.yield(DuplicateScanStep(checked: studied.count, total: studied.count, groups: groups))
+                    let groups = all.filter { full || !$0.isAllMarked }
+                    let settled = full ? [] : all.filter(\.isAllMarked)
+                    continuation.yield(DuplicateScanStep(checked: studied.count, total: studied.count, groups: groups,
+                                                         settled: settled))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -483,6 +491,10 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         if let proposed { return proposed }
         let target = lookAlikes.min { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) } ?? lookAlikes[0]
         return Self.forcedMerge(of: caught, into: target, language: studiedLanguage)
+    }
+
+    public func unmarkNotDuplicates(_ expressionIDs: [UUID]) async throws {
+        try await marks.unmark(NotDuplicatePair.all(among: expressionIDs))
     }
 
     public func keepApart(_ caught: UUID, from lookAlikes: [UUID]) async throws {

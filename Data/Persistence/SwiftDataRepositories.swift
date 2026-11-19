@@ -305,6 +305,15 @@ public actor SwiftDataNotDuplicateMarks: NotDuplicateMarking {
         try save()
     }
 
+    public func unmark(_ pairs: Set<NotDuplicatePair>) async throws {
+        guard !pairs.isEmpty else { return }
+        let keys = Set(pairs.map(NotDuplicatePairModel.key))
+        for model in try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>()) where keys.contains(model.key) {
+            modelContext.delete(model)
+        }
+        try save()
+    }
+
     public func unmark(involving ids: Set<UUID>) async throws {
         guard !ids.isEmpty else { return }
         for model in try modelContext.fetch(FetchDescriptor<NotDuplicatePairModel>())

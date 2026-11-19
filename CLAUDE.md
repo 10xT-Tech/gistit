@@ -357,7 +357,13 @@ proposes a linked pair (`DuplicateGroup.excluded`); `scan(full: true)` ("Full re
 links, but the sheet doesn't put the all-linked groups to the user: they go to the model with Check
 and show up (`DuplicatesViewModel.shownGroups`) only if a merge is proposed in them (exact or the
 model's) — the rest are removed and counted (`confirmedApart`); the user saw 39 marked noun/verb pairs
-come back as a wall of "Not checked yet". The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
+come back as a wall of "Not checked yet". After a scan the sheet shows statistics (`ScanStatistics`: phrases read = `scan.total`, candidate groups /
+phrases, groups already marked): a normal scan reports the all-linked groups it left out
+(`DuplicateScanStep.settled` → `DuplicatesViewModel.settled`), and their line opens `SettledGroupsView` —
+"Unmark" (`unmark`: `DuplicatesUseCase.unmarkNotDuplicates` drops the links AMONG those phrases only,
+`NotDuplicateMarking.unmark(_ pairs:)`; the group joins the candidates with its exact merges recomputed)
+and "Merge" (`mergeSettled`: unmark, then an exact merge at once, else `checkGroup` — Pro, the view gates
+it via `needsModel(toMerge:)`). The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
 Caught: moving a phrase checks `lookAlikesInFlashcards` (on the device; a found one marks the row —
 `lookAlikeIDs`, "Looks like a card you learn") → sheet Merge / Move separately. Merge =
 `DuplicatesUseCase.mergeCaught` — the user's decision, so once the check ANSWERED the phrase is merged

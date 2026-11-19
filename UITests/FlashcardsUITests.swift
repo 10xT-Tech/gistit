@@ -281,8 +281,8 @@ final class FlashcardsUITests: XCTestCase {
     }
 
     /// Added as a separate card, the look-alike is linked as "not duplicates": Find duplicates leaves it
-    /// be, and a full re-check finds it — the same phrase and translation, an exact duplicate — and Merge
-    /// makes it one card, without the model.
+    /// be, but counts it — its line opens the marked groups, where Merge (an exact duplicate: the same
+    /// phrase and translation) makes it one card, without the model.
     func testFindDuplicatesMergesAGroup() {
         let app = openCaughtWithALookAlike()
         let separately = app.buttons["merge.separate"]
@@ -299,12 +299,19 @@ final class FlashcardsUITests: XCTestCase {
 
         openFindDuplicates(app)
         XCTAssertTrue(app.staticTexts["No duplicates found"].waitForExistence(timeout: 5), "a linked pair was offered")
-        app.buttons["dups.full"].tap()
-        let merge = app.buttons["dups.merge"]
-        XCTAssertTrue(merge.waitForExistence(timeout: 5), "no exact duplicate proposed")
-        XCTAssertFalse(app.buttons["dups.check"].exists, "an exact duplicate needs no model")
-        attach(app, "dups-found")
-        merge.tap()
+        // The statistics: the linked pair is counted, and its line opens the list of marked groups.
+        let settled = app.buttons["dups.settledList"]
+        XCTAssertTrue(settled.waitForExistence(timeout: 3), "no statistics after the search")
+        XCTAssertTrue(settled.label.contains("groups: 1"), settled.label)
+        attach(app, "dups-stats")
+        settled.tap()
+        let merge = app.buttons["settled.merge"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 3), "the marked group isn't listed")
+        XCTAssertTrue(app.buttons["settled.unmark"].exists)
+        attach(app, "dups-settled")
+        merge.tap()                                                             // an exact duplicate: merged at once
+        XCTAssertTrue(app.staticTexts["No marked groups left."].waitForExistence(timeout: 5))
+        app.navigationBars.firstMatch.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 5))
         attach(app, "dups-done")
         app.buttons["dups.done"].tap()

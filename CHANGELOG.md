@@ -27,6 +27,12 @@ phrase already in Caught isn't added twice, and **Generate from a phrase** says 
 quietly. **From photos** adds every phrase the photos give, the ones you already learn included, and
 tells you which were already in flashcards and which were already in Caught.
 
+**What the duplicate search found.** After **Find duplicates** reads your cards, it says how many
+phrases it checked, how many look-alike candidates it found, and how many groups you've already marked
+as not duplicates. Tap that line to see them all: **Unmark** a group (it goes back on the list of
+candidates, to merge or check again) or **Merge** it — an exact duplicate at once, otherwise the model
+proposes the card first.
+
 **A verb and a noun are never duplicates.** "to drain" and "a drain" are two words: Find duplicates no
 longer puts them in one group even when a plain "drain" is there too (it's checked against each of
 them separately), and never offers to merge them.
