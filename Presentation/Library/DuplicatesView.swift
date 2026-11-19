@@ -143,9 +143,10 @@ struct DuplicatesView: View {
                                   "Phrases written alike (ignoring \"to\", articles, punctuation and word forms; \"sb\", \"smb\" and \"someone\" are one, but a phrase with \"someone\" and one without are two). Alike isn't the same: exact duplicates (the same phrase and translation) can be merged right away; the model checks the rest — which cards are one, which are one phrase's meanings, which are different phrases. \"Don't merge\" marks the cards as not duplicates, and the next search leaves them be."))
                 }
                 if !model.unchecked.isEmpty {
-                    EHButton(Loc.t("Проверить (\(model.unchecked.count))", "Check (\(model.unchecked.count))",
-                                   "Vérifier (\(model.unchecked.count))", "Revisar (\(model.unchecked.count))",
-                                   "Prüfen (\(model.unchecked.count))", "Controlla (\(model.unchecked.count))"),
+                    let count = model.unchecked.count
+                    EHButton(Loc.t("Проверить все для слияния (\(count))", "Check all for merge (\(count))",
+                                   "Tout vérifier pour fusion (\(count))", "Revisar todo para unir (\(count))",
+                                   "Alle zum Zusammenführen prüfen (\(count))", "Controlla tutto per unire (\(count))"),
                              icon: "sparkles", kind: .primary, fillWidth: true,
                              accessibilityID: "dups.check") { check { model.startCheck() } }
                         .disabled(model.mergeAll != nil)                 // "Merge all" first: it changes the groups
