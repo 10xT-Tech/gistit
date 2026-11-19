@@ -91,8 +91,8 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(status.waitForExistence(timeout: 3), "looking at the card changed its progress")
     }
 
-    /// Caught → Move all (confirmed) empties the list; In flashcards then lists both phrases, and a
-    /// swipe left deletes one.
+    /// Caught → Move new (no question: both phrases are new) empties the list; In flashcards then lists
+    /// both phrases, and a swipe left deletes one.
     func testMoveAllThenDeleteFromFlashcards() {
         let app = XCUIApplication()
         app.launchArguments += [
@@ -107,12 +107,9 @@ final class FlashcardsUITests: XCTestCase {
 
         let moveAll = app.buttons["caught.moveAll"]
         XCTAssertTrue(moveAll.waitForExistence(timeout: 3))
+        XCTAssertEqual(moveAll.label, "Move new to flashcards (2)")
         moveAll.tap()
-        let confirm = app.buttons["caught.moveAll.confirm"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
-        attach(app, "move-all-sheet")
-        confirm.tap()
-        XCTAssertTrue(app.staticTexts["Nothing yet"].waitForExistence(timeout: 3), "Caught didn't empty")
+        XCTAssertTrue(app.staticTexts["Nothing yet"].waitForExistence(timeout: 10), "Caught didn't empty")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
 
         let studying = app.buttons["study.studying"]
@@ -170,7 +167,6 @@ final class FlashcardsUITests: XCTestCase {
         app.buttons["study.caught"].tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
-        app.buttons["caught.moveAll.confirm"].tap()
         // Phrases leave Caught as they move (not at once): go on when the move is done.
         XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
@@ -230,7 +226,6 @@ final class FlashcardsUITests: XCTestCase {
         app.buttons["study.caught"].tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
-        app.buttons["caught.moveAll.confirm"].tap()
 
         let phrase = app.buttons["caught.empty.phrase"]
         XCTAssertTrue(phrase.waitForExistence(timeout: 3), "the empty list doesn't offer a phrase")
@@ -247,11 +242,13 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(card.waitForExistence(timeout: 5), "the generated card isn't in Caught")
     }
 
-    /// A caught phrase that looks like one in flashcards asks before moving; Merge makes one card.
+    /// A caught phrase that looks like one in flashcards moves only by a merge: the merged card is
+    /// worked out at once and shown; Merge makes one card.
     func testCaughtLookAlikeMergesIntoFlashcards() {
         let app = openCaughtWithALookAlike()
-        let merge = app.buttons["Merge"]
-        XCTAssertTrue(merge.waitForExistence(timeout: 5), "moving a look-alike didn't ask")
+        let merge = app.buttons["merge.confirm"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 10), "moving a look-alike didn't offer the merge")
+        XCTAssertTrue(app.descendants(matching: .any)["merge.card"].exists, "the merged card isn't shown")
         attach(app, "look-alike")
         merge.tap()
         let lookAlike = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
@@ -261,23 +258,20 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertEqual(app.buttons["study.studying"].label, "In flashcards: 1")
     }
 
-    /// A phrase a move found to look like a card stays on the list, marked; "Move all" then offers
-    /// "Move new" (the rest) and "Move all", and "Move new" leaves the marked one in Caught.
+    /// The look-alike's row is marked, the new one is "New"; "Move new" moves only the new one, at once,
+    /// and leaves the marked one in Caught.
     func testLookAlikeIsMarkedAndMoveNewLeavesIt() {
         let app = openCaughtWithALookAlike()
         let cancel = app.buttons["confirm.cancel"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "moving a look-alike didn't ask")
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10), "moving a look-alike didn't offer the merge")
         cancel.tap()
         let mark = app.descendants(matching: .any)["caught.lookAlike"]
         XCTAssertTrue(mark.waitForExistence(timeout: 3), "the look-alike's row isn't marked")
+        XCTAssertTrue(app.descendants(matching: .any)["caught.new"].exists, "the new row isn't marked New")
         attach(app, "caught-look-alike-marked")
 
-        app.buttons["caught.moveAll"].tap()
-        let moveNew = app.buttons["caught.moveNew"]
-        XCTAssertTrue(moveNew.waitForExistence(timeout: 5))
-        XCTAssertEqual(moveNew.label, "Move new (1)")
-        XCTAssertEqual(app.buttons["caught.moveAll.confirm"].label, "Move all (2)")
-        attach(app, "move-all-sheet-new")
+        let moveNew = app.buttons["caught.moveAll"]
+        XCTAssertEqual(moveNew.label, "Move new to flashcards (1)")
         moveNew.tap()
 
         let lookAlike = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
@@ -286,12 +280,13 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(lookAlike.exists, "the look-alike left Caught")
     }
 
-    /// Moved separately, the look-alike is found by In flashcards → Find duplicates: the same phrase and
-    /// translation — an exact duplicate, merged without the model.
+    /// Added as a separate card, the look-alike is linked as "not duplicates": Find duplicates leaves it
+    /// be, but counts it — its line opens the marked groups, where Merge (an exact duplicate: the same
+    /// phrase and translation) makes it one card, without the model.
     func testFindDuplicatesMergesAGroup() {
         let app = openCaughtWithALookAlike()
-        let separately = app.buttons["Move separately"]
-        XCTAssertTrue(separately.waitForExistence(timeout: 5))
+        let separately = app.buttons["merge.separate"]
+        XCTAssertTrue(separately.waitForExistence(timeout: 10))
         separately.tap()
         // The row leaves once the phrase IS in flashcards; the dashboard counts when it appears.
         let moved = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
@@ -302,28 +297,33 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertEqual(studying.label, "In flashcards: 2")
         studying.tap()
 
-        let menu = app.buttons["cards.transfer"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 3))
-        menu.tap()
-        app.buttons["Find duplicates"].tap()
-        let merge = app.buttons["dups.merge"]
-        XCTAssertTrue(merge.waitForExistence(timeout: 5), "no exact duplicate proposed")
-        XCTAssertFalse(app.buttons["dups.check"].exists, "an exact duplicate needs no model")
-        attach(app, "dups-found")
-        merge.tap()
+        openFindDuplicates(app)
+        XCTAssertTrue(app.staticTexts["No duplicates found"].waitForExistence(timeout: 5), "a linked pair was offered")
+        // The statistics: the linked pair is counted, and its line opens the list of marked groups.
+        let settled = app.buttons["dups.settledList"]
+        XCTAssertTrue(settled.waitForExistence(timeout: 3), "no statistics after the search")
+        XCTAssertTrue(settled.label.contains("groups: 1"), settled.label)
+        attach(app, "dups-stats")
+        settled.tap()
+        let merge = app.buttons["settled.merge"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 3), "the marked group isn't listed")
+        XCTAssertTrue(app.buttons["settled.unmark"].exists)
+        attach(app, "dups-settled")
+        merge.tap()                                                             // an exact duplicate: merged at once
+        XCTAssertTrue(app.staticTexts["No marked groups left."].waitForExistence(timeout: 5))
+        app.navigationBars.firstMatch.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 5))
         attach(app, "dups-done")
         app.buttons["dups.done"].tap()
         XCTAssertTrue(app.cells.element(boundBy: 1).waitForNonExistence(timeout: 3), "the duplicate is still listed")
     }
 
-    /// Don't merge: the two cards are linked as not duplicates — the card shows it, the next search
-    /// leaves them be, and a full re-check shows them again — they're an exact duplicate (the same
-    /// translation), a merge proposed without the model.
+    /// Add as a separate card links the two cards as not duplicates — the card shows it, a search leaves
+    /// them be, and a full re-check shows them again (an exact duplicate); Don't merge there keeps the link.
     func testDontMergeLinksTheCards() {
         let app = openCaughtWithALookAlike()
-        let separately = app.buttons["Move separately"]
-        XCTAssertTrue(separately.waitForExistence(timeout: 5))
+        let separately = app.buttons["merge.separate"]
+        XCTAssertTrue(separately.waitForExistence(timeout: 10))
         separately.tap()
         // The row leaves once the phrase IS in flashcards; the dashboard counts when it appears.
         let moved = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
@@ -332,15 +332,6 @@ final class FlashcardsUITests: XCTestCase {
         let studying = app.buttons["study.studying"]
         XCTAssertTrue(studying.waitForExistence(timeout: 3))
         studying.tap()
-
-        openFindDuplicates(app)
-        let keep = app.buttons["dups.keep"]
-        XCTAssertTrue(keep.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["dups.merge"].exists, "Merge and Don't merge side by side")
-        attach(app, "dups-two-buttons")
-        keep.tap()
-        XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 3))
-        app.buttons["dups.done"].tap()
 
         // The card shows the link.
         let row = app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it!'")).firstMatch
@@ -356,9 +347,12 @@ final class FlashcardsUITests: XCTestCase {
         openFindDuplicates(app)
         XCTAssertTrue(app.staticTexts["No duplicates found"].waitForExistence(timeout: 5))
         app.buttons["dups.full"].tap()
-        XCTAssertTrue(app.buttons["dups.keep"].waitForExistence(timeout: 5), "the full re-check didn't bring them back")
+        let keep = app.buttons["dups.keep"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 5), "the full re-check didn't bring them back")
         XCTAssertTrue(app.staticTexts["Marked \"not duplicates\""].exists)
         attach(app, "dups-full")
+        keep.tap()
+        XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 3))
     }
 
     private func openFindDuplicates(_ app: XCUIApplication) {
@@ -369,7 +363,7 @@ final class FlashcardsUITests: XCTestCase {
     }
 
     /// Caught with "I appreciate it" moved into flashcards and "I appreciate it!" generated, then moved
-    /// too (swipe right → Learn) — the app is left asking about the look-alike.
+    /// too (swipe right → Learn) — the app is left offering the merge of the look-alike.
     private func openCaughtWithALookAlike() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += [
@@ -439,7 +433,6 @@ final class FlashcardsUITests: XCTestCase {
         app.buttons["study.caught"].tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
-        app.buttons["caught.moveAll.confirm"].tap()
         // Phrases leave Caught as they move (not at once): go on when the move is done.
         XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
@@ -581,7 +574,6 @@ final class FlashcardsUITests: XCTestCase {
         caught.tap()
         XCTAssertTrue(app.buttons["caught.moveAll"].waitForExistence(timeout: 3))
         app.buttons["caught.moveAll"].tap()
-        app.buttons["caught.moveAll.confirm"].tap()
         XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
         app.navigationBars["Caught"].buttons.element(boundBy: 0).tap()
         return app

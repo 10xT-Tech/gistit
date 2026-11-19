@@ -26,6 +26,7 @@ struct DuplicatesView: View {
     @State var model: DuplicatesViewModel
     let onClose: () -> Void
     @State private var showPaywall = false
+    @State private var showSettled = false
     @Environment(SubscriptionState.self) private var subscription
 
     var body: some View {
@@ -90,6 +91,16 @@ struct DuplicatesView: View {
                 }
             }
             .sheet(isPresented: $showPaywall) { PaywallView().environment(subscription) }
+            .navigationDestination(isPresented: $showSettled) {
+                SettledGroupsView(model: model) { group in
+                    // Merging a marked group with no exact duplicate in it asks the model: Pro.
+                    if model.needsModel(toMerge: group) && !subscription.tier.canCheckDuplicates {
+                        showPaywall = true
+                    } else {
+                        model.mergeSettled(group)
+                    }
+                }
+            }
         }
         .interactiveDismissDisabled(model.phase == .checking || model.mergeAll != nil)
         .task { model.start() }
@@ -165,6 +176,9 @@ struct DuplicatesView: View {
                              icon: "sparkles", kind: .tonal, fillWidth: true,
                              accessibilityID: "dups.check") { check { model.startCheck() } }
                 }
+            }
+            if model.phase != .scanning {
+                ScanStatistics(model: model) { showSettled = true }
             }
             if let error = model.errorMessage { caption(error) }
             if !model.isBusy {
@@ -424,5 +438,117 @@ private struct GroupCard: View {
         case (.senses, _): Loc.t("Одна фраза, разные значения — одна карточка с нумерацией:",
                                  "One phrase, several meanings — one card, numbered:")
         }
+    }
+}
+
+/// After a search: how many phrases it read, how many look-alike candidates it found, and how many were
+/// already marked "not duplicates" — that line opens the list of them.
+private struct ScanStatistics: View {
+    let model: DuplicatesViewModel
+    let onOpenSettled: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s8) {
+            row(Loc.t("Проверено фраз", "Phrases checked", "Expressions vérifiées", "Frases revisadas",
+                      "Geprüfte Phrasen", "Frasi controllate"), "\(model.phrasesChecked)")
+            row(Loc.t("Кандидаты в дубли", "Duplicate candidates", "Doublons possibles", "Posibles duplicados",
+                      "Mögliche Duplikate", "Possibili duplicati"),
+                Loc.t("групп: \(model.candidateGroups) · фраз: \(model.candidatePhrases)",
+                      "groups: \(model.candidateGroups) · phrases: \(model.candidatePhrases)"))
+            if !model.isFull {
+                Button(action: onOpenSettled) {
+                    HStack {
+                        row(Loc.t("Отмечены как не дубли", "Marked not duplicates", "Marquées non doublons",
+                                  "Marcadas no duplicados", "Als keine Duplikate markiert", "Segnate non duplicati"),
+                            Loc.t("групп: \(model.settled.count) · фраз: \(model.settledPhrases)",
+                                  "groups: \(model.settled.count) · phrases: \(model.settledPhrases)"))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Tokens.Content.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.settled.isEmpty)
+                .accessibilityIdentifier("dups.settledList")
+            }
+        }
+        .padding(.top, Tokens.Space.s4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("dups.stats")
+    }
+
+    private func row(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(Tokens.Content.secondary)
+            Spacer(minLength: Tokens.Space.s8)
+            Text(value)
+                .foregroundStyle(Tokens.Content.primary)
+                .monospacedDigit()
+        }
+        .textStyle(Tokens.Text.subhead)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The groups already marked "not duplicates": each with its phrases, "Take the mark off" (the group
+/// joins the candidates) and "Merge" (exact — at once; otherwise the model's card, to confirm on the list).
+private struct SettledGroupsView: View {
+    let model: DuplicatesViewModel
+    let onMerge: (DuplicateGroup) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: Tokens.Space.s12) {
+                if model.settled.isEmpty {
+                    Text(Loc.t("Отмеченных групп не осталось.", "No marked groups left."))
+                        .textStyle(Tokens.Text.subhead)
+                        .foregroundStyle(Tokens.Content.secondary)
+                        .padding(.top, Tokens.Space.s24)
+                }
+                ForEach(model.settled) { group in
+                    VStack(alignment: .leading, spacing: Tokens.Space.s12) {
+                        ForEach(group.expressions) { expression in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(expression.en)
+                                    .textStyle(Tokens.Text.headline)
+                                    .foregroundStyle(Tokens.Content.primary)
+                                Text(expression.ru)
+                                    .textStyle(Tokens.Text.subhead)
+                                    .foregroundStyle(Tokens.Content.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                        HStack(spacing: Tokens.Space.s8) {
+                            EHButton(Loc.t("Снять пометку", "Unmark", "Retirer la marque", "Quitar la marca",
+                                           "Markierung entfernen", "Togli il segno"),
+                                     kind: .tonal, fillWidth: true, accessibilityID: "settled.unmark") {
+                                model.unmark(group)
+                            }
+                            EHButton(Loc.t("Слить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci"),
+                                     icon: "arrow.triangle.merge", kind: .primary, fillWidth: true,
+                                     accessibilityID: "settled.merge") {
+                                onMerge(group)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Tokens.Space.s16)
+                    .glassPanel(cornerRadius: Tokens.Radius.card)
+                }
+                Text(Loc.t("«Снять пометку» и «Слить» без точного дубля возвращают группу в список кандидатов: там её можно слить, проверить моделью или снова отметить.",
+                           "Unmark — and Merge without an exact duplicate — put the group back on the list of candidates: merge it there, check it with the model, or mark it again."))
+                    .textStyle(Tokens.Text.footnote)
+                    .foregroundStyle(Tokens.Content.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, Tokens.Space.s16)
+            .padding(.vertical, Tokens.Space.s8)
+        }
+        .background(Tokens.Surface.background)
+        .navigationTitle(Loc.t("Не дубли", "Not duplicates", "Non doublons", "No duplicados", "Keine Duplikate",
+                               "Non duplicati"))
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

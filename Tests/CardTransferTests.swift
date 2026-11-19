@@ -317,6 +317,7 @@ private struct FailingMarks: NotDuplicateMarking {
     func pairs() async throws -> Set<NotDuplicatePair> { [] }
     func mark(_ pairs: Set<NotDuplicatePair>) async throws { throw RepositoryError.persistenceFailed("disk full") }
     func unmark(involving ids: Set<UUID>) async throws {}
+    func unmark(_ pairs: Set<NotDuplicatePair>) async throws {}
 }
 
 /// Cards where a move from Caught lands in the middle of an import: right before the import's cards

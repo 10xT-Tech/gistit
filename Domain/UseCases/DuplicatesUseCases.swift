@@ -95,13 +95,17 @@ public struct DuplicateScanStep: Sendable, Equatable {
     public let checked: Int
     public let total: Int
     public let groups: [DuplicateGroup]?
+    /// A normal search's look-alike groups left out because ALL their phrases are marked "not
+    /// duplicates" of each other (empty for a full re-check, which keeps them in `groups`).
+    public let settled: [DuplicateGroup]
 
     public var fraction: Double { total == 0 ? 0 : Double(checked) / Double(total) }
 
-    public init(checked: Int, total: Int, groups: [DuplicateGroup]? = nil) {
+    public init(checked: Int, total: Int, groups: [DuplicateGroup]? = nil, settled: [DuplicateGroup] = []) {
         self.checked = checked
         self.total = total
         self.groups = groups
+        self.settled = settled
     }
 }
 
@@ -151,11 +155,21 @@ public protocol DuplicatesUseCase: Sendable {
     /// phrase stays on Caught and the user is told.
     func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
                      studiedLanguage: String, nativeLanguage: String) async throws
+    /// The merge `mergeCaught` would make — worked out, NOT written — for the user to confirm: an exact
+    /// duplicate on the device, else the model's merge holding the caught phrase, else (the model named
+    /// none) one more meaning of the oldest look-alike. Throws if the model can't answer.
+    func caughtMerge(_ caught: Expression, into lookAlikes: [Expression],
+                     studiedLanguage: String, nativeLanguage: String) async throws -> DuplicateMerge
+    /// "Add as a separate card": the caught phrase is linked as "not duplicates" to each look-alike —
+    /// those pairs only, not the look-alikes among themselves.
+    func keepApart(_ caught: UUID, from lookAlikes: [UUID]) async throws
     /// "Don't merge": these phrases are linked to each other as not duplicates — a search leaves them
     /// be (a full re-check aside).
     func markNotDuplicates(_ expressionIDs: [UUID]) async throws
     /// Every "not duplicates" link.
     func notDuplicates() async throws -> Set<NotDuplicatePair>
+    /// Take the "not duplicates" mark off these phrases — the links among them, no others.
+    func unmarkNotDuplicates(_ expressionIDs: [UUID]) async throws
 }
 
 public struct DuplicatesInteractor: DuplicatesUseCase {
@@ -207,7 +221,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                             await Task.yield()
                         }
                     }
-                    let groups = byKey
+                    let all = byKey
                         .filter { $0.value.count > 1 }
                         .flatMap { key, members in Self.lookAlikeSets(members, key: key, language: studiedLanguage) }
                         .map { key, members in
@@ -219,9 +233,11 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                                                         excluding: full ? [] : pairs),
                                 marked: pairs, honorsMarks: !full)
                         }
-                        .filter { full || !$0.isAllMarked }
                         .sorted { ($0.expressions[0].createdAt, $0.key) < ($1.expressions[0].createdAt, $1.key) }
-                    continuation.yield(DuplicateScanStep(checked: studied.count, total: studied.count, groups: groups))
+                    let groups = all.filter { full || !$0.isAllMarked }
+                    let settled = full ? [] : all.filter(\.isAllMarked)
+                    continuation.yield(DuplicateScanStep(checked: studied.count, total: studied.count, groups: groups,
+                                                         settled: settled))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -270,15 +286,16 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         return found
     }
 
-    /// The look-alike groups among phrases sharing a key: all of them — unless verbs and nouns meet with
-    /// no phrase that could be either ("to drain", "a drain" — no "drain"): then the verbs and the nouns
-    /// apart, each keyed by its class. Groups of one are dropped.
+    /// The look-alike groups among phrases sharing a key. A verb and a noun are two words, NEVER one
+    /// group (the user's rule — "to drain" / "a drain"): when both meet, the verbs and the nouns make
+    /// groups of their own, each keyed by its class, and a phrase without a marker ("drain" — it may be
+    /// either) is in both. Groups of one are dropped.
     static func lookAlikeSets(_ members: [Expression], key: String, language: String) -> [(String, [Expression])] {
         let classes = members.map { PhraseKey.wordClass(of: $0.en, language: language) }
-        guard classes.contains(.verb), classes.contains(.noun), !classes.contains(nil) else { return [(key, members)] }
+        guard classes.contains(.verb), classes.contains(.noun) else { return [(key, members)] }
         return [(WordClass.verb, "verb"), (.noun, "noun")].compactMap { wordClass, suffix in
-            let same = zip(members, classes).filter { $0.1 == wordClass }.map(\.0)
-            return same.count > 1 ? (key + "|" + suffix, same) : nil
+            let side = zip(members, classes).filter { $0.1 == wordClass || $0.1 == nil }.map(\.0)
+            return side.count > 1 ? (key + "|" + suffix, side) : nil
         }
     }
 
@@ -391,7 +408,8 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         var used = Set<String>()
         return verdict.merges.compactMap { answer in
             let ids = answer.ids.filter { byID[$0] != nil && !used.contains($0) }
-            guard ids.count > 1,
+            let classes = ids.compactMap { byID[$0] }.map { PhraseKey.wordClass(of: $0.en, language: language) }
+            guard ids.count > 1, !(classes.contains(.verb) && classes.contains(.noun)),   // a verb and a noun: never
                   NotDuplicatePair.all(among: ids.compactMap { byID[$0]?.id }).isDisjoint(with: excluded) else { return nil }
             used.formUnion(ids)
             let ordered = ids.compactMap { byID[$0] }
@@ -456,20 +474,31 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
 
     public func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
                             studiedLanguage: String, nativeLanguage: String) async throws {
-        guard !lookAlikes.isEmpty else { throw RepositoryError.notFound }
-        let group = lookAlikes + [caught]
-        // A failed check (offline, no answer, the plan's limit) stops here, before anything is written.
-        let proposed = try await proposals(for: group, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
-            .first { $0.expressionIDs.contains(caught.id) }
-        if let proposed {
-            try await merge(group.filter { proposed.expressionIDs.contains($0.id) }, into: proposed.card, as: proposed.kind,
-                            studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
-            return
-        }
-        let target = lookAlikes.min { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) } ?? lookAlikes[0]
-        let forced = Self.forcedMerge(of: caught, into: target, language: studiedLanguage)
-        try await merge([target, caught], into: forced.card, as: forced.kind,
+        let planned = try await caughtMerge(caught, into: lookAlikes,
+                                            studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        try await merge((lookAlikes + [caught]).filter { planned.expressionIDs.contains($0.id) },
+                        into: planned.card, as: planned.kind,
                         studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+
+    public func caughtMerge(_ caught: Expression, into lookAlikes: [Expression],
+                            studiedLanguage: String, nativeLanguage: String) async throws -> DuplicateMerge {
+        guard !lookAlikes.isEmpty else { throw RepositoryError.notFound }
+        // A failed check (offline, no answer, the plan's limit) throws here, before anything is written.
+        let proposed = try await proposals(for: lookAlikes + [caught], studiedLanguage: studiedLanguage,
+                                           nativeLanguage: nativeLanguage)
+            .first { $0.expressionIDs.contains(caught.id) }
+        if let proposed { return proposed }
+        let target = lookAlikes.min { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) } ?? lookAlikes[0]
+        return Self.forcedMerge(of: caught, into: target, language: studiedLanguage)
+    }
+
+    public func unmarkNotDuplicates(_ expressionIDs: [UUID]) async throws {
+        try await marks.unmark(NotDuplicatePair.all(among: expressionIDs))
+    }
+
+    public func keepApart(_ caught: UUID, from lookAlikes: [UUID]) async throws {
+        try await marks.mark(Set(lookAlikes.filter { $0 != caught }.map { NotDuplicatePair(caught, $0) }))
     }
 
     /// The card of a merge the model didn't word — it answered, and named none — (see `mergeCaught`), from the two phrases' own texts: the

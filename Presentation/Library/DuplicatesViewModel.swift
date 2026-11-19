@@ -72,6 +72,9 @@ public final class DuplicatesViewModel: Identifiable {
     public private(set) var check = CheckStep()
     /// Groups still to decide on, oldest first.
     public private(set) var groups: [DuplicateGroup] = []
+    /// A normal search's groups already marked "not duplicates" — not offered, listed on their own page
+    /// ("Marked not duplicates"), where the mark can be taken off or the group merged.
+    public private(set) var settled: [DuplicateGroup] = []
     /// Proposed merges by group key: the exact duplicates at first, the model's once it checked the group.
     public private(set) var proposals: [String: [DuplicateMerge]] = [:]
     /// Groups the model has checked (by key).
@@ -167,6 +170,7 @@ public final class DuplicatesViewModel: Identifiable {
         isFull = true
         confirmedApart = 0
         groups = []
+        settled = []
         proposals = [:]
         checkedKeys = []
         check = CheckStep()
@@ -185,6 +189,7 @@ public final class DuplicatesViewModel: Identifiable {
                     self.scan = step
                     if let groups = step.groups {
                         self.groups = groups
+                        self.settled = step.settled
                         self.proposals = Dictionary(uniqueKeysWithValues: groups.map { ($0.key, $0.exact) })
                     }
                 }
@@ -382,6 +387,48 @@ public final class DuplicatesViewModel: Identifiable {
         }
     }
 
+    // MARK: Statistics and the marked groups
+
+    /// The phrases in flashcards the search read.
+    public var phrasesChecked: Int { scan.total }
+    /// Look-alike candidates on the list: groups, and the phrases in them.
+    public var candidateGroups: Int { isFull ? shownGroups.count : groups.count }
+    public var candidatePhrases: Int { Set((isFull ? shownGroups : groups).flatMap { $0.expressions.map(\.id) }).count }
+    /// The phrases in the groups already marked "not duplicates".
+    public var settledPhrases: Int { Set(settled.flatMap { $0.expressions.map(\.id) }).count }
+
+    /// "Take the mark off": the group's phrases aren't "not duplicates" any more — the group joins the
+    /// list of candidates, to merge, check or mark again.
+    @discardableResult
+    public func unmark(_ group: DuplicateGroup) -> DuplicateGroup? {
+        guard let index = settled.firstIndex(where: { $0.key == group.key }) else { return nil }
+        settled.remove(at: index)
+        let ids = group.expressions.map(\.id)
+        let reopened = DuplicateGroup(key: group.key, expressions: group.expressions, cards: group.cards,
+                                      exact: DuplicatesInteractor.exactMerges(among: group.expressions,
+                                                                              language: studiedLanguage()),
+                                      marked: [], honorsMarks: true)
+        groups.append(reopened)
+        proposals[reopened.key] = reopened.exact
+        if phase == .checked, check.total == 0 { phase = .found }
+        Task { [weak self] in
+            do { try await self?.duplicates.unmarkNotDuplicates(ids) } catch { self?.fail(error) }
+        }
+        return reopened
+    }
+
+    /// "Merge" on a marked group: the mark comes off and — an exact duplicate — it's merged at once;
+    /// otherwise it's put to the model (`checkGroup`) and shows on the list with the card to confirm.
+    public func mergeSettled(_ group: DuplicateGroup) {
+        guard let reopened = unmark(group) else { return }
+        if reopened.exact.isEmpty { checkGroup(reopened) } else { mergeGroup(reopened) }
+    }
+
+    /// Whether "Merge" on this marked group needs the model (no exact duplicate in it) — then it's Pro.
+    public func needsModel(toMerge group: DuplicateGroup) -> Bool {
+        DuplicatesInteractor.exactMerges(among: group.expressions, language: studiedLanguage()).isEmpty
+    }
+
     /// Don't merge: the group's phrases are marked "not duplicates" of each other and it leaves the list.
     public func keepApart(_ group: DuplicateGroup) {
         guard !busy.contains(group.key) else { return }       // it's being merged right now
@@ -463,6 +510,7 @@ public final class DuplicatesViewModel: Identifiable {
             return shown
         }
         let left = (proposals[key] ?? []).filter { $0.id != merge.id }
+        dropGone(gone, except: key)
         if remaining.count < 2 {
             remove(key)
         } else if left.isEmpty && isSettled(group) {
@@ -475,6 +523,25 @@ public final class DuplicatesViewModel: Identifiable {
                                            marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) },
                                            honorsMarks: group.honorsMarks)
             proposals[key] = left
+        }
+    }
+
+    /// A phrase without a marker can sit in two groups (with the verbs and with the nouns): once a merge
+    /// in one took it away, the other group lets it go too — with the proposals that named it.
+    private func dropGone(_ gone: Set<UUID>, except key: String) {
+        guard !gone.isEmpty else { return }
+        for group in groups where group.key != key && group.expressions.contains(where: { gone.contains($0.id) }) {
+            let rest = group.expressions.filter { !gone.contains($0.id) }
+            guard rest.count > 1, let index = groups.firstIndex(where: { $0.key == group.key }) else {
+                remove(group.key)
+                continue
+            }
+            groups[index] = DuplicateGroup(key: group.key, expressions: rest,
+                                           cards: group.cards.filter { !gone.contains($0.key) },
+                                           exact: group.exact.filter { $0.expressionIDs.allSatisfy { !gone.contains($0) } },
+                                           marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) },
+                                           honorsMarks: group.honorsMarks)
+            proposals[group.key] = proposals[group.key]?.filter { $0.expressionIDs.allSatisfy { !gone.contains($0) } }
         }
     }
 

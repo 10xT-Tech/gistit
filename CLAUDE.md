@@ -146,6 +146,25 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
+**What enters Caught (2.0.2, the user's rule).** A phrase is NOT added to Caught only when Caught already
+holds the very same studied-language phrase (`Expression.matchKey`: letter case and end spaces aside,
+nothing else); one already in FLASHCARDS is added all the same. `CaughtPhrases` (Domain) answers
+`inCaught` / `inFlashcards` for `SaveExpressionInteractor` (every save — Say it, Get it, See it, History,
+"Generate from a phrase") and `CatchCardsFromPhotosInteractor` (`CatchProgress.alreadyInCaught` — not
+added — and `.inFlashcards` — added, reported). The form checks the list first and says "already in
+Caught" (`addError`). Every Caught row carries a mark (`StudyListViewModel.mark` → `CaughtMark`, worked
+out on each load by `lookAlikesInFlashcards`, off the main actor; no mark until it answered): `.new` —
+green frame (`Tokens.Signal.success`) + "New" tag; `.inFlashcards` — the very same phrase is there;
+`.lookAlike` — a `PhraseKey` look-alike is. MOVING (the user's rule): a `.new` phrase moves at once — one (`moveToFlashcards`) or all
+(`moveNewToFlashcards`, "Move new to flashcards (N)", no confirmation; marked phrases are left). A
+look-alike moves only one at a time and only by a merge: `moveToFlashcards` finds its look-alikes and
+opens `mergeOffer` (`MergeOfferSheet`) with the merged card worked out AT ONCE —
+`DuplicatesUseCase.caughtMerge` (exact on the device, else the model's merge holding it, else
+`forcedMerge`; nothing written) — then Merge (`confirmMerge` → `merge`) or "Add as a separate card"
+(`addSeparately`: `FixCardsUseCase.fix` writes it afresh, `enroll`, then `keepApart` links it to each
+look-alike as `NotDuplicatePair` — those pairs only); a failed check shows why, with Try again (or
+Subscribe) and still "separate".
+
 **v2.0.2 (in development, on `main`; version bumped so local builds aren't taken for the 2.0.1 (1)
 sent to App Review) — the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
 or — empty field + text on the clipboard — Paste (`PasteAction`, Presentation/Support, shared by both
@@ -203,7 +222,7 @@ while a file with it is imported, keeps ONE card per direction); share menu → 
 `StudyListViewModel.deleteAll()`, optimistic, reload + error on a failed delete).
 "+" = Generate from a phrase (`EnrichCardTemplate`, now `.fast` = the translation model) or From
 photos (`PhotosPicker` ≤10 → `ImagePreparation` → `CatchCardsFromPhotosInteractor`: ONE request per
-photo — the backend allows one image — via `PhotoCardsTemplate`, skipping already-saved expressions;
+photo — the backend allows one image — via `PhotoCardsTemplate`, skipping ONLY a phrase Caught already holds (`CaughtPhrases.inCaught` — see below);
 a bad photo is skipped, offline / plan limit / no key stop the batch; `CatchFromPhotosView` shows the
 progress — `ProgressLine`, then a green check + `DoneChime` (DesignSystem: our `Resources/done.caf` as a
 system sound — follows the silent switch, touches no audio session — plus the success haptic; not after Stop); DEBUG `-uiTestCatchPhotos` fakes two images for XCUI). `PhotoCardsTemplate`'s opening is NOT
@@ -311,9 +330,11 @@ only: a single word keeps its form ("dashing" ≠ "a dash"; lemmas grouped such 
 marked "not duplicates", and they came back); a group that joins marked cards with a new look-alike shows
 the marked ones as one line of context (`DuplicatesView` `settledMembers`); a verb and a noun are
 never look-alikes — the leading marker gives the class (`PhraseKey.wordClass`: "to"/"zu"/"sich"/"se"/"s'"
-→ verb, an article → noun, none → either; `PhraseKey.alike`), so "to drain" / "a drain" make no group
-unless a bare "drain" joins them (verbs-only / nouns-only buckets are keyed `key|verb`, `key|noun`;
-`lookAlikesInFlashcards` and `exactMerges` follow it); lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
+→ verb, an article → noun, none → either; `PhraseKey.alike`), so "to drain" / "a drain" NEVER share a
+group, a bare "drain" included (the user's rule: a verb and a noun are two words): when both meet, the
+verbs and the nouns make groups of their own, keyed `key|verb` / `key|noun`, and a bare phrase is in BOTH
+(`lookAlikeSets`); merged away in one, it leaves the other (`DuplicatesViewModel.dropGone`). `merges(_:among:)`
+drops a model's merge naming a verb and a noun; `lookAlikesInFlashcards` and `exactMerges` follow the rule; lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
 (NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
 identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
 meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the
@@ -336,14 +357,16 @@ proposes a linked pair (`DuplicateGroup.excluded`); `scan(full: true)` ("Full re
 links, but the sheet doesn't put the all-linked groups to the user: they go to the model with Check
 and show up (`DuplicatesViewModel.shownGroups`) only if a merge is proposed in them (exact or the
 model's) — the rest are removed and counted (`confirmedApart`); the user saw 39 marked noun/verb pairs
-come back as a wall of "Not checked yet". The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
-Caught: moving a phrase checks `lookAlikesInFlashcards` (on the device; a found one marks the row —
-`lookAlikeIDs`, "Looks like a card you learn") → sheet Merge / Move separately. Merge =
-`DuplicatesUseCase.mergeCaught` — the user's decision, so once the check ANSWERED the phrase is merged
-and leaves Caught: exact first, else the model's merge containing it, and if the model names none
-(another phrase, it thinks) `forcedMerge` into the oldest look-alike as one more numbered meaning; but if
-the model can't be reached / the limit is spent it THROWS — nothing merged, the phrase stays, the error
-shows. Move all checks the whole list first and offers "Move new" (all but look-alikes) / "Move all". In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
+come back as a wall of "Not checked yet". After a scan the sheet shows statistics (`ScanStatistics`: phrases read = `scan.total`, candidate groups /
+phrases, groups already marked): a normal scan reports the all-linked groups it left out
+(`DuplicateScanStep.settled` → `DuplicatesViewModel.settled`), and their line opens `SettledGroupsView` —
+"Unmark" (`unmark`: `DuplicatesUseCase.unmarkNotDuplicates` drops the links AMONG those phrases only,
+`NotDuplicateMarking.unmark(_ pairs:)`; the group joins the candidates with its exact merges recomputed)
+and "Merge" (`mergeSettled`: unmark, then an exact merge at once, else `checkGroup` — Pro, the view gates
+it via `needsModel(toMerge:)`). The first builds' UserDefaults sets (`DuplicateDismissalStoring`) are adopted once and cleared.
+Caught → flashcards (2.0.2 — see "What enters Caught" at the top): new phrases move at once, a look-alike
+only by a merge shown first (`mergeOffer`, `caughtMerge`) or as a separate card linked "not duplicates";
+`mergeCaught` (= `caughtMerge` + `merge`) stays for callers that merge without asking. In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
 progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
 two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
 "Merge all duplicates" (never a linked pair), "Full re-check". EVERY WRITE TO A GROUP IS ONE AT A TIME

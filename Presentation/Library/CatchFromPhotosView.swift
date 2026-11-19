@@ -76,8 +76,12 @@ struct CatchFromPhotosView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("catch.empty")
                 }
-                if !model.progress.alreadySaved.isEmpty {
-                    note(alreadySavedNote)
+                if !model.progress.inFlashcards.isEmpty {
+                    note(inFlashcardsNote)
+                        .accessibilityIdentifier("catch.inFlashcards")
+                }
+                if !model.progress.alreadyInCaught.isEmpty {
+                    note(alreadyInCaughtNote)
                         .accessibilityIdentifier("catch.alreadySaved")
                 }
                 if model.unloaded > 0 {
@@ -153,17 +157,33 @@ struct CatchFromPhotosView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// "Already in your cards: 2 — «in the heat of the moment», «come to terms with»" (the first five).
-    private var alreadySavedNote: String {
-        let phrases = model.progress.alreadySaved
+    /// "Already in Caught, not added again: 2 — «in the heat of the moment», «come to terms with»".
+    private var alreadyInCaughtNote: String {
+        let (count, list) = Self.listed(model.progress.alreadyInCaught)
+        return Loc.t("Уже есть в «Пойманных», повторно не добавлены: \(count) — \(list)",
+                     "Already in Caught, not added again: \(count) — \(list)",
+                     "Déjà dans « Capturées », pas ajoutées à nouveau : \(count) — \(list)",
+                     "Ya están en «Atrapadas», no se añaden de nuevo: \(count) — \(list)",
+                     "Schon in „Eingefangen“, nicht erneut hinzugefügt: \(count) — \(list)",
+                     "Già in «Catturate», non aggiunte di nuovo: \(count) — \(list)")
+    }
+
+    /// "Already in flashcards — added, marked in the list: 1 — «discard»".
+    private var inFlashcardsNote: String {
+        let (count, list) = Self.listed(model.progress.inFlashcards)
+        return Loc.t("Уже есть во флеш-картах — добавлены с пометкой в списке: \(count) — \(list)",
+                     "Already in flashcards — added, marked in the list: \(count) — \(list)",
+                     "Déjà dans les cartes — ajoutées, signalées dans la liste : \(count) — \(list)",
+                     "Ya están en las tarjetas — añadidas, marcadas en la lista: \(count) — \(list)",
+                     "Schon in den Lernkarten — hinzugefügt, in der Liste markiert: \(count) — \(list)",
+                     "Già nelle schede — aggiunte, segnate nella lista: \(count) — \(list)")
+    }
+
+    /// The count and the first five phrases, quoted ("… and 3 more").
+    private static func listed(_ phrases: [String]) -> (Int, String) {
         let shown = phrases.prefix(5).map { "«\($0)»" }.joined(separator: ", ")
         let more = phrases.count > 5 ? Loc.t(" и ещё \(phrases.count - 5)", " and \(phrases.count - 5) more") : ""
-        return Loc.t("Уже есть в карточках: \(phrases.count) — \(shown)\(more)",
-                     "Already in your cards: \(phrases.count) — \(shown)\(more)",
-                     "Déjà dans vos cartes : \(phrases.count) — \(shown)\(more)",
-                     "Ya están en tus tarjetas: \(phrases.count) — \(shown)\(more)",
-                     "Schon in deinen Karten: \(phrases.count) — \(shown)\(more)",
-                     "Già nelle tue schede: \(phrases.count) — \(shown)\(more)")
+        return (phrases.count, shown + more)
     }
 
     /// Why the last failed photo failed, in words: a refusal, or the error as other screens put it.

@@ -19,6 +19,31 @@ could hardly see. It now changes with everything else.
 "text" that is empty or only spaces? The button used to turn into a Paste that pasted nothing, and
 **Translate** / **Explain** was gone from the screen. Now the button stays what it was.
 
+**Caught shows what's new.** Every phrase in **Caught** now says where it stands: a phrase you
+don't learn yet has a green frame and a **New** tag; one you already learn in flashcards is marked
+**Already in flashcards**; one like a phrase you learn, **Looks like a card you learn**. Saving a
+phrase you already learn now adds it to Caught all the same (with that mark) — only the very same
+phrase already in Caught isn't added twice, and **Generate from a phrase** says so instead of closing
+quietly. **From photos** adds every phrase the photos give, the ones you already learn included, and
+tells you which were already in flashcards and which were already in Caught.
+
+**What the duplicate search found.** After **Find duplicates** reads your cards, it says how many
+phrases it checked, how many look-alike candidates it found, and how many groups you've already marked
+as not duplicates. Tap that line to see them all: **Unmark** a group (it goes back on the list of
+candidates, to merge or check again) or **Merge** it — an exact duplicate at once, otherwise the model
+proposes the card first.
+
+**A verb and a noun are never duplicates.** "to drain" and "a drain" are two words: Find duplicates no
+longer puts them in one group even when a plain "drain" is there too (it's checked against each of
+them separately), and never offers to merge them.
+
+**Moving to flashcards: new ones at once, look-alikes by a merge.** A new phrase moves straight away —
+swipe it, or **Move new to flashcards** for all of them at once, no question asked. That button
+leaves the phrases that look like cards you already learn: those move one at a time, and only by a
+merge — Gist It works the merged card out right away and shows it, then you choose **Merge** (one
+card, your progress kept) or **Add as a separate card** (the model writes it as a card of its own,
+and the two are marked as not duplicates, so Find duplicates won't offer them again).
+
 ## 2.0.1
 
 **Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap

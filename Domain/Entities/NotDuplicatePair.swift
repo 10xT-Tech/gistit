@@ -46,6 +46,8 @@ public protocol NotDuplicateMarking: Sendable {
     func mark(_ pairs: Set<NotDuplicatePair>) async throws
     /// Drop every link of these phrases (they were merged away).
     func unmark(involving ids: Set<UUID>) async throws
+    /// Drop these links only (the user took the mark off).
+    func unmark(_ pairs: Set<NotDuplicatePair>) async throws
 }
 
 /// In-memory default (tests, previews, the stub boot).
@@ -57,4 +59,5 @@ public actor InMemoryNotDuplicateMarks: NotDuplicateMarking {
     public func unmark(involving ids: Set<UUID>) async throws {
         stored = stored.filter { !ids.contains($0.first) && !ids.contains($0.second) }
     }
+    public func unmark(_ pairs: Set<NotDuplicatePair>) async throws { stored.subtract(pairs) }
 }

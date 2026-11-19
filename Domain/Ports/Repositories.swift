@@ -68,7 +68,7 @@ public extension ExpressionRepository {
 
     /// Normalized key for content-level matching of an expression's `en`.
     static func normalizedKey(_ en: String) -> String {
-        en.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        Expression.matchKey(en)
     }
 }
 
