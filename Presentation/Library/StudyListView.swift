@@ -141,20 +141,12 @@ public struct StudyListView: View {
             DuplicatesView(model: session) { model.endDuplicates() }
                 .environment(subscription)
         }
-        .sheet(item: $model.lookAlike) { lookAlike in
-            ConfirmSheet(icon: "square.on.square",
-                         title: Loc.t("Похоже, уже есть во флеш-картах", "Looks like it's already in flashcards"),
-                         message: Loc.t("«\(lookAlike.caught.en)» похоже на эти карточки. «Объединить» — фраза станет одной карточкой с похожей (несколько значений пронумеруются) и уйдёт из «Пойманных»; прогресс изучения сохранится.",
-                                        "\"\(lookAlike.caught.en)\" looks like these cards. Merge — it becomes one card with its look-alike (several meanings are numbered) and leaves Caught; the learning progress stays."),
-                         actions: [
-                             ConfirmAction(Loc.t("Объединить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci"),
-                                           icon: "arrow.triangle.merge") { model.mergeIntoFlashcards(lookAlike) },
-                             ConfirmAction(Loc.t("Перенести отдельно", "Move separately", "Déplacer séparément",
-                                                 "Mover por separado", "Separat verschieben", "Sposta separatamente"),
-                                           role: .secondary) { model.moveSeparately(lookAlike) },
-                         ]) {
-                PhraseList(phrases: lookAlike.existing.map { ($0.en, $0.ru) })
-            }
+        .sheet(item: $model.mergeOffer) { offer in
+            MergeOfferSheet(offer: offer,
+                            onMerge: { model.confirmMerge(offer) },
+                            onSeparate: { model.addSeparately(offer) },
+                            onRetry: { model.retryMergeOffer() },
+                            onSubscribe: { model.mergeOffer = nil; ui.showPaywall = true })
         }
         .sheet(item: $previewed, onDismiss: { model.cardFix?.clear() }) { opened in
             // The row as it is now: the wand may have fixed the card while its view is open.
@@ -173,11 +165,10 @@ public struct StudyListView: View {
             if let data = try? Data(contentsOf: url) { model.importCards(data) } else { model.reportImportReadFailed() }
         }
         .overlay {
-            if model.isImporting || model.isMerging || model.isCheckingLookAlikes {
+            if model.isImporting || model.isMerging {
                 VStack(spacing: Tokens.Space.s12) {
                     ProgressView()
                     Text(model.isMerging ? Loc.t("Объединяю карточки…", "Merging the cards…")
-                         : model.isCheckingLookAlikes ? Loc.t("Ищу похожие во флеш-картах…", "Looking for look-alikes in flashcards…")
                          : Loc.t("Импортирую карточки…", "Importing cards…"))
                         .textStyle(Tokens.Text.subhead)
                         .foregroundStyle(Tokens.Content.secondary)
@@ -230,31 +221,6 @@ public struct StudyListView: View {
                                                  role: .destructive, accessibilityID: "caught.deleteAll.confirm") {
                              model.deleteAll()
                          }])
-        }
-        .sheet(isPresented: $model.showMoveAllConfirmation) {
-            let all = model.expressions.count, alike = model.expressions.filter(model.isLookAlike).count
-            ConfirmSheet(icon: "rectangle.stack.badge.plus",
-                         title: Loc.t("Перенести все во флеш-карты?", "Move all to flashcards?"),
-                         message: alike == 0
-                            ? Loc.t("Все фразы из «Пойманных» станут флеш-картами, список очистится.",
-                                    "Every phrase in Caught becomes flashcards, and the list empties.")
-                            : Loc.t("Похожи на фразы во флеш-картах: \(alike) — они отмечены в списке. «Перенести новые» оставит их в «Пойманных»: их можно перенести по одной и объединить.",
-                                    "Look like phrases in flashcards: \(alike) — they're marked in the list. \"Move new\" leaves them in Caught: move them one by one to merge."),
-                         actions: (alike > 0 && alike < all ? [
-                             ConfirmAction(Loc.t("Перенести новые (\(all - alike))", "Move new (\(all - alike))",
-                                                 "Déplacer les nouvelles (\(all - alike))", "Mover las nuevas (\(all - alike))",
-                                                 "Neue verschieben (\(all - alike))", "Sposta le nuove (\(all - alike))"),
-                                           accessibilityID: "caught.moveNew") {
-                                 model.moveAllToFlashcards(skippingLookAlikes: true)
-                             },
-                         ] : []) + [
-                             ConfirmAction(Loc.t("Перенести все (\(all))", "Move all (\(all))", "Tout déplacer (\(all))",
-                                                 "Mover todas (\(all))", "Alle verschieben (\(all))", "Sposta tutte (\(all))"),
-                                           role: alike > 0 && alike < all ? .secondary : .primary,
-                                           accessibilityID: "caught.moveAll.confirm") {
-                                 model.moveAllToFlashcards()
-                             },
-                         ])
         }
         .onChange(of: model.exportedDeck) { _, deck in
             guard let deck else { return }
@@ -371,10 +337,15 @@ public struct StudyListView: View {
                     if let bulk = model.bulkMove {
                         BulkMoveProgress(move: bulk) { model.stopMoving() }
                     } else {
-                        EHButton(Loc.t("Перенести все во флеш-карты", "Move all to flashcards"),
+                        // New phrases only, at once; look-alikes are merged one by one.
+                        let count = model.newPhrases.count
+                        EHButton(Loc.t("Перенести новые во флеш-карты (\(count))", "Move new to flashcards (\(count))",
+                                       "Déplacer les nouvelles vers les cartes (\(count))",
+                                       "Mover las nuevas a tarjetas (\(count))", "Neue zu Lernkarten verschieben (\(count))",
+                                       "Sposta le nuove nelle schede (\(count))"),
                                  icon: "rectangle.stack.badge.plus", kind: .tonal, fillWidth: true,
-                                 accessibilityID: "caught.moveAll") { model.prepareMoveAll() }
-                            .disabled(!model.movingIDs.isEmpty)
+                                 accessibilityID: "caught.moveAll") { model.moveNewToFlashcards() }
+                            .disabled(!model.movingIDs.isEmpty || count == 0)
                     }
                 }
                     .listRowBackground(Color.clear)
@@ -765,5 +736,110 @@ private struct PhraseList: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Space.s12)
         .background(Tokens.Fill.subtle, in: RoundedRectangle(cornerRadius: Tokens.Radius.card / 2))
+    }
+}
+
+/// A caught phrase that looks like a card in flashcards goes in only by a merge: the sheet shows the
+/// look-alike(s) and the card the merge makes, then Merge / Add as a separate card. While the card is
+/// worked out — a spinner; if the model can't answer — why, Try again, and still the separate card.
+private struct MergeOfferSheet: View {
+    let offer: StudyListViewModel.MergeOffer
+    let onMerge: () -> Void
+    let onSeparate: () -> Void
+    let onRetry: () -> Void
+    let onSubscribe: () -> Void
+
+    var body: some View {
+        ConfirmSheet(icon: "arrow.triangle.merge",
+                     title: Loc.t("Похожая карточка уже во флеш-картах", "A card like it is in flashcards",
+                                  "Une carte semblable est dans les cartes", "Ya hay una tarjeta parecida",
+                                  "Eine ähnliche Karte ist schon da", "Una scheda simile è già nelle schede"),
+                     message: message,
+                     actions: actions) {
+            VStack(alignment: .leading, spacing: Tokens.Space.s12) {
+                PhraseList(phrases: offer.existing.map { ($0.en, $0.ru) })
+                switch offer.stage {
+                case .preparing:
+                    HStack(spacing: Tokens.Space.s8) {
+                        ProgressView()
+                        Text(Loc.t("Готовлю объединённую карточку…", "Preparing the merged card…"))
+                            .textStyle(Tokens.Text.subhead)
+                            .foregroundStyle(Tokens.Content.secondary)
+                    }
+                    .accessibilityIdentifier("merge.preparing")
+                case .ready(let merge):
+                    MergedCardPreview(card: merge.card)
+                case .failed(let reason, _):
+                    Text(reason)
+                        .textStyle(Tokens.Text.subhead)
+                        .foregroundStyle(Tokens.Content.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("merge.failed")
+                }
+            }
+        }
+    }
+
+    private var message: String {
+        Loc.t("«\(offer.caught.en)» переносится только слиянием: одна карточка с похожей, прогресс изучения сохранится. Или добавьте её отдельной карточкой — модель напишет её заново, а карточки будут отмечены как не дубли.",
+              "\"\(offer.caught.en)\" moves only by a merge: one card with its look-alike, the learning progress kept. Or add it as a card of its own — the model writes it afresh, and the cards are marked as not duplicates.")
+    }
+
+    private var actions: [ConfirmAction] {
+        let separate = ConfirmAction(Loc.t("Добавить отдельной карточкой", "Add as a separate card",
+                                           "Ajouter comme carte à part", "Añadir como tarjeta aparte",
+                                           "Als eigene Karte hinzufügen", "Aggiungi come scheda a sé"),
+                                     role: .secondary, accessibilityID: "merge.separate", perform: onSeparate)
+        switch offer.stage {
+        case .preparing:
+            return [separate]
+        case .ready:
+            return [ConfirmAction(Loc.t("Объединить", "Merge", "Fusionner", "Unir", "Zusammenführen", "Unisci"),
+                                  icon: "arrow.triangle.merge", accessibilityID: "merge.confirm", perform: onMerge),
+                    separate]
+        case .failed(_, let needsSubscription):
+            return [needsSubscription
+                        ? ConfirmAction(Loc.t("Оформить подписку", "Subscribe"), accessibilityID: "merge.subscribe",
+                                        perform: onSubscribe)
+                        : ConfirmAction(Loc.t("Попробовать ещё раз", "Try again"), icon: "arrow.clockwise",
+                                        accessibilityID: "merge.retry", perform: onRetry),
+                    separate]
+        }
+    }
+}
+
+/// The card a merge makes, as the user will learn it.
+private struct MergedCardPreview: View {
+    let card: CardText
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.s4) {
+            Text(Loc.t("Получится карточка", "The merged card"))
+                .textStyle(Tokens.Text.caption)
+                .foregroundStyle(Tokens.Content.tertiary)
+            Text(card.expression)
+                .textStyle(Tokens.Text.headline)
+                .foregroundStyle(Tokens.Content.primary)
+            Text(card.translation)
+                .textStyle(Tokens.Text.subhead)
+                .foregroundStyle(Tokens.Content.secondary)
+            if !card.example.isEmpty {
+                Text(card.example)
+                    .textStyle(Tokens.Text.footnote)
+                    .italic()
+                    .foregroundStyle(Tokens.Content.secondary)
+            }
+            if !card.synonyms.isEmpty {
+                Text(card.synonyms.joined(separator: " · "))
+                    .textStyle(Tokens.Text.footnote)
+                    .foregroundStyle(Tokens.Content.tertiary)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Tokens.Space.s12)
+        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.card / 2).strokeBorder(Tokens.Signal.success, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("merge.card")
     }
 }

@@ -27,6 +27,13 @@ phrase already in Caught isn't added twice, and **Generate from a phrase** says 
 quietly. **From photos** adds every phrase the photos give, the ones you already learn included, and
 tells you which were already in flashcards and which were already in Caught.
 
+**Moving to flashcards: new ones at once, look-alikes by a merge.** A new phrase moves straight away —
+swipe it, or **Move new to flashcards** for all of them at once, no question asked. That button
+leaves the phrases that look like cards you already learn: those move one at a time, and only by a
+merge — Gist It works the merged card out right away and shows it, then you choose **Merge** (one
+card, your progress kept) or **Add as a separate card** (the model writes it as a card of its own,
+and the two are marked as not duplicates, so Find duplicates won't offer them again).
+
 ## 2.0.1
 
 **Fix one card.** See a card that's missing its example, synonyms or note, or one with a mistake? Tap

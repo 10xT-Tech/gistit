@@ -155,7 +155,15 @@ added — and `.inFlashcards` — added, reported). The form checks the list fir
 Caught" (`addError`). Every Caught row carries a mark (`StudyListViewModel.mark` → `CaughtMark`, worked
 out on each load by `lookAlikesInFlashcards`, off the main actor; no mark until it answered): `.new` —
 green frame (`Tokens.Signal.success`) + "New" tag; `.inFlashcards` — the very same phrase is there;
-`.lookAlike` — a `PhraseKey` look-alike is.
+`.lookAlike` — a `PhraseKey` look-alike is. MOVING (the user's rule): a `.new` phrase moves at once — one (`moveToFlashcards`) or all
+(`moveNewToFlashcards`, "Move new to flashcards (N)", no confirmation; marked phrases are left). A
+look-alike moves only one at a time and only by a merge: `moveToFlashcards` finds its look-alikes and
+opens `mergeOffer` (`MergeOfferSheet`) with the merged card worked out AT ONCE —
+`DuplicatesUseCase.caughtMerge` (exact on the device, else the model's merge holding it, else
+`forcedMerge`; nothing written) — then Merge (`confirmMerge` → `merge`) or "Add as a separate card"
+(`addSeparately`: `FixCardsUseCase.fix` writes it afresh, `enroll`, then `keepApart` links it to each
+look-alike as `NotDuplicatePair` — those pairs only); a failed check shows why, with Try again (or
+Subscribe) and still "separate".
 
 **v2.0.2 (in development, on `main`; version bumped so local builds aren't taken for the 2.0.1 (1)
 sent to App Review) — the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,

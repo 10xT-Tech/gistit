@@ -224,7 +224,7 @@ import Presentation
         let vm = caughtList(expressions, cards, llm: SpyFixLLM(failing: [2: .subscriptionRequired(retryAfter: 300)]))
         await vm.load()
 
-        vm.moveAllToFlashcards()
+        vm.moveNewToFlashcards()
         #expect(vm.bulkMove?.total == 30 && vm.expressions.count == 30)               // nothing gone yet
         try await wait { vm.bulkMove == nil }
         #expect(vm.actionError?.contains("20") == true)                              // "20 of 30 moved"

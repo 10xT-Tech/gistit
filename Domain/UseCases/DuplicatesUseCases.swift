@@ -151,6 +151,14 @@ public protocol DuplicatesUseCase: Sendable {
     /// phrase stays on Caught and the user is told.
     func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
                      studiedLanguage: String, nativeLanguage: String) async throws
+    /// The merge `mergeCaught` would make — worked out, NOT written — for the user to confirm: an exact
+    /// duplicate on the device, else the model's merge holding the caught phrase, else (the model named
+    /// none) one more meaning of the oldest look-alike. Throws if the model can't answer.
+    func caughtMerge(_ caught: Expression, into lookAlikes: [Expression],
+                     studiedLanguage: String, nativeLanguage: String) async throws -> DuplicateMerge
+    /// "Add as a separate card": the caught phrase is linked as "not duplicates" to each look-alike —
+    /// those pairs only, not the look-alikes among themselves.
+    func keepApart(_ caught: UUID, from lookAlikes: [UUID]) async throws
     /// "Don't merge": these phrases are linked to each other as not duplicates — a search leaves them
     /// be (a full re-check aside).
     func markNotDuplicates(_ expressionIDs: [UUID]) async throws
@@ -456,20 +464,27 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
 
     public func mergeCaught(_ caught: Expression, into lookAlikes: [Expression],
                             studiedLanguage: String, nativeLanguage: String) async throws {
-        guard !lookAlikes.isEmpty else { throw RepositoryError.notFound }
-        let group = lookAlikes + [caught]
-        // A failed check (offline, no answer, the plan's limit) stops here, before anything is written.
-        let proposed = try await proposals(for: group, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
-            .first { $0.expressionIDs.contains(caught.id) }
-        if let proposed {
-            try await merge(group.filter { proposed.expressionIDs.contains($0.id) }, into: proposed.card, as: proposed.kind,
-                            studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
-            return
-        }
-        let target = lookAlikes.min { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) } ?? lookAlikes[0]
-        let forced = Self.forcedMerge(of: caught, into: target, language: studiedLanguage)
-        try await merge([target, caught], into: forced.card, as: forced.kind,
+        let planned = try await caughtMerge(caught, into: lookAlikes,
+                                            studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        try await merge((lookAlikes + [caught]).filter { planned.expressionIDs.contains($0.id) },
+                        into: planned.card, as: planned.kind,
                         studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+    }
+
+    public func caughtMerge(_ caught: Expression, into lookAlikes: [Expression],
+                            studiedLanguage: String, nativeLanguage: String) async throws -> DuplicateMerge {
+        guard !lookAlikes.isEmpty else { throw RepositoryError.notFound }
+        // A failed check (offline, no answer, the plan's limit) throws here, before anything is written.
+        let proposed = try await proposals(for: lookAlikes + [caught], studiedLanguage: studiedLanguage,
+                                           nativeLanguage: nativeLanguage)
+            .first { $0.expressionIDs.contains(caught.id) }
+        if let proposed { return proposed }
+        let target = lookAlikes.min { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) } ?? lookAlikes[0]
+        return Self.forcedMerge(of: caught, into: target, language: studiedLanguage)
+    }
+
+    public func keepApart(_ caught: UUID, from lookAlikes: [UUID]) async throws {
+        try await marks.mark(Set(lookAlikes.filter { $0 != caught }.map { NotDuplicatePair(caught, $0) }))
     }
 
     /// The card of a merge the model didn't word — it answered, and named none — (see `mergeCaught`), from the two phrases' own texts: the

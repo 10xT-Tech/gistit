@@ -343,7 +343,7 @@ import Presentation
         #expect(caught.canMoveToFlashcards && caught.canCatchFromPhotos)
         #expect(!studying.canMoveToFlashcards && !studying.canCatchFromPhotos)
 
-        caught.moveAllToFlashcards()
+        caught.moveNewToFlashcards()
         var tries = 0
         while !caught.expressions.isEmpty, tries < 200 { tries += 1; try await Task.sleep(for: .milliseconds(10)) }
         #expect(caught.expressions.isEmpty)
