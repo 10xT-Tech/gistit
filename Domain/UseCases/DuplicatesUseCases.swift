@@ -278,15 +278,16 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         return found
     }
 
-    /// The look-alike groups among phrases sharing a key: all of them — unless verbs and nouns meet with
-    /// no phrase that could be either ("to drain", "a drain" — no "drain"): then the verbs and the nouns
-    /// apart, each keyed by its class. Groups of one are dropped.
+    /// The look-alike groups among phrases sharing a key. A verb and a noun are two words, NEVER one
+    /// group (the user's rule — "to drain" / "a drain"): when both meet, the verbs and the nouns make
+    /// groups of their own, each keyed by its class, and a phrase without a marker ("drain" — it may be
+    /// either) is in both. Groups of one are dropped.
     static func lookAlikeSets(_ members: [Expression], key: String, language: String) -> [(String, [Expression])] {
         let classes = members.map { PhraseKey.wordClass(of: $0.en, language: language) }
-        guard classes.contains(.verb), classes.contains(.noun), !classes.contains(nil) else { return [(key, members)] }
+        guard classes.contains(.verb), classes.contains(.noun) else { return [(key, members)] }
         return [(WordClass.verb, "verb"), (.noun, "noun")].compactMap { wordClass, suffix in
-            let same = zip(members, classes).filter { $0.1 == wordClass }.map(\.0)
-            return same.count > 1 ? (key + "|" + suffix, same) : nil
+            let side = zip(members, classes).filter { $0.1 == wordClass || $0.1 == nil }.map(\.0)
+            return side.count > 1 ? (key + "|" + suffix, side) : nil
         }
     }
 
@@ -399,7 +400,8 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
         var used = Set<String>()
         return verdict.merges.compactMap { answer in
             let ids = answer.ids.filter { byID[$0] != nil && !used.contains($0) }
-            guard ids.count > 1,
+            let classes = ids.compactMap { byID[$0] }.map { PhraseKey.wordClass(of: $0.en, language: language) }
+            guard ids.count > 1, !(classes.contains(.verb) && classes.contains(.noun)),   // a verb and a noun: never
                   NotDuplicatePair.all(among: ids.compactMap { byID[$0]?.id }).isDisjoint(with: excluded) else { return nil }
             used.formUnion(ids)
             let ordered = ids.compactMap { byID[$0] }

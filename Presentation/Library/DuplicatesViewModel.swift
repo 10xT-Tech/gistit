@@ -463,6 +463,7 @@ public final class DuplicatesViewModel: Identifiable {
             return shown
         }
         let left = (proposals[key] ?? []).filter { $0.id != merge.id }
+        dropGone(gone, except: key)
         if remaining.count < 2 {
             remove(key)
         } else if left.isEmpty && isSettled(group) {
@@ -475,6 +476,25 @@ public final class DuplicatesViewModel: Identifiable {
                                            marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) },
                                            honorsMarks: group.honorsMarks)
             proposals[key] = left
+        }
+    }
+
+    /// A phrase without a marker can sit in two groups (with the verbs and with the nouns): once a merge
+    /// in one took it away, the other group lets it go too — with the proposals that named it.
+    private func dropGone(_ gone: Set<UUID>, except key: String) {
+        guard !gone.isEmpty else { return }
+        for group in groups where group.key != key && group.expressions.contains(where: { gone.contains($0.id) }) {
+            let rest = group.expressions.filter { !gone.contains($0.id) }
+            guard rest.count > 1, let index = groups.firstIndex(where: { $0.key == group.key }) else {
+                remove(group.key)
+                continue
+            }
+            groups[index] = DuplicateGroup(key: group.key, expressions: rest,
+                                           cards: group.cards.filter { !gone.contains($0.key) },
+                                           exact: group.exact.filter { $0.expressionIDs.allSatisfy { !gone.contains($0) } },
+                                           marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) },
+                                           honorsMarks: group.honorsMarks)
+            proposals[group.key] = proposals[group.key]?.filter { $0.expressionIDs.allSatisfy { !gone.contains($0) } }
         }
     }
 

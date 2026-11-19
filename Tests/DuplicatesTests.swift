@@ -134,9 +134,10 @@ import Presentation
         #expect(full[1].isAllMarked && !full[1].honorsMarks && full[1].excluded.isEmpty)
     }
 
-    /// "to drain" and "a drain" are two words — no group, no look-alike from Caught, no exact merge; with
-    /// a bare "coat" next to "to coat" and "a coat" all three are one group (the bare one may be either);
-    /// with no bare one the nouns group on their own.
+    /// "to drain" and "a drain" are two words — no group, no look-alike from Caught, no exact merge, and
+    /// no merge from the model. A bare "coat" next to "to coat" and "a coat" never joins them into one
+    /// group: it's in the verbs' group and in the nouns' (it may be either); with no bare one the nouns
+    /// group on their own.
     @Test func aVerbAndANounAreNotLookAlikes() async throws {
         let drainVerb = phrase("to drain", "сливать воду", 0), drainNoun = phrase("a drain", "слив", 1)
         let coatVerb = phrase("to coat", "покрывать", 2), coatNoun = phrase("a coat", "шерсть", 3)
@@ -148,9 +149,10 @@ import Presentation
                                        cards: MockReviewCardRepository(seed: studied.flatMap { cards($0) }))
 
         let groups = try #require(try await scan(sut, full: true))
-        #expect(groups.map(\.key) == ["coat", "rip off|noun"])
-        #expect(groups[0].expressions.map(\.id) == [coatVerb.id, coatNoun.id, coat.id])
-        #expect(groups[1].expressions.map(\.id) == [ripNoun.id, ripNoun2.id])
+        #expect(groups.map(\.key) == ["coat|verb", "coat|noun", "rip off|noun"])
+        #expect(groups[0].expressions.map(\.id) == [coatVerb.id, coat.id])
+        #expect(groups[1].expressions.map(\.id) == [coatNoun.id, coat.id])
+        #expect(groups[2].expressions.map(\.id) == [ripNoun.id, ripNoun2.id])
 
         let drain = phrase("drain", "сток", 8), caughtNoun = phrase("A drain", "сток", 9)
         let alike = try await DuplicatesInteractor(
@@ -162,6 +164,11 @@ import Presentation
 
         let sameTranslation = [phrase("to drain", "сток", 0), phrase("a drain", "сток", 1)]
         #expect(DuplicatesInteractor.exactMerges(among: sameTranslation, language: "English").isEmpty)
+        // The model naming a verb and a noun one card: the merge is dropped.
+        let card = CardText(expression: "to drain", translation: "сток", example: "", synonyms: [], context: "")
+        let verdict = DuplicateVerdict(id: "g", merges: [DuplicateMergeAnswer(
+            ids: sameTranslation.map(\.id.uuidString), verdict: .duplicate, card: card)])
+        #expect(DuplicatesInteractor.merges(verdict, among: sameTranslation, language: "English").isEmpty)
     }
 
     /// A new look-alike joins a marked pair: the group is offered again, but the marked pair is never
@@ -673,6 +680,26 @@ import Presentation
         vm.mergeOffer = nil                                                          // Cancel
         #expect(vm.isLookAlike(alike) && !vm.isLookAlike(other))
         #expect(vm.expressions.contains { $0.id == alike.id })
+    }
+
+    /// A bare "coat" sits in the verbs' group and in the nouns'; merged away in one, it leaves the other
+    /// too — which, left with one phrase, is done.
+    @Test func aPhraseInTwoGroupsLeavesBothWhenMerged() async throws {
+        let coatVerb = phrase("to coat", "пальто", 0), coatNoun = phrase("a coat", "пальто", 1)
+        let coat = phrase("coat", "пальто", 2)
+        let all = [coatVerb, coatNoun, coat]
+        let expressions = MockExpressionRepository(seed: all)
+        let cards = MockReviewCardRepository(seed: all.flatMap(newCards))
+        let vm = DuplicatesViewModel(duplicates: DuplicatesInteractor(llm: MockLLMClient(), expressions: expressions, cards: cards),
+                                     studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+        vm.start()
+        try await wait { vm.phase != .scanning }
+        #expect(vm.groups.map(\.key) == ["coat|verb", "coat|noun"])
+        vm.mergeGroup(try #require(vm.groups.first))
+        try await wait { vm.merged == 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(vm.groups.isEmpty)
+        #expect(Set(try await expressions.all().map(\.id)) == [coatVerb.id, coatNoun.id])
     }
 
     /// The Find duplicates sheet: exact pairs merge without the model ("fuck about" twice — "fuck

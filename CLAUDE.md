@@ -330,9 +330,11 @@ only: a single word keeps its form ("dashing" ≠ "a dash"; lemmas grouped such 
 marked "not duplicates", and they came back); a group that joins marked cards with a new look-alike shows
 the marked ones as one line of context (`DuplicatesView` `settledMembers`); a verb and a noun are
 never look-alikes — the leading marker gives the class (`PhraseKey.wordClass`: "to"/"zu"/"sich"/"se"/"s'"
-→ verb, an article → noun, none → either; `PhraseKey.alike`), so "to drain" / "a drain" make no group
-unless a bare "drain" joins them (verbs-only / nouns-only buckets are keyed `key|verb`, `key|noun`;
-`lookAlikesInFlashcards` and `exactMerges` follow it); lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
+→ verb, an article → noun, none → either; `PhraseKey.alike`), so "to drain" / "a drain" NEVER share a
+group, a bare "drain" included (the user's rule: a verb and a noun are two words): when both meet, the
+verbs and the nouns make groups of their own, keyed `key|verb` / `key|noun`, and a bare phrase is in BOTH
+(`lookAlikeSets`); merged away in one, it leaves the other (`DuplicatesViewModel.dropGone`). `merges(_:among:)`
+drops a model's merge naming a verb and a noun; `lookAlikesInFlashcards` and `exactMerges` follow the rule; lemmas through the `Lemmatizing` port → `NaturalLanguageLemmatizer`
 (NLTagger; `prepare` requests the lemma assets — the iOS Simulator may have none, so lemmas are
 identity there)) groups phrases in flashcards — LOOK-ALIKE CANDIDATES, not verdicts ("pick on sb" in two
 meanings). Inside a group, merges are proposed (`DuplicateMerge`): exact duplicates on the

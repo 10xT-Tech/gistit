@@ -27,6 +27,10 @@ phrase already in Caught isn't added twice, and **Generate from a phrase** says 
 quietly. **From photos** adds every phrase the photos give, the ones you already learn included, and
 tells you which were already in flashcards and which were already in Caught.
 
+**A verb and a noun are never duplicates.** "to drain" and "a drain" are two words: Find duplicates no
+longer puts them in one group even when a plain "drain" is there too (it's checked against each of
+them separately), and never offers to merge them.
+
 **Moving to flashcards: new ones at once, look-alikes by a merge.** A new phrase moves straight away —
 swipe it, or **Move new to flashcards** for all of them at once, no question asked. That button
 leaves the phrases that look like cards you already learn: those move one at a time, and only by a
