@@ -153,7 +153,7 @@ nothing else); one already in FLASHCARDS is added all the same. `CaughtPhrases` 
 "Generate from a phrase") and `CatchCardsFromPhotosInteractor` (`CatchProgress.alreadyInCaught` — not
 added — and `.inFlashcards` — added, reported). The form checks the list first and says "already in
 Caught" (`addError`). Every Caught row carries a mark (`StudyListViewModel.mark` → `CaughtMark`, worked
-out on each load by `lookAlikesInFlashcards`, off the main actor; no mark until it answered): `.new` —
+out on each load by `lookAlikesInFlashcards`, off the main actor; no mark until it answered — FOR THAT ROW: `checkedIDs` holds the rows the check answered for, so a row that just appeared, e.g. caught from photos, has no frame until checked; the frame used to flash on every new row and come off the look-alikes): `.new` —
 green frame (`Tokens.Signal.success`) + "New" tag; `.inFlashcards` — the very same phrase is there;
 `.lookAlike` — a `PhraseKey` look-alike is. MOVING (the user's rule): a `.new` phrase moves at once — one (`moveToFlashcards`) or all
 (`moveNewToFlashcards`, "Move new to flashcards (N)", no confirmation; marked phrases are left). A

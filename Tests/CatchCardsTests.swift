@@ -325,10 +325,18 @@ import Presentation
         #expect(caught.mark(alike) == .lookAlike)
         #expect(caught.mark(fresh) == .new)
 
+        // A phrase that appears after the check (caught from photos): no mark — no green frame — until
+        // the check has answered for it; then it is new.
+        let later = try await save(en: "break the ice")
+        #expect(caught.mark(later) == nil)
+        #expect(!caught.newPhrases.contains { $0.id == later.id })
+        await caught.load()
+        #expect(caught.mark(later) == .new)
+
         caught.newEnglish = "Jump the gun"
         caught.add()
         #expect(caught.addError?.contains("already in Caught") == true)
-        #expect(try await repo.all().count == 4)
+        #expect(try await repo.all().count == 5)
     }
 
     /// Move all: Caught empties at once, every phrase gets its cards, and In flashcards shows them —
