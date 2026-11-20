@@ -101,6 +101,8 @@ public struct FixProgress: Sendable, Equatable {
     public let total: Int
     /// Phrases whose card changed.
     public let changed: Int
+    /// Phrases the model answered for that needed no change — left as they were.
+    public let unchanged: Int
     /// Phrases still without the model's answer after this run's requests (an unusable answer for their
     /// batch, a card left out of it): only their letter case was fixed, and the next run asks about
     /// each of them alone.
@@ -112,11 +114,13 @@ public struct FixProgress: Sendable, Equatable {
     public var sentFraction: Double { total == 0 ? 1 : Double(sent) / Double(total) }
 
     /// `sent` defaults to `processed` (nothing waiting for an answer).
-    public init(processed: Int, total: Int, changed: Int, failed: Int, sent: Int? = nil, givenUp: Int = 0) {
+    public init(processed: Int, total: Int, changed: Int, failed: Int, sent: Int? = nil, givenUp: Int = 0,
+                unchanged: Int = 0) {
         self.processed = processed
         self.sent = sent ?? processed
         self.total = total
         self.changed = changed
+        self.unchanged = unchanged
         self.failed = failed
         self.givenUp = givenUp
     }
@@ -310,6 +314,8 @@ public struct FixCardsInteractor: FixCardsUseCase {
                             if fixed != expression {
                                 try await expressions.update(fixed)
                                 tally.changed += 1
+                            } else if fix != nil {
+                                tally.unchanged += 1
                             }
                         }
                         // The position moves only with the batches; a phrase asked alone lies before it.
@@ -343,7 +349,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
         var unanswered: Set<UUID>
         var askedAlone: Set<UUID>
         var givenUp: Set<UUID>
-        var processed = 0, changed = 0, gaveUp = 0
+        var processed = 0, changed = 0, unchanged = 0, gaveUp = 0
         /// Phrases an earlier run left unanswered that this one hasn't asked about yet.
         var waiting: Int
         let total: Int
@@ -379,7 +385,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
 
         func progress(sending: Int = 0) -> FixProgress {
             FixProgress(processed: processed, total: total, changed: changed, failed: unanswered.count - waiting,
-                        sent: processed + sending, givenUp: gaveUp)
+                        sent: processed + sending, givenUp: gaveUp, unchanged: unchanged)
         }
     }
 

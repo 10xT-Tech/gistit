@@ -194,25 +194,44 @@ struct FixCardsView: View {
                 .accessibilityIdentifier("fix.progress")
             ProgressLineLegend(pending: Loc.t("отправлено", "sent", "envoyées", "enviadas", "gesendet", "inviate"),
                                done: Loc.t("готово", "done", "terminées", "listas", "fertig", "fatte"))
-            HStack {
-                Text(Loc.t("Фраз: \(model.progress.processed) из \(model.progress.total)",
-                           "Phrases: \(model.progress.processed) of \(model.progress.total)",
-                           "Expressions : \(model.progress.processed) sur \(model.progress.total)",
-                           "Frases: \(model.progress.processed) de \(model.progress.total)",
-                           "Ausdrücke: \(model.progress.processed) von \(model.progress.total)",
-                           "Frasi: \(model.progress.processed) di \(model.progress.total)"))
-                Spacer()
-                Text(Loc.t("Исправлено: \(model.progress.changed)", "Fixed: \(model.progress.changed)",
-                           "Corrigées : \(model.progress.changed)", "Corregidas: \(model.progress.changed)",
-                           "Korrigiert: \(model.progress.changed)", "Corrette: \(model.progress.changed)"))
-                    .accessibilityIdentifier("fix.changed")
+            Text(Loc.t("Фраз: \(model.progress.processed) из \(model.progress.total)",
+                       "Phrases: \(model.progress.processed) of \(model.progress.total)",
+                       "Expressions : \(model.progress.processed) sur \(model.progress.total)",
+                       "Frases: \(model.progress.processed) de \(model.progress.total)",
+                       "Ausdrücke: \(model.progress.processed) von \(model.progress.total)",
+                       "Frasi: \(model.progress.processed) di \(model.progress.total)"))
+                .textStyle(Tokens.Text.subhead)
+                .foregroundStyle(Tokens.Content.secondary)
+                .monospacedDigit()
+            // What came of them: changed, already fine, no answer (asked again next run or given up).
+            VStack(spacing: Tokens.Space.s4) {
+                statRow(Loc.t("Изменено", "Changed", "Modifiées", "Cambiadas", "Geändert", "Modificate"),
+                        model.progress.changed, id: "fix.changed")
+                statRow(Loc.t("Без изменений", "No changes needed", "Sans changement", "Sin cambios",
+                              "Ohne Änderung", "Senza modifiche"),
+                        model.progress.unchanged, id: "fix.unchanged")
+                statRow(Loc.t("С ошибкой (без ответа модели)", "With an error (no answer)", "En erreur (sans réponse)",
+                              "Con error (sin respuesta)", "Mit Fehler (keine Antwort)", "Con errore (senza risposta)"),
+                        model.progress.failed + model.progress.givenUp, id: "fix.errors")
             }
-            .textStyle(Tokens.Text.subhead)
-            .foregroundStyle(Tokens.Content.secondary)
-            .monospacedDigit()
+            .padding(.top, Tokens.Space.s4)
         }
         .padding(Tokens.Space.s16)
         .glassPanel(cornerRadius: Tokens.Radius.card)
+    }
+
+    private func statRow(_ title: String, _ value: Int, id: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(Tokens.Content.secondary)
+            Spacer(minLength: Tokens.Space.s8)
+            Text("\(value)")
+                .foregroundStyle(Tokens.Content.primary)
+                .monospacedDigit()
+        }
+        .textStyle(Tokens.Text.subhead)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(id)
     }
 
     private func note(_ text: String) -> some View {

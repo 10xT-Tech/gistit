@@ -33,6 +33,10 @@ as not duplicates. Tap that line to see them all: **Unmark** a group (it goes ba
 candidates, to merge or check again) or **Merge** it — an exact duplicate at once, otherwise the model
 proposes the card first.
 
+**Fix cards says what it did.** The progress card counts the cards **changed**, the ones that
+needed **no changes**, and the ones left **with an error** (the model didn't answer for them — they're
+asked about again next time).
+
 **A verb and a noun are never duplicates.** "to drain" and "a drain" are two words: Find duplicates no
 longer puts them in one group even when a plain "drain" is there too (it's checked against each of
 them separately), and never offers to merge them.

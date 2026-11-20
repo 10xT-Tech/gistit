@@ -387,7 +387,8 @@ import Presentation
 
         let spy = SpyFixLLM()                                           // "start over": all of them again
         let fresh = FixCardsInteractor(llm: spy, expressions: expressions, cards: reviews, progress: store)
-        #expect(try await run(fresh, restart: true).last == FixProgress(processed: 40, total: 40, changed: 2, failed: 0))
+        #expect(try await run(fresh, restart: true).last == FixProgress(processed: 40, total: 40, changed: 2, failed: 0,
+                                                                                         unchanged: 38))
         #expect(await store.load(.all)?.givenUp.isEmpty == true)
         #expect(try await expressions.all().allSatisfy { !FixCardsInteractor.isIncomplete($0) })
     }
