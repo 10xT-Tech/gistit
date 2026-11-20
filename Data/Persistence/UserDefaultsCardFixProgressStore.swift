@@ -31,4 +31,20 @@ public final class UserDefaultsCardFixProgressStore: CardFixProgressStoring, @un
     public func reset(_ scope: FixScope) async {
         defaults.removeObject(forKey: key(scope))
     }
+
+    private let nothingKey = "flashcardsFixNothingToAdd"
+
+    public func nothingToAdd() async -> Set<UUID> {
+        Set((defaults.stringArray(forKey: nothingKey) ?? []).compactMap(UUID.init(uuidString:)))
+    }
+
+    public func addNothingToAdd(_ ids: Set<UUID>) async {
+        let all = await nothingToAdd().union(ids)
+        defaults.set(all.map(\.uuidString).sorted(), forKey: nothingKey)
+    }
+
+    public func removeNothingToAdd(_ ids: Set<UUID>) async {
+        let all = await nothingToAdd().subtracting(ids)
+        defaults.set(all.map(\.uuidString).sorted(), forKey: nothingKey)
+    }
 }

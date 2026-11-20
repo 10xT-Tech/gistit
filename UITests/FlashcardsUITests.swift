@@ -181,6 +181,12 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertEqual(start.label, "All cards (2)")
         XCTAssertFalse(app.buttons["fix.incomplete"].exists, "the stub cards are complete")
         attach(app, "fix-modes")
+        // The incomplete cards can be looked through — here there are none.
+        app.buttons["fix.showIncomplete"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["incomplete.none"].waitForExistence(timeout: 5))
+        attach(app, "fix-incomplete-list")
+        app.navigationBars["Incomplete cards"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(start.waitForExistence(timeout: 10), "the modes are back after the list")
         start.tap()
         let done = app.buttons["fix.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10))

@@ -236,6 +236,44 @@ import Presentation
 
     /// Stopped after a batch (here: the connection drops on the second): the next run continues after
     /// it — no card is sent twice — and "start over" goes through all of them again.
+    /// "An elbow" has no synonyms: the model answers and leaves them empty. The card isn't "to fix" any
+    /// more (the incomplete mode leaves it out) but is listed among the incomplete cards as "nothing to
+    /// add"; fixing it by hand says the same, and an error shows its message and detail.
+    @MainActor @Test func nothingToAddLeavesTheIncompleteMode() async throws {
+        let (studied, cards) = deck(3)
+        let elbow = studied[1]
+        let expressions = MockExpressionRepository(seed: studied)
+        let store = InMemoryCardFixProgressStore()
+        let llm = NoSynonymsLLM(none: [elbow.id.uuidString])
+        let sut = FixCardsInteractor(llm: llm, expressions: expressions, cards: MockReviewCardRepository(seed: cards),
+                                     progress: store)
+        let steps = try await run(sut, .incomplete)
+        #expect(steps.last?.processed == 3)
+        #expect(await store.nothingToAdd() == [elbow.id])
+        var survey: FixSurvey?
+        for try await step in sut.survey() { survey = step }
+        #expect(survey?.incomplete?.total == 0)                                       // nothing left to fix
+        let listed = try await sut.incompleteCards()
+        #expect(listed.map(\.id) == [elbow.id] && listed[0].missing == [.synonyms] && listed[0].nothingToAdd)
+
+        let screen = IncompleteCardsViewModel(fixCards: sut, studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+        await screen.load()
+        #expect(screen.toFix.isEmpty && screen.nothingToAdd.map(\.id) == [elbow.id])
+        screen.fix(listed[0])
+        try await wait { screen.status(of: listed[0]) != .fixing && screen.status(of: listed[0]) != nil }
+        #expect(screen.status(of: listed[0]) == .nothingToAdd([.synonyms]))
+
+        let failing = FixCardsInteractor(llm: NoSynonymsLLM(none: [], error: .requestFailed("HTTP 500: upstream")),
+                                         expressions: expressions, cards: MockReviewCardRepository(seed: cards),
+                                         progress: store)
+        let broken = IncompleteCardsViewModel(fixCards: failing, studiedLanguage: { "English" }, nativeLanguage: { "Russian" })
+        await broken.load()
+        broken.fix(listed[0])
+        try await wait { if case .failed = broken.status(of: listed[0]) { true } else { false } }
+        guard case .failed(_, let detail, _) = broken.status(of: listed[0]) else { Issue.record("no error"); return }
+        #expect(detail.contains("HTTP 500"))
+    }
+
     @Test func resumesWhereItStopped() async throws {
         let (studied, cards) = deck(45)
         let spy = SpyFixLLM(failing: [2: .offline])                       // the 2nd batch: no network
@@ -634,6 +672,26 @@ import Presentation
 }
 
 /// Records the card ids it answered; answers like the mock (echo + fill), failing the calls listed.
+/// Answers like the mock but finds no synonyms for the listed cards (an elbow has none); fails the
+/// listed calls with the given errors.
+private struct NoSynonymsLLM: LLMClient {
+    let none: Set<String>
+    var error: LLMError?
+
+    func run<Template: PromptTemplate>(_ template: Template, input: Template.Input) async throws -> Template.Output {
+        if let error { throw error }
+        guard let cards = input as? [FixCardItem] else { return try await MockLLMClient().run(template, input: input) }
+        let fixed = cards.map { card in
+            FixCardItem(id: card.id, expression: card.expression, translation: card.translation,
+                        example: card.example.isEmpty ? "An example." : card.example,
+                        synonyms: none.contains(card.id) ? [] : ["similar"],
+                        context: card.context.isEmpty ? "Нейтрально." : card.context)
+        }
+        let data = try JSONEncoder().encode(FixCardsResult(cards: fixed))
+        return try template.decode(String(decoding: data, as: UTF8.self))
+    }
+}
+
 private final class SpyFixLLM: LLMClient, @unchecked Sendable {
     private let lock = NSLock()
     private var ids: [String] = []

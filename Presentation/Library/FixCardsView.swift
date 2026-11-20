@@ -19,6 +19,7 @@ struct FixCardsView: View {
     @State var model: FixCardsViewModel
     let onClose: () -> Void
     @State private var showPaywall = false
+    @State private var showIncomplete = false
     @Environment(SubscriptionState.self) private var subscription
 
     var body: some View {
@@ -64,6 +65,13 @@ struct FixCardsView: View {
                     if let error = model.errorMessage {
                         note(error)
                     }
+                    if !model.isBusy {
+                        // What's missing on which card — and fix one by hand, with the error if any.
+                        EHButton(Loc.t("Показать неполные карточки", "Show incomplete cards", "Voir les cartes incomplètes",
+                                       "Ver tarjetas incompletas", "Unvollständige Karten zeigen", "Mostra le carte incomplete"),
+                                 icon: "list.bullet.rectangle", kind: .ghost, fillWidth: true,
+                                 accessibilityID: "fix.showIncomplete") { showIncomplete = true }
+                    }
                     if model.isRunning {
                         Text(Loc.t("Можно остановить в любой момент — в следующий раз исправление продолжится с этого места.",
                                    "You can stop at any time — next time it continues from here."))
@@ -99,6 +107,10 @@ struct FixCardsView: View {
                 }
             }
             .sheet(isPresented: $showPaywall) { PaywallView().environment(subscription) }
+            .navigationDestination(isPresented: $showIncomplete) {
+                IncompleteCardsView(model: model.incompleteCards) { showPaywall = true }
+            }
+            .onChange(of: showIncomplete) { _, shown in if !shown { model.recount() } }
         }
         .interactiveDismissDisabled(model.isRunning)
         .presentationDetents([.medium, .large])

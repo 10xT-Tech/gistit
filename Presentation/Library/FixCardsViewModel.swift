@@ -36,6 +36,18 @@ public final class FixCardsViewModel: Identifiable {
         self.fixCards = fixCards
         self.studiedLanguage = studiedLanguage
         self.nativeLanguage = nativeLanguage
+        self.incompleteCards = IncompleteCardsViewModel(fixCards: fixCards, studiedLanguage: studiedLanguage,
+                                                        nativeLanguage: nativeLanguage)
+    }
+
+    /// The incomplete cards, to look through and fix one by one (pushed from the sheet).
+    public let incompleteCards: IncompleteCardsViewModel
+
+    /// Back from the incomplete cards (some may be complete now): count the modes again.
+    public func recount() {
+        guard task == nil, phase == .choosing else { return }
+        phase = .surveying
+        prepare()
     }
 
     /// What the modes cover: all phrases (start / continue / start over), only the incomplete ones.
