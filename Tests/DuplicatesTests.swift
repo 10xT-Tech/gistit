@@ -46,8 +46,14 @@ import Presentation
 
     @Test func phraseKey() {
         let en = { PhraseKey.make($0, language: "English") }
-        #expect(en("to hit the roof") == "hit the roof")
-        #expect(en("Hit the roof!") == "hit the roof")
+        #expect(en("to hit the roof") == "hit roof")
+        #expect(en("Hit the roof!") == "hit roof")
+        // Articles inside a phrase don't make another expression (a phrase from a photo went in twice).
+        #expect(en("light at end of tunnel") == en("light at the end of the tunnel"))
+        #expect(en("a light at the end of a tunnel") == en("light at end of tunnel"))
+        #expect(en("listen to") != en("listen"))                          // "to" inside is a preposition
+        #expect(en("to the point") != en("point"))                        // never down to one word
+        #expect(PhraseKey.make("am Ende des Tunnels", language: "German") == PhraseKey.make("am Ende Tunnels", language: "German"))
         // A slot is never dropped — it changes the expression; only its spellings are one.
         #expect(en("pick on sb") == en("to pick on someone"))
         #expect(en("pick on smb.") == "pick on someone")
@@ -127,7 +133,7 @@ import Presentation
         #expect(alike[unique.id] == nil)                                             // only itself
 
         try await sut.markNotDuplicates(groups[1].expressions.map(\.id))             // "Don't merge"
-        #expect(try await scan(sut)?.map(\.key) == ["hit the roof"])
+        #expect(try await scan(sut)?.map(\.key) == ["hit roof"])
         // The marked group is only reported — never a candidate again.
         var settled: [DuplicateGroup] = []
         for try await step in sut.scan(studiedLanguage: "English") where step.groups != nil { settled = step.settled }
@@ -700,11 +706,11 @@ import Presentation
         try await wait { vm.phase != .scanning }
         #expect(vm.phrasesChecked == 7)
         #expect(vm.candidateGroups == 1 && vm.candidatePhrases == 2)                 // the roof
-        #expect(vm.settled.map(\.key) == ["solid", "jump the gun"] && vm.settledPhrases == 4)
+        #expect(vm.settled.map(\.key) == ["solid", "jump gun"] && vm.settledPhrases == 4)
 
         vm.unmark(try #require(vm.settled.first))                                     // "solid"
-        #expect(vm.settled.map(\.key) == ["jump the gun"])
-        #expect(vm.groups.map(\.key) == ["hit the roof", "solid"])
+        #expect(vm.settled.map(\.key) == ["jump gun"])
+        #expect(vm.groups.map(\.key) == ["hit roof", "solid"])
         try await Task.sleep(for: .milliseconds(50))
         #expect(try await marks.pairs() == [NotDuplicatePair(gun1.id, gun2.id)])
 
@@ -756,7 +762,7 @@ import Presentation
 
         vm.start()
         try await wait { vm.phase != .scanning }
-        #expect(vm.phase == .found && vm.groups.map(\.key) == ["hit the roof", "solid", "fuck about", "pick on someone"])
+        #expect(vm.phase == .found && vm.groups.map(\.key) == ["hit roof", "solid", "fuck about", "pick on someone"])
         #expect(vm.unchecked.map(\.key) == ["solid", "pick on someone"])            // the roof and "fuck about" are exact
         #expect(vm.duplicateMerges.count == 3)                                       // the exact pairs, "pick on" too
 

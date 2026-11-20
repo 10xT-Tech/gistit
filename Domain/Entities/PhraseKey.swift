@@ -4,7 +4,8 @@
 //
 //  What two phrases in the studied language are compared by when looking for duplicates: the same
 //  words apart from letter case, accents, typographic apostrophes, a leading infinitive marker or
-//  article ("to", "a", "der", "la"…), glosses in brackets, punctuation and spacing — and, with a
+//  article ("to", "a", "der", "la"…), the articles inside a phrase ("light at end of tunnel" = "light at
+//  the end of the tunnel"), glosses in brackets, punctuation and spacing — and, with a
 //  lemmatizer, the word forms of a PHRASE ("jumping the gun" = "jump the gun"). A single word keeps its
 //  form: "dashing" isn't "a dash", nor "fried" "to fry" — other words, which lemmas would have grouped
 //  (and did, with cards already marked "not duplicates"). "to hit the roof" and "Hit the
@@ -73,6 +74,14 @@ public enum PhraseKey {
             } else if let elided = Self.elided[language]?.first(where: { first.hasPrefix($0) && first.count > $0.count }) {
                 words[0] = String(first.dropFirst(elided.count))           // "l'arbre" → "arbre"
             }
+        }
+        // Articles INSIDE a phrase don't make another expression either: "light at end of tunnel" is
+        // "light at the end of the tunnel" (they were apart, and the same phrase caught from a photo went
+        // into flashcards twice). Only articles — "to" inside is a preposition ("listen to").
+        if words.count > 1 {
+            let articles = (Self.leading[language] ?? []).subtracting(Self.verbMarkers[language] ?? [])
+            let kept = words.filter { !articles.contains($0) }
+            if kept.count > 1 { words = kept }          // never down to one word: "to the point" ≠ "point"
         }
         let joined = words.joined(separator: " ")
         guard !joined.isEmpty else { return text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }

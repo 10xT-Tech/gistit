@@ -43,6 +43,12 @@ incomplete" stops offering the same ones over and over.
 needed **no changes**, and the ones left **with an error** (the model didn't answer for them — they're
 asked about again next time).
 
+**"the" doesn't hide a duplicate any more.** "light at end of tunnel" and "light at the end of the
+tunnel" are the same phrase: a phrase caught from a photo is now marked as like the card you already
+learn (and moves only by a merge), and **Find duplicates** puts such pairs in one group. Articles
+inside a phrase — "a", "an", "the", and "der", "la"… in the other languages — no longer make two
+phrases different.
+
 **A verb and a noun are never duplicates.** "to drain" and "a drain" are two words: Find duplicates no
 longer puts them in one group even when a plain "drain" is there too (it's checked against each of
 them separately), and never offers to merge them.
