@@ -25,7 +25,7 @@ don't learn yet has a green frame and a **New** tag; one you already learn in fl
 phrase you already learn now adds it to Caught all the same (with that mark) — only the very same
 phrase already in Caught isn't added twice, and **Generate from a phrase** says so instead of closing
 quietly. **From photos** adds every phrase the photos give, the ones you already learn included, and
-tells you which were already in flashcards and which were already in Caught.
+tells you which were already in flashcards and which were already in Caught. A phrase gets its green frame only once it has been checked — the frames no longer flash on every new phrase and then come off the ones like a card you learn.
 
 **What the duplicate search found.** After **Find duplicates** reads your cards, it says how many
 phrases it checked, how many look-alike candidates it found, and how many groups you've marked as not

@@ -79,8 +79,10 @@ public final class StudyListViewModel {
     /// Caught phrases that ARE in flashcards (the very same phrase, `Expression.matchKey`) — a subset of
     /// `lookAlikeIDs`.
     public private(set) var inFlashcardsIDs: Set<UUID> = []
-    /// Whether the marks are worked out for the rows shown (until then no row is called new).
-    public private(set) var marksKnown = false
+    /// The Caught rows the check has answered for. A row not among them has NO mark yet — a row that
+    /// just appeared (cards caught from photos, a reload) is never called new before the check said so:
+    /// the green frame used to show on every new row at once and come off the look-alikes a moment later.
+    private var checkedIDs: Set<UUID> = []
 
     /// Whether a check found this caught phrase to look like one already in flashcards.
     public func isLookAlike(_ expression: Domain.Expression) -> Bool { lookAlikeIDs.contains(expression.id) }
@@ -90,7 +92,9 @@ public final class StudyListViewModel {
 
     /// The mark of a Caught row — nil on In flashcards, or before the check answered.
     public func mark(_ expression: Domain.Expression) -> CaughtMark? {
-        guard scope == .caught, marksKnown || duplicates == nil else { return nil }
+        guard scope == .caught else { return nil }
+        guard duplicates != nil else { return .new }
+        guard checkedIDs.contains(expression.id) else { return nil }
         if inFlashcardsIDs.contains(expression.id) { return .inFlashcards }
         if lookAlikeIDs.contains(expression.id) { return .lookAlike }
         return .new
@@ -464,7 +468,7 @@ public final class StudyListViewModel {
         guard let duplicates, !caught.isEmpty else {
             lookAlikeIDs = []
             inFlashcardsIDs = []
-            marksKnown = true
+            checkedIDs = Set(caught.map(\.id))
             return
         }
         let language = studiedLanguage()
@@ -476,10 +480,10 @@ public final class StudyListViewModel {
             let key = Domain.Expression.matchKey(phrase.en)
             return found[phrase.id]?.contains { Domain.Expression.matchKey($0.en) == key } == true ? phrase.id : nil
         })
-        marksKnown = true
+        checkedIDs = Set(caught.map(\.id))
     }
 
-    /// The Caught phrases "Move new" takes: the ones marked new (none until the marks are known).
+    /// The Caught phrases "Move new" takes: the ones marked new (a row the check hasn't answered for isn't).
     public var newPhrases: [Domain.Expression] {
         expressions.filter { mark($0) == .new }
     }
