@@ -331,7 +331,7 @@ green for learned (mature only), validated with the dataviz validator for both m
 learned". The dashboard layout is FIXED (the user asked): every block keeps its size in every state —
 GoalProgress and the status line always present (an empty status keeps its room), captions one line
 (`lineLimit(1)` + `minimumScaleFactor`, never wrapping), the stage legend always the 2 × 2 `Grid`. Duplicates (`DuplicatesInteractor`): `PhraseKey` (Domain — lower case, accents,
-apostrophes, leading "to"/articles per language, glosses in brackets, punctuation; SLOTS ARE KEPT, only
+apostrophes, leading "to"/articles per language, ARTICLES INSIDE a phrase too while two words stay ("light at end of tunnel" = "light at the end of the tunnel" — a phrase from a photo went into flashcards twice; "to" inside stays, it's a preposition), glosses in brackets, punctuation; SLOTS ARE KEPT, only
 their spellings unified (sb/smb/somebody → someone, sth → something, one's → someone's, jdn → jemanden,
 qqn → quelqu'un; "(someone)" in brackets too; English "+ -ing" → "doing") — the user's rule: a slot
 changes the expression, "fuck about" ≠ "fuck somebody about"; then lemmas — for PHRASES of several words
