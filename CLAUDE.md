@@ -165,7 +165,7 @@ opens `mergeOffer` (`MergeOfferSheet`) with the merged card worked out AT ONCE �
 look-alike as `NotDuplicatePair` — those pairs only); a failed check shows why, with Try again (or
 Subscribe) and still "separate".
 
-**v2.0.2 (on `main` — PR #13 merged `caught-marks`; 2.0.2 (1) uploaded to TestFlight 2026-11-19, 2.0.2 (2) — "Check all for merge (N)" — the same day, 2.0.2 (3) 2026-11-20 — final "not duplicates" marks, Fix cards counts, the incomplete cards) — the
+**v2.0.2 (on `main` — PR #13 merged `caught-marks`; 2.0.2 (1) uploaded to TestFlight 2026-11-19, 2.0.2 (2) — "Check all for merge (N)" — the same day, 2.0.2 (3) 2026-11-20 — final "not duplicates" marks, Fix cards counts, the incomplete cards; 2.0.2 (4) the same day — Caught marks only once checked) — the
 Caught marks / moving by merge / strict verb-noun / duplicate statistics above, and the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
 or — empty field + text on the clipboard — Paste (`PasteAction`, Presentation/Support, shared by both
 screens). Paste is normally the SYSTEM control (`EHPasteButton` = `UIPasteControl`: its tap is the consent,
