@@ -368,7 +368,7 @@ only by a merge shown first (`mergeOffer`, `caughtMerge`) or as a separate card 
 `mergeCaught` (= `caughtMerge` + `merge`) stays for callers that merge without asking. In flashcards menu → "Find duplicates" sheet (`DuplicatesView`): scan with
 progress → exact proposals at once → Check (unchecked, non-exact-only groups) → two-part progress,
 two buttons per group — Merge (all its proposals; Check for an unchecked group) / Don't merge —,
-"Merge all duplicates" (never a linked pair), "Full re-check". EVERY WRITE TO A GROUP IS ONE AT A TIME
+"Merge all duplicates" (never a linked pair), "Search again". EVERY WRITE TO A GROUP IS ONE AT A TIME
 (`DuplicatesViewModel`; the review found two taps on "Merge all" making each merge twice, a merge during
 the Check leaving a proposal that names a deleted phrase, a full re-check making it skip the rest, and
 the merging going on behind a closed sheet): "Merge all" is ONE tracked run (`mergeAll` progress shown in
