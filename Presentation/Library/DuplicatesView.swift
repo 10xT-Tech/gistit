@@ -65,7 +65,7 @@ struct DuplicatesView: View {
                                  accessibilityID: "dups.mergeAll") { model.mergeAllDuplicates() }
                             .disabled(!model.busy.isEmpty)
                     }
-                    ForEach(model.shownGroups) { group in
+                    ForEach(model.groups) { group in
                         GroupCard(group: group, proposals: model.proposals[group.key] ?? [],
                                   isChecked: model.checkedKeys.contains(group.key), isSettled: model.isSettled(group),
                                   isBusy: model.busy.contains(group.key), isAwaited: model.awaiting.contains(group.key),
@@ -116,16 +116,6 @@ struct DuplicatesView: View {
             Text(title)
                 .textStyle(Tokens.Text.headline)
                 .foregroundStyle(Tokens.Content.primary)
-            if model.isFull {
-                if model.markedToCheck > 0 {
-                    caption(Loc.t("Полная перепроверка: группы, отмеченные «не дубли» (\(model.markedToCheck)), модель проверит заново и покажет только те, где теперь видит дубли.",
-                                  "Full re-check: the model checks the groups marked \"not duplicates\" (\(model.markedToCheck)) again and shows only those it now finds duplicates in."))
-                }
-                if model.confirmedApart > 0 {
-                    caption(Loc.t("Модель подтвердила «не дубли»: \(model.confirmedApart)",
-                                  "Confirmed not duplicates: \(model.confirmedApart)"))
-                }
-            }
             switch model.phase {
             case .scanning:
                 if model.scan.total == 0 {
@@ -138,7 +128,7 @@ struct DuplicatesView: View {
                         : Loc.t("Проверено фраз: \(model.scan.checked) из \(model.scan.total)",
                                 "Phrases checked: \(model.scan.checked) of \(model.scan.total)"))
             case .found:
-                if !model.shownGroups.isEmpty {
+                if !model.groups.isEmpty {
                     caption(Loc.t("Фразы, которые пишутся похоже (без учёта «to», артиклей, знаков и форм слова; «sb», «smb» и «someone» — одно и то же, но фраза с «someone» и без — разные). Похожие — ещё не одинаковые: точные дубли (та же фраза и тот же перевод) можно слить сразу, остальное проверит модель — какие карточки одно и то же, какие — разные значения одной фразы, а какие — разные фразы. «Не сливать» отмечает карточки как не дубли, и следующий поиск их не предложит.",
                                   "Phrases written alike (ignoring \"to\", articles, punctuation and word forms; \"sb\", \"smb\" and \"someone\" are one, but a phrase with \"someone\" and one without are two). Alike isn't the same: exact duplicates (the same phrase and translation) can be merged right away; the model checks the rest — which cards are one, which are one phrase's meanings, which are different phrases. \"Don't merge\" marks the cards as not duplicates, and the next search leaves them be."))
                 }
@@ -183,12 +173,10 @@ struct DuplicatesView: View {
             }
             if let error = model.errorMessage { caption(error) }
             if !model.isBusy {
-                EHButton(Loc.t("Полная перепроверка", "Full re-check", "Revérification complète", "Revisión completa",
-                               "Vollständige Neuprüfung", "Ricontrollo completo"),
+                EHButton(Loc.t("Искать заново", "Search again", "Chercher à nouveau", "Buscar de nuevo",
+                               "Erneut suchen", "Cerca di nuovo"),
                          icon: "arrow.clockwise", kind: .ghost, fillWidth: true,
-                         accessibilityID: "dups.full") { model.rescanFully() }
-                caption(Loc.t("Ищет заново, не учитывая отметки «не дубли», — например, после изменения поиска.",
-                              "Searches again ignoring the \"not duplicates\" marks — after the matching changed, say."))
+                         accessibilityID: "dups.again") { model.searchAgain() }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,16 +194,14 @@ struct DuplicatesView: View {
         switch model.phase {
         case .scanning: Loc.t("Ищу похожие фразы…", "Looking for look-alikes…")
         case .found:
-            if !model.shownGroups.isEmpty {
-                Loc.t("Похожих групп: \(model.shownGroups.count)", "Look-alike groups: \(model.shownGroups.count)")
-            } else if !model.unchecked.isEmpty {
-                Loc.t("Групп на перепроверку: \(model.unchecked.count)", "Groups to re-check: \(model.unchecked.count)")
+            if !model.groups.isEmpty {
+                Loc.t("Похожих групп: \(model.groups.count)", "Look-alike groups: \(model.groups.count)")
             } else {
                 Loc.t("Все группы разобраны", "Every group is sorted out")
             }
         case .checking: Loc.t("Модель проверяет группы…", "The model is checking the groups…")
         case .checked:
-            if !model.shownGroups.isEmpty {
+            if !model.groups.isEmpty {
                 Loc.t("Проверено — решите по каждой группе", "Checked — decide on each group")
             } else if !model.unchecked.isEmpty {
                 Loc.t("Проверены не все группы", "Not every group was checked")
@@ -345,7 +331,7 @@ private struct GroupCard: View {
     }
 
     private var settledMembers: [Domain.Expression] {
-        guard group.honorsMarks, !group.marked.isEmpty,
+        guard !group.marked.isEmpty,
               group.expressions.contains(where: { !markedIDs.contains($0.id) }) else { return [] }
         return group.expressions.filter { markedIDs.contains($0.id) }
     }
@@ -456,23 +442,21 @@ private struct ScanStatistics: View {
                       "Mögliche Duplikate", "Possibili duplicati"),
                 Loc.t("групп: \(model.candidateGroups) · фраз: \(model.candidatePhrases)",
                       "groups: \(model.candidateGroups) · phrases: \(model.candidatePhrases)"))
-            if !model.isFull {
-                Button(action: onOpenSettled) {
-                    HStack {
-                        row(Loc.t("Отмечены как не дубли", "Marked not duplicates", "Marquées non doublons",
-                                  "Marcadas no duplicados", "Als keine Duplikate markiert", "Segnate non duplicati"),
-                            Loc.t("групп: \(model.settled.count) · фраз: \(model.settledPhrases)",
-                                  "groups: \(model.settled.count) · phrases: \(model.settledPhrases)"))
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Tokens.Content.tertiary)
-                    }
-                    .contentShape(Rectangle())
+            Button(action: onOpenSettled) {
+                HStack {
+                    row(Loc.t("Отмечены как не дубли", "Marked not duplicates", "Marquées non doublons",
+                              "Marcadas no duplicados", "Als keine Duplikate markiert", "Segnate non duplicati"),
+                        Loc.t("групп: \(model.settled.count) · фраз: \(model.settledPhrases)",
+                              "groups: \(model.settled.count) · phrases: \(model.settledPhrases)"))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Tokens.Content.tertiary)
                 }
-                .buttonStyle(.plain)
-                .disabled(model.settled.isEmpty)
-                .accessibilityIdentifier("dups.settledList")
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(model.settled.isEmpty)
+            .accessibilityIdentifier("dups.settledList")
         }
         .padding(.top, Tokens.Space.s4)
         .accessibilityElement(children: .contain)

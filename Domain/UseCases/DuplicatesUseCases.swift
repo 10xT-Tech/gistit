@@ -11,8 +11,9 @@
 //    is proposed separately (below).
 //  - "Don't merge" links the group's phrases to each other as NOT DUPLICATES (`NotDuplicatePair`, kept
 //    with the cards by `NotDuplicateMarking`): a search leaves out a group whose phrases are all linked,
-//    and never proposes merging a linked pair. A FULL re-check (`full: true`) puts the linked groups to
-//    the model again — after the matching changed; the sheet shows one only if a merge is proposed in it.
+//    and never proposes merging a linked pair. The marks are FINAL (the user's rule): no search and no
+//    check touches a linked group — the scan only reports them (`DuplicateScanStep.settled`), and only
+//    the user's own Unmark / Merge on that list changes them.
 //  - Exact duplicates (on the device, no model): the same expression (`PhraseKey` without lemmas) with
 //    the same translation — a merge is proposed at once; a group made only of them needs no check.
 //  - Check (the model, `DuplicatesTemplate`): the merges each group needs — a duplicate (one expression,
@@ -41,10 +42,8 @@ public struct DuplicateGroup: Sendable, Identifiable, Equatable {
     public let cards: [UUID: [ReviewCard]]
     /// Exact duplicates among them, found on the device.
     public let exact: [DuplicateMerge]
-    /// Pairs among them already marked "not duplicates".
+    /// Pairs among them already marked "not duplicates" — never proposed for a merge.
     public let marked: Set<NotDuplicatePair>
-    /// Whether the marks hold (a normal search) or are being re-checked (a full one).
-    public let honorsMarks: Bool
 
     public var id: String { key }
     /// Every member is in one exact duplicate: nothing for the model to decide.
@@ -54,20 +53,19 @@ public struct DuplicateGroup: Sendable, Identifiable, Equatable {
         expressions.count > 1 && NotDuplicatePair.all(among: expressions.map(\.id)).isSubset(of: marked)
     }
     /// The pairs a proposal may not merge.
-    public var excluded: Set<NotDuplicatePair> { honorsMarks ? marked : [] }
+    public var excluded: Set<NotDuplicatePair> { marked }
 
     public static func memberID(of expressionIDs: [UUID]) -> String {
         expressionIDs.map(\.uuidString).sorted().joined(separator: ",")
     }
 
     public init(key: String, expressions: [Expression], cards: [UUID: [ReviewCard]], exact: [DuplicateMerge] = [],
-                marked: Set<NotDuplicatePair> = [], honorsMarks: Bool = true) {
+                marked: Set<NotDuplicatePair> = []) {
         self.key = key
         self.expressions = expressions
         self.cards = cards
         self.exact = exact
         self.marked = marked
-        self.honorsMarks = honorsMarks
     }
 }
 
@@ -95,8 +93,7 @@ public struct DuplicateScanStep: Sendable, Equatable {
     public let checked: Int
     public let total: Int
     public let groups: [DuplicateGroup]?
-    /// A normal search's look-alike groups left out because ALL their phrases are marked "not
-    /// duplicates" of each other (empty for a full re-check, which keeps them in `groups`).
+    /// The look-alike groups left out because ALL their phrases are marked "not duplicates" of each other.
     public let settled: [DuplicateGroup]
 
     public var fraction: Double { total == 0 ? 0 : Double(checked) / Double(total) }
@@ -126,9 +123,9 @@ public actor InMemoryDuplicateDismissalStore: DuplicateDismissalStoring {
 
 public protocol DuplicatesUseCase: Sendable {
     /// Reads the phrases in flashcards and groups the look-alikes, with their exact duplicates —
-    /// progress while reading. Groups whose phrases are all marked "not duplicates" are left out, and
-    /// marked pairs are never proposed for merging — unless `full`: a full re-check ignores the marks.
-    func scan(studiedLanguage: String, full: Bool) -> AsyncThrowingStream<DuplicateScanStep, Error>
+    /// progress while reading. Groups whose phrases are all marked "not duplicates" are left out of the
+    /// candidates (reported as `settled`), and marked pairs are never proposed for merging.
+    func scan(studiedLanguage: String) -> AsyncThrowingStream<DuplicateScanStep, Error>
     /// ONE request: the merges the model proposes for each of these groups, by group key — an empty
     /// list: all of the group stays apart. A group MISSING from the result got no answer (unusable
     /// twice, or the request rejected): it stays unchecked, and the next request may well go through.
@@ -203,7 +200,7 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
 
     // MARK: Scan
 
-    public func scan(studiedLanguage: String, full: Bool) -> AsyncThrowingStream<DuplicateScanStep, Error> {
+    public func scan(studiedLanguage: String) -> AsyncThrowingStream<DuplicateScanStep, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -229,13 +226,12 @@ public struct DuplicatesInteractor: DuplicatesUseCase {
                             return DuplicateGroup(
                                 key: key, expressions: members,
                                 cards: Dictionary(uniqueKeysWithValues: members.map { ($0.id, byExpression[$0.id] ?? []) }),
-                                exact: Self.exactMerges(among: members, language: studiedLanguage,
-                                                        excluding: full ? [] : pairs),
-                                marked: pairs, honorsMarks: !full)
+                                exact: Self.exactMerges(among: members, language: studiedLanguage, excluding: pairs),
+                                marked: pairs)
                         }
                         .sorted { ($0.expressions[0].createdAt, $0.key) < ($1.expressions[0].createdAt, $1.key) }
-                    let groups = all.filter { full || !$0.isAllMarked }
-                    let settled = full ? [] : all.filter(\.isAllMarked)
+                    let groups = all.filter { !$0.isAllMarked }
+                    let settled = all.filter(\.isAllMarked)
                     continuation.yield(DuplicateScanStep(checked: studied.count, total: studied.count, groups: groups,
                                                          settled: settled))
                     continuation.finish()

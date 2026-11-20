@@ -9,9 +9,9 @@
 //  several meanings) and the card they'd make; a phrase in no merge stays apart. Per group: Merge
 //  (makes its proposals; the rest of a checked group is marked "not duplicates") or Don't merge (its
 //  phrases are marked "not duplicates" of each other — with the cards — and a search leaves them be).
-//  "Full re-check" searches again and puts the groups marked "not duplicates" to the model too — one
-//  shows up only if a merge is proposed in it (`shownGroups`); the rest stay marked
-//  (`confirmedApart`). Groups can be decided while the rest are still being checked.
+//  Groups marked "not duplicates" are never checked or offered: the statistics count them, and their
+//  list (`settled`) is the only place they change — Unmark / Merge, the user's explicit action.
+//  "Search again" reads the cards anew. Groups can be decided while the rest are still being checked.
 //
 //  What may run at the same time — every write to a group is one at a time:
 //  - "Merge all duplicates" is ONE run (`mergeAll`: progress, Stop): its groups are `busy` until their
@@ -64,10 +64,6 @@ public final class DuplicatesViewModel: Identifiable {
 
     public let id = UUID()
     public private(set) var phase: Phase = .scanning
-    /// A full re-check: the groups marked "not duplicates" are checked again.
-    public private(set) var isFull = false
-    /// Marked groups a full re-check confirmed: the model proposed no merge in them.
-    public private(set) var confirmedApart = 0
     public private(set) var scan = DuplicateScanStep(checked: 0, total: 0)
     public private(set) var check = CheckStep()
     /// Groups still to decide on, oldest first.
@@ -128,18 +124,8 @@ public final class DuplicatesViewModel: Identifiable {
     public var notAsked: [DuplicateGroup] {
         unchecked.filter { !awaiting.contains($0.key) }
     }
-    /// The groups on screen: a group marked "not duplicates" (a full re-check) only once a merge is
-    /// proposed in it — until then it's the model's question, not the user's.
-    public var shownGroups: [DuplicateGroup] {
-        groups.filter { !$0.isAllMarked || !(proposals[$0.key] ?? []).isEmpty }
-    }
-    /// Marked groups a full re-check still has to put to the model.
-    public var markedToCheck: Int {
-        groups.filter { $0.isAllMarked && (proposals[$0.key] ?? []).isEmpty }.count
-    }
     /// Every proposed duplicate merge "Merge all" would make now, with its group's key — none of a
-    /// pair marked "not duplicates" before (a full re-check shows them; only the group's own Merge
-    /// undoes the mark), and none in a group whose answer the Check still waits for.
+    /// pair marked "not duplicates", and none in a group whose answer the Check still waits for.
     public var duplicateMerges: [(key: String, merge: DuplicateMerge)] {
         groups.filter { !awaiting.contains($0.key) }.flatMap { group in
             (proposals[group.key] ?? [])
@@ -159,16 +145,13 @@ public final class DuplicatesViewModel: Identifiable {
     /// Read the phrases and group the look-alikes — leaving out what's marked "not duplicates".
     public func start() {
         guard scanTask == nil, phase == .scanning, groups.isEmpty else { return }
-        runScan(full: false)
+        runScan()
     }
 
-    /// Search again from scratch, ignoring the "not duplicates" marks — after the matching changed, or
-    /// to think again.
-    public func rescanFully() {
+    /// "Search again": read the cards anew — after merges or unmarking — the marks holding as always.
+    public func searchAgain() {
         // Not under the Check or a merge: it would clear the groups they are working through.
         guard scanTask == nil, phase != .checking, mergeAllTask == nil, groupMerges.isEmpty else { return }
-        isFull = true
-        confirmedApart = 0
         groups = []
         settled = []
         proposals = [:]
@@ -177,15 +160,15 @@ public final class DuplicatesViewModel: Identifiable {
         errorMessage = nil
         needsSubscription = false
         phase = .scanning
-        runScan(full: true)
+        runScan()
     }
 
-    private func runScan(full: Bool) {
+    private func runScan() {
         let language = studiedLanguage()
         scanTask = Task { [weak self] in
             guard let self else { return }
             do {
-                for try await step in self.duplicates.scan(studiedLanguage: language, full: full) {
+                for try await step in self.duplicates.scan(studiedLanguage: language) {
                     self.scan = step
                     if let groups = step.groups {
                         self.groups = groups
@@ -392,8 +375,8 @@ public final class DuplicatesViewModel: Identifiable {
     /// The phrases in flashcards the search read.
     public var phrasesChecked: Int { scan.total }
     /// Look-alike candidates on the list: groups, and the phrases in them.
-    public var candidateGroups: Int { isFull ? shownGroups.count : groups.count }
-    public var candidatePhrases: Int { Set((isFull ? shownGroups : groups).flatMap { $0.expressions.map(\.id) }).count }
+    public var candidateGroups: Int { groups.count }
+    public var candidatePhrases: Int { Set(groups.flatMap { $0.expressions.map(\.id) }).count }
     /// The phrases in the groups already marked "not duplicates".
     public var settledPhrases: Int { Set(settled.flatMap { $0.expressions.map(\.id) }).count }
 
@@ -407,7 +390,7 @@ public final class DuplicatesViewModel: Identifiable {
         let reopened = DuplicateGroup(key: group.key, expressions: group.expressions, cards: group.cards,
                                       exact: DuplicatesInteractor.exactMerges(among: group.expressions,
                                                                               language: studiedLanguage()),
-                                      marked: [], honorsMarks: true)
+                                      marked: [])
         groups.append(reopened)
         proposals[reopened.key] = reopened.exact
         if phase == .checked, check.total == 0 { phase = .found }
@@ -450,11 +433,6 @@ public final class DuplicatesViewModel: Identifiable {
         for (key, merges) in found {
             guard let group = groups.first(where: { $0.key == key }),
                   group.expressions.map(\.id) == asked[key] else { continue }
-            if group.isAllMarked && merges.isEmpty {
-                remove(key)                                    // the model agrees: they stay marked
-                confirmedApart += 1
-                continue
-            }
             proposals[key] = merges
             checkedKeys.insert(key)
         }
@@ -520,8 +498,7 @@ public final class DuplicatesViewModel: Identifiable {
             groups[index] = DuplicateGroup(key: key, expressions: remaining,
                                            cards: group.cards.filter { !gone.contains($0.key) },
                                            exact: group.exact.filter { $0.id != merge.id },
-                                           marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) },
-                                           honorsMarks: group.honorsMarks)
+                                           marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) })
             proposals[key] = left
         }
     }
@@ -539,8 +516,7 @@ public final class DuplicatesViewModel: Identifiable {
             groups[index] = DuplicateGroup(key: group.key, expressions: rest,
                                            cards: group.cards.filter { !gone.contains($0.key) },
                                            exact: group.exact.filter { $0.expressionIDs.allSatisfy { !gone.contains($0) } },
-                                           marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) },
-                                           honorsMarks: group.honorsMarks)
+                                           marked: group.marked.filter { !gone.contains($0.first) && !gone.contains($0.second) })
             proposals[group.key] = proposals[group.key]?.filter { $0.expressionIDs.allSatisfy { !gone.contains($0) } }
         }
     }
