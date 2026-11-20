@@ -353,12 +353,11 @@ ids kept (today's answers still count), the rest deleted (and their links). "Don
 `NotDuplicatePair` links between cards (`NotDuplicateMarking` → `SwiftDataNotDuplicateMarks`,
 `NotDuplicatePairModel`, schema **V5**; shown in `CardPreviewView`; card files carry them as
 `notDuplicateOf` expressions): a scan leaves out a group whose members are all linked and never
-proposes a linked pair (`DuplicateGroup.excluded`); `scan(full: true)` ("Full re-check") ignores the
-links, but the sheet doesn't put the all-linked groups to the user: they go to the model with Check
-and show up (`DuplicatesViewModel.shownGroups`) only if a merge is proposed in them (exact or the
-model's) — the rest are removed and counted (`confirmedApart`); the user saw 39 marked noun/verb pairs
-come back as a wall of "Not checked yet". After a scan the sheet shows statistics (`ScanStatistics`: phrases read = `scan.total`, candidate groups /
-phrases, groups already marked): a normal scan reports the all-linked groups it left out
+proposes a linked pair (`DuplicateGroup.excluded`). THE MARKS ARE FINAL (the user's rule): no search and no
+Check touches a linked group — "Full re-check" is GONE (it put the marked groups to the model again and
+left the user looking at "Check (23)" over an empty list); the sheet has "Search again" (`searchAgain`, a
+normal scan). After a scan the sheet shows statistics (`ScanStatistics`: phrases read = `scan.total`, candidate groups /
+phrases, groups already marked): the scan reports the all-linked groups it left out
 (`DuplicateScanStep.settled` → `DuplicatesViewModel.settled`), and their line opens `SettledGroupsView` —
 "Unmark" (`unmark`: `DuplicatesUseCase.unmarkNotDuplicates` drops the links AMONG those phrases only,
 `NotDuplicateMarking.unmark(_ pairs:)`; the group joins the candidates with its exact merges recomputed)

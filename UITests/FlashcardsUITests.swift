@@ -318,8 +318,8 @@ final class FlashcardsUITests: XCTestCase {
         XCTAssertTrue(app.cells.element(boundBy: 1).waitForNonExistence(timeout: 3), "the duplicate is still listed")
     }
 
-    /// Add as a separate card links the two cards as not duplicates — the card shows it, a search leaves
-    /// them be, and a full re-check shows them again (an exact duplicate); Don't merge there keeps the link.
+    /// Add as a separate card links the two cards as not duplicates — the card shows it, every search
+    /// leaves them be, and only their own list brings them back (Unmark); Don't merge marks them again.
     func testDontMergeLinksTheCards() {
         let app = openCaughtWithALookAlike()
         let separately = app.buttons["merge.separate"]
@@ -343,14 +343,21 @@ final class FlashcardsUITests: XCTestCase {
         attach(app, "card-not-duplicate")
         app.buttons["cardPreview.done"].tap()
 
-        // The next search leaves them be; a full re-check shows them, an exact duplicate after all.
+        // The search leaves them be — "Search again" too; only their own list changes them: Unmark
+        // puts the pair back on the candidates (an exact duplicate), Don't merge marks it again.
         openFindDuplicates(app)
         XCTAssertTrue(app.staticTexts["No duplicates found"].waitForExistence(timeout: 5))
-        app.buttons["dups.full"].tap()
+        XCTAssertFalse(app.buttons["dups.full"].exists, "no full re-check any more")
+        app.buttons["dups.again"].tap()
+        XCTAssertTrue(app.staticTexts["No duplicates found"].waitForExistence(timeout: 5), "a marked pair came back")
+        app.buttons["dups.settledList"].tap()
+        let unmark = app.buttons["settled.unmark"]
+        XCTAssertTrue(unmark.waitForExistence(timeout: 3))
+        unmark.tap()
+        app.navigationBars.firstMatch.buttons.element(boundBy: 0).tap()
         let keep = app.buttons["dups.keep"]
-        XCTAssertTrue(keep.waitForExistence(timeout: 5), "the full re-check didn't bring them back")
-        XCTAssertTrue(app.staticTexts["Marked \"not duplicates\""].exists)
-        attach(app, "dups-full")
+        XCTAssertTrue(keep.waitForExistence(timeout: 5), "the unmarked pair isn't a candidate")
+        attach(app, "dups-unmarked")
         keep.tap()
         XCTAssertTrue(app.staticTexts["Every group is sorted out"].waitForExistence(timeout: 3))
     }

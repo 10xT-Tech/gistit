@@ -128,10 +128,10 @@ import Presentation
 
         try await sut.markNotDuplicates(groups[1].expressions.map(\.id))             // "Don't merge"
         #expect(try await scan(sut)?.map(\.key) == ["hit the roof"])
-        // A full re-check brings them back, marked.
-        let full = try #require(try await scan(sut, full: true))
-        #expect(full.map(\.key) == ["hit the roof", "solid"])
-        #expect(full[1].isAllMarked && !full[1].honorsMarks && full[1].excluded.isEmpty)
+        // The marked group is only reported — never a candidate again.
+        var settled: [DuplicateGroup] = []
+        for try await step in sut.scan(studiedLanguage: "English") where step.groups != nil { settled = step.settled }
+        #expect(settled.map(\.key) == ["solid"] && settled[0].isAllMarked && settled[0].excluded == settled[0].marked)
     }
 
     /// "to drain" and "a drain" are two words — no group, no look-alike from Caught, no exact merge, and
@@ -148,7 +148,7 @@ import Presentation
         let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: studied),
                                        cards: MockReviewCardRepository(seed: studied.flatMap { cards($0) }))
 
-        let groups = try #require(try await scan(sut, full: true))
+        let groups = try #require(try await scan(sut))
         #expect(groups.map(\.key) == ["coat|verb", "coat|noun", "rip off|noun"])
         #expect(groups[0].expressions.map(\.id) == [coatVerb.id, coat.id])
         #expect(groups[1].expressions.map(\.id) == [coatNoun.id, coat.id])
@@ -217,7 +217,7 @@ import Presentation
         let sut = DuplicatesInteractor(llm: MockLLMClient(), expressions: MockExpressionRepository(seed: studied),
                                        cards: MockReviewCardRepository(seed: studied.flatMap { cards($0) }))
         var steps: [DuplicateScanStep] = []
-        for try await step in sut.scan(studiedLanguage: "English", full: false) { steps.append(step) }
+        for try await step in sut.scan(studiedLanguage: "English") { steps.append(step) }
         #expect(steps.map(\.checked) == [0] + Array(stride(from: 50, through: 450, by: 50)))
         #expect(steps.last?.groups == [])
     }
@@ -273,9 +273,9 @@ import Presentation
         #expect(merges.map(\.expressionIDs) == [[a.id, b.id]])                       // oldest first; c stays apart
     }
 
-    private func scan(_ sut: DuplicatesInteractor, full: Bool = false) async throws -> [DuplicateGroup]? {
+    private func scan(_ sut: DuplicatesInteractor) async throws -> [DuplicateGroup]? {
         var groups: [DuplicateGroup]?
-        for try await step in sut.scan(studiedLanguage: "English", full: full) { groups = step.groups ?? groups }
+        for try await step in sut.scan(studiedLanguage: "English") { groups = step.groups ?? groups }
         return groups
     }
 
@@ -780,23 +780,14 @@ import Presentation
         try await wait { again.phase != .scanning }
         #expect(again.phase == .checked && again.groups.isEmpty)
 
-        // A full re-check puts both marked groups to the model, showing none until it answers…
-        again.rescanFully()
+        // The marked groups are only counted — nothing to check, and "Search again" doesn't change that.
+        #expect(again.settled.map(\.key) == ["solid", "pick on someone"] && again.unchecked.isEmpty)
+        again.searchAgain()
         try await wait { again.phase != .scanning }
-        #expect(again.isFull && again.groups.map(\.key) == ["solid", "pick on someone"])
-        let allMarked = again.groups.allSatisfy { $0.isAllMarked }
-        #expect(allMarked)
-        #expect(again.shownGroups.isEmpty && again.markedToCheck == 2)
-        #expect(again.unchecked.count == 2)
-        // …then only the one it proposes a merge in ("solid": two meanings); the other stays marked.
-        again.startCheck()
-        try await wait { again.phase != .checking }
-        #expect(again.shownGroups.map(\.key) == ["solid"] && again.confirmedApart == 1)
-        #expect(again.proposals["solid"]?.first?.kind == .senses)
-        #expect(again.duplicateMerges.isEmpty)                                       // no bulk merge of marked pairs
+        #expect(again.groups.isEmpty && again.unchecked.isEmpty && again.settled.count == 2)
     }
 
-    /// "Merge all" is ONE run: a second tap, the groups' own Merge / Don't merge and a full re-check
+    /// "Merge all" is ONE run: a second tap, the groups' own Merge / Don't merge and "Search again"
     /// wait for it — every merge is made once, and the count says what was merged. (Two taps made every
     /// merge twice and showed "Merged: 40" of 20; a full re-check made it skip the rest silently.)
     @Test func mergeAllIsOneRun() async throws {
@@ -812,9 +803,9 @@ import Presentation
         vm.mergeAllDuplicates()                                                      // a second tap
         vm.mergeGroup(first)                                                         // the group's own Merge
         vm.keepApart(last)                                                           // …and Don't merge
-        vm.rescanFully()                                                             // a full re-check
+        vm.searchAgain()                                                             // a new search
         vm.startCheck()
-        #expect(vm.phase == .found && vm.groups.count == 10 && !vm.isFull)
+        #expect(vm.phase == .found && vm.groups.count == 10)
 
         try await wait { vm.mergeAll != nil && vm.mergeAll?.done ?? 0 >= 3 }
         #expect(vm.busy.count < 10)                                                  // a merged group is free again
@@ -1112,8 +1103,8 @@ private final class SlowMerges: DuplicatesUseCase, @unchecked Sendable {
         try await inner.merge(expressions, into: card, as: kind, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
     }
 
-    func scan(studiedLanguage: String, full: Bool) -> AsyncThrowingStream<DuplicateScanStep, Error> {
-        inner.scan(studiedLanguage: studiedLanguage, full: full)
+    func scan(studiedLanguage: String) -> AsyncThrowingStream<DuplicateScanStep, Error> {
+        inner.scan(studiedLanguage: studiedLanguage)
     }
     func check(_ groups: [DuplicateGroup], studiedLanguage: String, nativeLanguage: String) async throws
         -> [String: [DuplicateMerge]] {

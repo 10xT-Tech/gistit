@@ -28,10 +28,10 @@ quietly. **From photos** adds every phrase the photos give, the ones you already
 tells you which were already in flashcards and which were already in Caught.
 
 **What the duplicate search found.** After **Find duplicates** reads your cards, it says how many
-phrases it checked, how many look-alike candidates it found, and how many groups you've already marked
-as not duplicates. Tap that line to see them all: **Unmark** a group (it goes back on the list of
-candidates, to merge or check again) or **Merge** it — an exact duplicate at once, otherwise the model
-proposes the card first.
+phrases it checked, how many look-alike candidates it found, and how many groups you've marked as not
+duplicates. Marked groups are final: no search or check touches them again — tap their line to see them
+all, and **Unmark** a group (it goes back on the list of candidates) or **Merge** it there. **Full
+re-check** is gone; **Search again** reads your cards anew.
 
 **A verb and a noun are never duplicates.** "to drain" and "a drain" are two words: Find duplicates no
 longer puts them in one group even when a plain "drain" is there too (it's checked against each of
