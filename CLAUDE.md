@@ -269,7 +269,16 @@ without an answer and stop after two photos in a row the service didn't answer f
 The "Fix cards" sheet (`FixCardsView`/`FixCardsViewModel`) does it all: `survey()` reads the
 phrases with progress and counts each mode, the modes are buttons there, and the run shows a two-part
 `ProgressLine` (DesignSystem: `sent` grey — breathing while it waits — `processed` green;
-`FixProgress.sent`); `ActivityLine` (a gliding segment) while the cards are read and the total is unknown.
+`FixProgress.sent`) and three counts — Changed (`changed`), No changes needed (`unchanged`: answered, left
+as it was), With an error (`failed` + `givenUp`). NOTHING TO ADD: a phrase the model ANSWERED for and still
+left incomplete (no synonyms fit "an elbow" — on the user's phone all 34 "to fix" cards lacked only
+synonyms, and the real model left 33 of them empty again) is remembered (`CardFixProgressStoring
+.nothingToAdd`, UserDefaults `flashcardsFixNothingToAdd`) and left out of `FixScope.incomplete` and the
+survey's count — "Only incomplete (34)" offered the same cards forever. "Show incomplete cards" pushes
+`IncompleteCardsView` / `IncompleteCardsViewModel` (`FixCardsUseCase.incompleteCards()` →
+`IncompleteCard`: what it lacks — `CardField` —, `nothingToAdd`): "To fix" / "Nothing to add", a Fix button
+per card (`fix` — a card the model fills leaves "nothing to add"), and what came of it: filled, nothing to
+add, or the error with its detail (`IncompleteCardsViewModel.detail`, selectable); `ActivityLine` (a gliding segment) while the cards are read and the total is unknown.
 The position after each batch is kept per scope (`CardFixProgressStoring`, UserDefaults; the all-cards
 key predates scopes; `unanswered` / `askedAlone` / `givenUp` are optional in the stored JSON) — Stop and resume without sending an answered card twice; "start over" resets it; "Only
 incomplete" restarts by itself once its run went through them all. Review cards are never touched. Enrolling creates two stored `.new` `ReviewCard`s (recognition:

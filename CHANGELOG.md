@@ -33,6 +33,16 @@ duplicates. Marked groups are final: no search or check touches them again — t
 all, and **Unmark** a group (it goes back on the list of candidates) or **Merge** it there. **Full
 re-check** is gone; **Search again** reads your cards anew.
 
+**See what's missing on a card.** **Fix cards** has **Show incomplete cards**: every card without an
+example, synonyms or a note, with what it lacks. Fix any one by hand — and if the model can't, you see
+the error and its detail. Cards the model answered for but couldn't fill (a word like "an elbow" has
+no real synonyms) move to **Nothing to add** and no longer count as cards to fix, so "Only
+incomplete" stops offering the same ones over and over.
+
+**Fix cards says what it did.** The progress card counts the cards **changed**, the ones that
+needed **no changes**, and the ones left **with an error** (the model didn't answer for them — they're
+asked about again next time).
+
 **A verb and a noun are never duplicates.** "to drain" and "a drain" are two words: Find duplicates no
 longer puts them in one group even when a plain "drain" is there too (it's checked against each of
 them separately), and never offers to merge them.

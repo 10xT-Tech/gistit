@@ -80,6 +80,11 @@ public protocol CardFixProgressStoring: Sendable {
     func load(_ scope: FixScope) async -> CardFixCheckpoint?
     func save(_ checkpoint: CardFixCheckpoint, for scope: FixScope) async
     func reset(_ scope: FixScope) async
+    /// Phrases the model ANSWERED for and still left incomplete — no synonyms fit "an elbow", say. Not
+    /// "to fix" any more (`FixScope.incomplete` leaves them out); still listed among the incomplete cards.
+    func nothingToAdd() async -> Set<UUID>
+    func addNothingToAdd(_ ids: Set<UUID>) async
+    func removeNothingToAdd(_ ids: Set<UUID>) async
 }
 
 /// In-memory default (tests, previews, the stub boot).
@@ -89,6 +94,31 @@ public actor InMemoryCardFixProgressStore: CardFixProgressStoring {
     public func load(_ scope: FixScope) async -> CardFixCheckpoint? { checkpoints[scope] }
     public func save(_ checkpoint: CardFixCheckpoint, for scope: FixScope) async { checkpoints[scope] = checkpoint }
     public func reset(_ scope: FixScope) async { checkpoints[scope] = nil }
+    private var nothing: Set<UUID> = []
+    public func nothingToAdd() async -> Set<UUID> { nothing }
+    public func addNothingToAdd(_ ids: Set<UUID>) async { nothing.formUnion(ids) }
+    public func removeNothingToAdd(_ ids: Set<UUID>) async { nothing.subtract(ids) }
+}
+
+/// A part of a card the model fills in.
+public enum CardField: String, Sendable, Equatable, CaseIterable {
+    case example, synonyms, note
+}
+
+/// A phrase in flashcards that lacks an example, synonyms or a note.
+public struct IncompleteCard: Sendable, Equatable, Identifiable {
+    public let expression: Expression
+    /// What it lacks.
+    public let missing: [CardField]
+    /// The model answered for it and still found nothing to add — it isn't "to fix" any more.
+    public let nothingToAdd: Bool
+    public var id: UUID { expression.id }
+
+    public init(expression: Expression, missing: [CardField], nothingToAdd: Bool) {
+        self.expression = expression
+        self.missing = missing
+        self.nothingToAdd = nothingToAdd
+    }
 }
 
 /// Where a run stands.
@@ -101,6 +131,8 @@ public struct FixProgress: Sendable, Equatable {
     public let total: Int
     /// Phrases whose card changed.
     public let changed: Int
+    /// Phrases the model answered for that needed no change — left as they were.
+    public let unchanged: Int
     /// Phrases still without the model's answer after this run's requests (an unusable answer for their
     /// batch, a card left out of it): only their letter case was fixed, and the next run asks about
     /// each of them alone.
@@ -112,11 +144,13 @@ public struct FixProgress: Sendable, Equatable {
     public var sentFraction: Double { total == 0 ? 1 : Double(sent) / Double(total) }
 
     /// `sent` defaults to `processed` (nothing waiting for an answer).
-    public init(processed: Int, total: Int, changed: Int, failed: Int, sent: Int? = nil, givenUp: Int = 0) {
+    public init(processed: Int, total: Int, changed: Int, failed: Int, sent: Int? = nil, givenUp: Int = 0,
+                unchanged: Int = 0) {
         self.processed = processed
         self.sent = sent ?? processed
         self.total = total
         self.changed = changed
+        self.unchanged = unchanged
         self.failed = failed
         self.givenUp = givenUp
     }
@@ -175,6 +209,9 @@ public protocol FixCardsUseCase: Sendable {
     /// changing nothing, when the model can't be reached, the plan's limit is spent, or it gives no
     /// usable answer for this card. The learning progress is never touched.
     func fix(_ expression: Expression, studiedLanguage: String, nativeLanguage: String) async throws -> Expression
+    /// Every incomplete phrase in flashcards, oldest first: what each lacks, and whether the model
+    /// already answered for it and found nothing to add.
+    func incompleteCards() async throws -> [IncompleteCard]
 }
 
 public struct FixCardsInteractor: FixCardsUseCase {
@@ -211,11 +248,12 @@ public struct FixCardsInteractor: FixCardsUseCase {
                     let enrolled = Set(try await cards.all().map(\.expressionID))
                     let studied = try await expressions.all().filter { enrolled.contains($0.id) }
                     let allMark = await progress.load(.all), incompleteMark = await progress.load(.incomplete)
+                    let nothing = await progress.nothingToAdd()
                     var all = 0, allLeft = 0, incomplete = 0, incompleteLeft = 0
                     for (index, expression) in studied.enumerated() {
                         all += 1
                         if Self.isPending(expression, allMark) { allLeft += 1 }
-                        if Self.isIncomplete(expression) {
+                        if Self.isIncomplete(expression), !nothing.contains(expression.id) {
                             incomplete += 1
                             if Self.isPending(expression, incompleteMark) { incompleteLeft += 1 }
                         }
@@ -255,6 +293,8 @@ public struct FixCardsInteractor: FixCardsUseCase {
                                       total: queue.reduce(0) { $0 + $1.phrases.count })
                     /// Something in this run was answered: the model does answer.
                     var hasEvidence = false
+                    /// Answered and still incomplete in this step — the model had nothing to add.
+                    var nothingToAdd: Set<UUID> = []
                     /// Asked alone to no answer before there was evidence — given up as soon as there is.
                     var suspects: [UUID] = []
                     var barren = 0
@@ -307,15 +347,22 @@ public struct FixCardsInteractor: FixCardsUseCase {
                             }
                             let fixed = Self.apply(fix, to: expression,
                                                    studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+                            if fix != nil, Self.isIncomplete(fixed) { nothingToAdd.insert(expression.id) }
                             if fixed != expression {
                                 try await expressions.update(fixed)
                                 tally.changed += 1
+                            } else if fix != nil {
+                                tally.unchanged += 1
                             }
                         }
                         // The position moves only with the batches; a phrase asked alone lies before it.
                         if !step.isAlone, let last = step.phrases.last { tally.position = (last.createdAt, last.id) }
                         tally.processed += step.phrases.count
                         if let checkpoint = tally.checkpoint { await progress.save(checkpoint, for: scope) }
+                        if !nothingToAdd.isEmpty {
+                            await progress.addNothingToAdd(nothingToAdd)
+                            nothingToAdd = []
+                        }
                         continuation.yield(tally.progress())
                         if !step.isAlone, barren >= Self.barrenLimit { throw lastError }
                     }
@@ -343,7 +390,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
         var unanswered: Set<UUID>
         var askedAlone: Set<UUID>
         var givenUp: Set<UUID>
-        var processed = 0, changed = 0, gaveUp = 0
+        var processed = 0, changed = 0, unchanged = 0, gaveUp = 0
         /// Phrases an earlier run left unanswered that this one hasn't asked about yet.
         var waiting: Int
         let total: Int
@@ -379,7 +426,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
 
         func progress(sending: Int = 0) -> FixProgress {
             FixProgress(processed: processed, total: total, changed: changed, failed: unanswered.count - waiting,
-                        sent: processed + sending, givenUp: gaveUp)
+                        sent: processed + sending, givenUp: gaveUp, unchanged: unchanged)
         }
     }
 
@@ -388,8 +435,9 @@ public struct FixCardsInteractor: FixCardsUseCase {
     /// The scope's phrases in flashcards, in the run's stable order: oldest first.
     private func inFlashcards(_ scope: FixScope) async throws -> [Expression] {
         let enrolled = Set(try await cards.all().map(\.expressionID))
+        let nothing = scope == .incomplete ? await progress.nothingToAdd() : []
         return try await expressions.all()
-            .filter { enrolled.contains($0.id) && (scope == .all || Self.isIncomplete($0)) }
+            .filter { enrolled.contains($0.id) && (scope == .all || (Self.isIncomplete($0) && !nothing.contains($0.id))) }
             .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
     }
 
@@ -428,7 +476,32 @@ public struct FixCardsInteractor: FixCardsUseCase {
               let fix = fixes[expression.id.uuidString] else {
             throw LLMError.invalidOutput("no usable answer for the card")
         }
-        return try await store(fix, onto: expression, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        let fixed = try await store(fix, onto: expression, studiedLanguage: studiedLanguage, nativeLanguage: nativeLanguage)
+        if Self.isIncomplete(fixed) {
+            await progress.addNothingToAdd([expression.id])
+        } else {
+            await progress.removeNothingToAdd([expression.id])
+        }
+        return fixed
+    }
+
+    public func incompleteCards() async throws -> [IncompleteCard] {
+        let nothing = await progress.nothingToAdd()
+        return try await inFlashcards(.all).compactMap { expression in
+            let missing = Self.missing(expression)
+            return missing.isEmpty ? nil
+                : IncompleteCard(expression: expression, missing: missing, nothingToAdd: nothing.contains(expression.id))
+        }
+    }
+
+    /// What a phrase lacks: an example, synonyms, a note.
+    public static func missing(_ expression: Expression) -> [CardField] {
+        let blank = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var out: [CardField] = []
+        if blank(expression.example) { out.append(.example) }
+        if expression.synonyms.allSatisfy(blank) { out.append(.synonyms) }
+        if blank(expression.context) { out.append(.note) }
+        return out
     }
 
     /// The card with the model's fix applied (`apply`), stored if anything changed.
@@ -446,8 +519,7 @@ public struct FixCardsInteractor: FixCardsUseCase {
 
     /// An example, synonyms or a note is missing.
     public static func isIncomplete(_ expression: Expression) -> Bool {
-        let blank = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        return blank(expression.example) || expression.synonyms.allSatisfy(blank) || blank(expression.context)
+        !missing(expression).isEmpty
     }
 
     /// The part of `all` after the checkpoint.
