@@ -18,6 +18,7 @@ import Domain
         "The user wants to understand some text.",
         "You read text from a photo.",
         "Enrich an English expression for a study card.",
+        "Suggest starter cards for an empty flashcard deck.",
     ]
 
     private static func isFree(_ systemPrompt: String) -> Bool {
@@ -30,6 +31,8 @@ import Domain
             #expect(Self.isFree(PhotoBlocksTemplate(studiedLanguage: studied, nativeLanguage: native).systemPrompt))
         }
         #expect(Self.isFree(EnrichCardTemplate().systemPrompt))
+        // Choosing your languages never spends the free plan's request.
+        #expect(Self.isFree(StarterCardsTemplate(studiedLanguage: "German", nativeLanguage: "Italian").systemPrompt))
     }
 
     @Test func explanationsAndSayItAreMetered() {

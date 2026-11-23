@@ -28,6 +28,7 @@ const FREE_PROMPT_OPENINGS = [
   'The user wants to understand some text.',          // Get it → Translate   (UnderstandTemplate)
   'You read text from a photo.',                      // See it → Translate   (PhotoBlocksTemplate)
   'Enrich an English expression for a study card.',   // saving a study card  (EnrichCardTemplate)
+  'Suggest starter cards for an empty flashcard deck.', // a new deck's first cards (StarterCardsTemplate)
 ];
 
 /** A request that never counts against the free plan: a translation or the Settings probe. */

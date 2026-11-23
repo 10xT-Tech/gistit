@@ -202,6 +202,9 @@ public struct RootView: View {
                 .environment(ui)
                 .environment(subscription)
                 .environment(\.locale, language.locale)
+                // A new language pair: an empty deck gets a few idioms of the studied language to start with.
+                .onChange(of: studied.language) { _, _ in seedStarterCards() }
+                .onChange(of: target.language) { _, _ in seedStarterCards() }
                 // "Explain" from See it / History: switch to Get it and run it in Explain mode.
                 .onChange(of: ui.pendingExplain) { _, request in
                     guard let request else { return }
@@ -231,12 +234,22 @@ public struct RootView: View {
                     UserDefaults.standard.set(studied.language.rawValue, forKey: StudiedLanguage.storageKey)
                     UserDefaults.standard.set(target.language.rawValue, forKey: TargetLanguage.storageKey)
                     onboarding.complete()
+                    seedStarterCards(delay: .zero)
                 }
                 .id(language.language)
                 .environment(\.locale, language.locale)
             }
         }
         .preferredColorScheme(theme.colorScheme)
+    }
+
+    /// Starter cards for an empty deck, for the pair chosen now; the lists show them once they're in.
+    private func seedStarterCards(delay: Duration = .seconds(1)) {
+        study.seedStarterCards(studiedLanguage: studied.language.promptName,
+                               nativeLanguage: target.language.promptName, delay: delay) { [library, studying] in
+            await library.load()
+            await studying.load()
+        }
     }
 
     /// Route an `englishhelper://` deep link to its scenario. Lock Screen widgets deep-link straight

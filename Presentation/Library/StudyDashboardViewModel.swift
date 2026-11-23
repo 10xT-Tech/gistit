@@ -21,15 +21,47 @@ public final class StudyDashboardViewModel {
     private let pronounce: any PlayPronunciationUseCase
     /// For the wand on a card in practice (fix it with the model); nil = no wand.
     private let fixCards: (any FixCardsUseCase)?
+    /// Starter cards for an empty deck when the language pair is chosen or changed; nil = none.
+    private let starterCards: (any StarterCardsUseCase)?
     private let now: () -> Date
+    /// The pending / running starter request (a new language change replaces a pending one).
+    private var starterTask: Task<Void, Never>?
+    /// Starter cards are being asked for: the empty dashboard says so.
+    public private(set) var preparingStarter = false
 
     public init(flashcards: any FlashcardsUseCase, pronounce: any PlayPronunciationUseCase,
-                fixCards: (any FixCardsUseCase)? = nil, now: @escaping () -> Date = Date.init) {
+                fixCards: (any FixCardsUseCase)? = nil, starterCards: (any StarterCardsUseCase)? = nil,
+                now: @escaping () -> Date = Date.init) {
         self.flashcards = flashcards
         self.pronounce = pronounce
         self.fixCards = fixCards
+        self.starterCards = starterCards
         self.now = now
     }
+
+    /// The language pair was chosen or changed: if flashcards are empty, ask the model for a few idioms
+    /// of the studied language and put them in. After `delay`, so changing both languages one after the
+    /// other asks once, for the final pair. `onAdded` runs when cards went in (the lists reload).
+    /// A failure — offline, the plan, no answer — leaves the deck as it was; the next change tries again.
+    public func seedStarterCards(studiedLanguage: String, nativeLanguage: String,
+                                 delay: Duration = .seconds(1), onAdded: @escaping @MainActor () async -> Void = {}) {
+        guard let starterCards, studiedLanguage != nativeLanguage else { return }
+        starterTask?.cancel()
+        starterTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.preparingStarter = true
+            defer { self.preparingStarter = false }
+            let added = (try? await starterCards.seedIfEmpty(studiedLanguage: studiedLanguage,
+                                                             nativeLanguage: nativeLanguage)) ?? 0
+            guard added > 0 else { return }
+            await self.load()
+            await onAdded()
+        }
+    }
+
+    /// Waits for the starter request under way (tests).
+    public func settleStarter() async { await starterTask?.value }
 
     public func load() async {
         if let stats = try? await flashcards.stats(now: now()) { self.stats = stats }

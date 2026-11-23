@@ -47,7 +47,7 @@ runs in the same sandbox and must find the subscription), while the server keeps
 `beta`.
 
 Limits follow the **scenario, not the model**. Translations (Get it → Translate, See it → Translate,
-study-card enrichment) are recognised by the fixed opening of their template's system prompt
+study-card enrichment, starter cards for an empty deck) are recognised by the fixed opening of their template's system prompt
 (`FREE_PROMPT_OPENINGS` in `src/validate.mjs`, pinned by `Tests/SubscriptionTierTests.swift`); every
 other request — explanations, Say it, anything unrecognised — is metered for free users.
 

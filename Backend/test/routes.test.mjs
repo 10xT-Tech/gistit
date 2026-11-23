@@ -225,6 +225,7 @@ const withSystem = (system, model = 'claude-sonnet-5-5') => ({ ...messagesBody()
 const translate = (model) => withSystem('The user wants to understand some text. It may be in English…', model);
 const photoTranslate = () => withSystem('You read text from a photo. The text may be in ANY language…');
 const enrich = () => withSystem('Enrich an English expression for a study card. Return:…');
+const starter = () => withSystem('Suggest starter cards for an empty flashcard deck. The learner studies German…');
 const explain = (model) => withSystem('A Russian speaker who is learning English wants to understand some input.…', model);
 const sayIt = () => withSystem('You help a Russian speaker who is learning English say something naturally…');
 const sonnet = () => explain('claude-sonnet-5-5');
@@ -240,6 +241,12 @@ test('free: translations are unlimited on any model', async () => {
   const other = bearer('free-1b', 'free');
   assert.equal((await route(event('/v1/messages', { body: enrich(), headers: other }))).status, 200);
   assert.equal((await route(event('/v1/messages', { body: translate('claude-haiku-5-5'), headers: other }))).status, 200);
+});
+
+test('free: starter cards for an empty deck never spend the rationed request', async () => {
+  const headers = bearer('free-starter', 'free');
+  assert.equal((await route(event('/v1/messages', { body: explain('claude-haiku-5-5'), headers }))).status, 200);
+  assert.equal((await route(event('/v1/messages', { body: starter(), headers }))).status, 200);
 });
 
 test('free: explanations and Say it share one request per 5 minutes, on any model', async () => {
