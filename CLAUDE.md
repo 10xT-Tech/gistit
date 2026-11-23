@@ -64,7 +64,7 @@ are backend-agnostic (on-device OR cloud) and leak no SDK/transport types.
 ### Prompt templates (Domain)
 `PromptTemplate` owns a system prompt + output JSON schema + typed decoder. Templates (all in
 `Domain/Prompts/Templates.swift`): `howToSay` (3 variants), `whatToSay`, `explainExpression`,
-`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `fixCards`, `dedupeCards`, `healthCheck`. Adding a use case = adding
+`understand`, `photoBlocks`, `photoExplain`, `enrichCard`, `photoCards`, `starterCards`, `fixCards`, `dedupeCards`, `healthCheck`. Adding a use case = adding
 a template; the LLM adapter never changes.
 
 ## Folder layout
@@ -145,6 +145,20 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 `SonioxCredential` (Soniox) — the adapters don't know which mode they're in.
 
 ## Current Status
+
+**Starter cards for an empty deck (2.0.2, the user's rule).** When the language pair is chosen (onboarding
+done) or changed (Settings — `RootView` `onChange` of the studied / native store) and flashcards hold NO
+card, the model suggests five idioms of the studied language (`StarterCardsTemplate`, `.standard`) and
+`StarterCardsInteractor` (Domain, an actor: one run at a time) stores and ENROLLS them — straight into
+flashcards; a phrase already in Caught (`Expression.matchKey`) is enrolled, not written twice; the deck is
+checked again after the answer (filled meanwhile → nothing written). `StudyDashboardViewModel
+.seedStarterCards` waits 1 s first (both languages changed in a row → one request, for the final pair),
+skips a pair of the same language, shows "Picking your first cards…" on the empty dashboard
+(`preparingStarter`) and reloads the lists after. A failure leaves the deck empty; the next change tries
+again. Its opening "Suggest starter cards for an empty flashcard deck." is a FREE opening
+(`Backend/src/validate.mjs`, `SubscriptionTierTests`) — choosing languages never spends the free plan's
+request (until the backend is deployed with it, the request is metered). `CardDraftsResult` (was
+`PhotoCardsResult`) is the shared `{cards: [CardDraft]}` answer.
 
 **What enters Caught (2.0.2, the user's rule).** A phrase is NOT added to Caught only when Caught already
 holds the very same studied-language phrase (`Expression.matchKey`: letter case and end spaces aside,

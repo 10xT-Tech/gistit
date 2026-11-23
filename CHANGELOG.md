@@ -4,6 +4,12 @@ Release notes for **Gist It** (formerly EnglishHelper), written for the people w
 
 ## 2.0.2 — in development
 
+**A first set of cards.** Choose your languages — when you start, or later in Settings — and if you
+have no flashcards yet, Gist It puts five common idioms of the language you learn into flashcards, with
+their translation, an example, synonyms and a note, so your first practice can start right away. Your
+own cards are never touched: it happens only when flashcards are empty. It doesn't count against the
+free plan's requests.
+
 **The Paste button no longer goes missing.** On **Get it** and **Say it**, with text copied and the
 field empty, the place of the **Paste** button could turn into an empty gap that did nothing — and
 stayed that way on every screen until you closed the app and opened it again. That button is drawn by

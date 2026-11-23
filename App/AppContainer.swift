@@ -53,6 +53,8 @@ public final class AppContainer: Sendable {
     public let fixCards: any FixCardsUseCase
     /// Look-alike phrases in flashcards (and against them when moving from Caught): find, check, merge.
     public let duplicates: any DuplicatesUseCase
+    /// A few idioms for an empty deck when the language pair is chosen or changed.
+    public let starterCards: any StarterCardsUseCase
     public let requestHistory: any RequestHistoryUseCase
     public let exportDeck: any ExportDeckUseCase        // AlgoApp .xml
     public let exportAnkiDeck: any ExportDeckUseCase    // Anki .txt
@@ -139,6 +141,8 @@ public final class AppContainer: Sendable {
         self.duplicates = DuplicatesInteractor(llm: llm, expressions: expressions, cards: reviewCards,
                                                lemmatizer: lemmatizer, marks: notDuplicates,
                                                legacyDismissals: duplicateDismissals)
+        self.starterCards = StarterCardsInteractor(llm: llm, expressions: expressions, cards: reviewCards,
+                                                   flashcards: flashcards)
         self.requestHistory = RequestHistoryInteractor(history: history, recordings: recordings)
         self.exportDeck = ExportDeckInteractor(repository: expressions, exporter: exporter,
                                                analytics: analytics)
@@ -416,7 +420,8 @@ public final class AppContainer: Sendable {
 
     @MainActor
     public func makeStudyDashboardViewModel() -> StudyDashboardViewModel {
-        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce, fixCards: fixCards)
+        StudyDashboardViewModel(flashcards: flashcards, pronounce: pronounce, fixCards: fixCards,
+                                starterCards: starterCards)
     }
 
     @MainActor

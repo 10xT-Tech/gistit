@@ -687,7 +687,7 @@ public struct CardDraft: Codable, Sendable, Equatable {
 }
 
 /// `{ "cards": [ { expression, translation, example, synonyms, context } ] }`.
-public struct PhotoCardsResult: Codable, Sendable, Equatable {
+public struct CardDraftsResult: Codable, Sendable, Equatable {
     public let cards: [CardDraft]
 }
 
@@ -701,7 +701,7 @@ public struct PhotoCardsResult: Codable, Sendable, Equatable {
 /// its opening isn't one of the backend's free translation openings.
 public struct PhotoCardsTemplate: PromptTemplate {
     public typealias Input = RecognizableImage
-    public typealias Output = PhotoCardsResult
+    public typealias Output = CardDraftsResult
 
     public let id = "photoCards"
     public let studiedLanguage: String
@@ -769,8 +769,8 @@ public struct PhotoCardsTemplate: PromptTemplate {
 
     public func image(for input: RecognizableImage) -> Data? { input.data }
 
-    public func decode(_ rawJSON: String) throws -> PhotoCardsResult {
-        let raw = try decodeJSON(PhotoCardsResult.self, from: rawJSON)
+    public func decode(_ rawJSON: String) throws -> CardDraftsResult {
+        let raw = try decodeJSON(CardDraftsResult.self, from: rawJSON)
         let cards = raw.cards.map { card in
             CardDraft(expression: PlainText.clean(card.expression),
                       translation: PlainText.clean(card.translation),
@@ -778,7 +778,78 @@ public struct PhotoCardsTemplate: PromptTemplate {
                       synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)),
                       context: PlainText.clean(card.context))
         }
-        return PhotoCardsResult(cards: cards.filter { !$0.expression.isEmpty })
+        return CardDraftsResult(cards: cards.filter { !$0.expression.isEmpty })
+    }
+}
+
+// MARK: - starterCards (an empty deck gets a few idioms to start with)
+
+/// A few cards for a deck with nothing in it yet: common idiomatic expressions of the studied language,
+/// each with its translation, an example, synonyms and a note. Sent when the language pair is chosen or
+/// changed and flashcards are empty (`StarterCardsInteractor`). Its opening is one of the backend's free
+/// openings (Backend/src/validate.mjs FREE_PROMPT_OPENINGS): choosing your languages never spends the
+/// free plan's request.
+public struct StarterCardsTemplate: PromptTemplate {
+    /// How many cards.
+    public typealias Input = Int
+    public typealias Output = CardDraftsResult
+
+    public let id = "starterCards"
+    public let studiedLanguage: String
+    public let nativeLanguage: String
+    public init(studiedLanguage: String = "English", nativeLanguage: String = "Russian") {
+        self.studiedLanguage = studiedLanguage
+        self.nativeLanguage = nativeLanguage
+    }
+
+    public var maxOutputTokens: Int { 4096 }
+
+    public var systemPrompt: String {
+        """
+        Suggest starter cards for an empty flashcard deck. The learner studies \(studiedLanguage) and speaks \(nativeLanguage).
+        Pick common, useful IDIOMATIC expressions of \(studiedLanguage) — ones a native speaker really uses in
+        everyday talk, whose meaning doesn't follow from the words ("to break the ice", "under the weather").
+        Vary them: different situations, verbs and nouns; no rare, dated or offensive ones; no two alike.
+        For each card:
+        - "expression": the idiom in its dictionary form, as \(studiedLanguage) vocabulary lists write it (a verb
+          phrase with its infinitive marker if the language has one, a noun phrase with its article).
+        - "translation": its \(nativeLanguage) meaning — an equivalent idiom if there is one, else a plain
+          rendering; one or two variants separated by " / ".
+        - "example": one natural example sentence in \(studiedLanguage) that uses it.
+        - "synonyms": 2 to 3 \(studiedLanguage) synonyms.
+        - "context" (\(nativeLanguage)): one short note on when and how it is said — register and tone and the
+          typical situation. Never leave it empty.
+        Use lowercase letters everywhere — except the English pronoun "I" (I'm, I've, I'll, I'd) and German
+        nouns. No commentary.
+        \(plainTextRule)
+        """
+    }
+
+    public var outputJSONSchema: String {
+        """
+        {"type":"object","properties":{"cards":{"type":"array","items":{"type":"object",
+        "properties":{"expression":{"type":"string"},"translation":{"type":"string"},
+        "example":{"type":"string"},"synonyms":{"type":"array","items":{"type":"string"}},
+        "context":{"type":"string"}},
+        "required":["expression","translation","example","synonyms","context"],"additionalProperties":false}}},
+        "required":["cards"],"additionalProperties":false}
+        """
+    }
+
+    public func userMessage(for count: Int) -> String {
+        "Suggest \(count) starter cards with \(studiedLanguage) idioms."
+    }
+
+    public func decode(_ rawJSON: String) throws -> CardDraftsResult {
+        let raw = try decodeJSON(CardDraftsResult.self, from: rawJSON)
+        let cards = raw.cards.map { card in
+            CardDraft(expression: PlainText.clean(card.expression),
+                      translation: PlainText.clean(card.translation),
+                      example: PlainText.clean(card.example),
+                      synonyms: Array(card.synonyms.map(PlainText.clean).filter { !$0.isEmpty }.prefix(3)),
+                      context: PlainText.clean(card.context))
+        }
+        return CardDraftsResult(cards: cards.filter { !$0.expression.isEmpty && !$0.translation.isEmpty })
     }
 }
 

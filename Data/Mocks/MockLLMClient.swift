@@ -105,6 +105,26 @@ public final class MockLLMClient: LLMClient {
             return #"{"title":"Колизей","details":"Древнеримский амфитеатр в центре Рима, построен в I веке н. э. Здесь проходили гладиаторские бои. Сегодня это один из главных символов Италии и объект Всемирного наследия ЮНЕСКО."}"#
         case "healthCheck":
             return #"{"ok":true}"#
+        case "starterCards":
+            return """
+            {"cards":[
+              {"expression":"to break the ice","translation":"растопить лёд / начать разговор",
+               "example":"he told a joke to break the ice.","synonyms":["to get things going","to start a conversation"],
+               "context":"нейтрально; о первых словах в неловкой обстановке."},
+              {"expression":"under the weather","translation":"нездоровится",
+               "example":"i'm feeling a bit under the weather today.","synonyms":["unwell","off colour"],
+               "context":"разговорно; о лёгком недомогании."},
+              {"expression":"to hit the sack","translation":"завалиться спать",
+               "example":"i'm exhausted, time to hit the sack.","synonyms":["to go to bed","to turn in"],
+               "context":"разговорно; когда идёшь спать."},
+              {"expression":"a piece of cake","translation":"проще простого",
+               "example":"the test was a piece of cake.","synonyms":["a breeze","child's play"],
+               "context":"разговорно; о чём-то очень лёгком."},
+              {"expression":"to cost an arm and a leg","translation":"стоить целое состояние",
+               "example":"that car cost him an arm and a leg.","synonyms":["to be very expensive","to cost a fortune"],
+               "context":"разговорно; с досадой о высокой цене."}
+            ]}
+            """
         case "photoCards":
             return """
             {"cards":[

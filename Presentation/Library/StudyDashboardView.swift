@@ -126,7 +126,11 @@ public struct StudyDashboardView: View {
 
     private func practiceStatus(_ stats: StudyStats) -> String? {
         let plan = stats.today
-        if stats.inStudy == 0 {
+        if stats.inStudy == 0, model.preparingStarter {
+            return Loc.t("Подбираем первые карточки…", "Picking your first cards…", "Choix de vos premières cartes…",
+                         "Eligiendo tus primeras tarjetas…", "Deine ersten Karten werden ausgewählt…",
+                         "Scegliamo le tue prime carte…")
+        } else if stats.inStudy == 0 {
             return Loc.t("Перенесите фразы из «Пойманных», чтобы начать.", "Move phrases from Caught to start learning.")
         } else if !plan.hasMore {
             return Loc.t("На сегодня всё — возвращайтесь завтра.", "All done for today — come back tomorrow.")

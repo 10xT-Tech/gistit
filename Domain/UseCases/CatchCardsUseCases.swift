@@ -82,7 +82,7 @@ public struct CatchCardsFromPhotosInteractor: CatchCardsFromPhotosUseCase {
                 /// Photos in a row the service gave no answer for.
                 var unanswered = 0
                 for (index, image) in images.enumerated() {
-                    let outcome: RunOutcome<PhotoCardsResult>
+                    let outcome: RunOutcome<CardDraftsResult>
                     do {
                         try Task.checkCancellation()
                         outcome = try await RunRequest.send { try await llm.run(template, input: image) }
