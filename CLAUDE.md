@@ -146,7 +146,7 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
-**The app reopens on the screen it was closed on (GST-16).** `Presentation/Root/LastScreen.swift`:
+**The app reopens on the screen it was closed on (GST-16, 2.0.2 (7)).** `Presentation/Root/LastScreen.swift`:
 `LastScreen` (a main tab + on Study the pushed list, `StudyList` `.caught` / `.studying`) and
 `ScreenMemory` (`@Observable`, RootView's one instance: `RootView.selection` and the Study dashboard's
 `list` binding are its `tab` / `studyList`). Stored in `Prefs.store` under `lastScreen` ("library/caught",
@@ -199,7 +199,7 @@ opens `mergeOffer` (`MergeOfferSheet`) with the merged card worked out AT ONCE �
 look-alike as `NotDuplicatePair` — those pairs only); a failed check shows why, with Try again (or
 Subscribe) and still "separate".
 
-**v2.0.2 (on `main` — PR #13 merged `caught-marks`; 2.0.2 (1) uploaded to TestFlight 2026-11-19, 2.0.2 (2) — "Check all for merge (N)" — the same day, 2.0.2 (3) 2026-11-20 — final "not duplicates" marks, Fix cards counts, the incomplete cards; 2.0.2 (4) the same day — Caught marks only once checked; 2.0.2 (5) — articles inside a phrase ignored; 2.0.2 (6) 2026-11-23 — starter cards for an empty deck) — the
+**v2.0.2 (on `main` — PR #13 merged `caught-marks`; 2.0.2 (1) uploaded to TestFlight 2026-11-19, 2.0.2 (2) — "Check all for merge (N)" — the same day, 2.0.2 (3) 2026-11-20 — final "not duplicates" marks, Fix cards counts, the incomplete cards; 2.0.2 (4) the same day — Caught marks only once checked; 2.0.2 (5) — articles inside a phrase ignored; 2.0.2 (6) 2026-11-23 — starter cards for an empty deck; 2.0.2 (7) — the app reopens on the screen it was closed on (GST-16, PR #21; on `main` only, not uploaded)) — the
 Caught marks / moving by merge / strict verb-noun / duplicate statistics above, and the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
 or — empty field + text on the clipboard — Paste (`PasteAction`, Presentation/Support, shared by both
 screens). Paste is normally the SYSTEM control (`EHPasteButton` = `UIPasteControl`: its tap is the consent,
