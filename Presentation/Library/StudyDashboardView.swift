@@ -21,15 +21,17 @@ public struct StudyDashboardView: View {
     @State private var model: StudyDashboardViewModel
     @State private var caught: StudyListViewModel
     @State private var studying: StudyListViewModel
-    @State private var showCaught = false
-    @State private var showStudying = false
+    /// The list pushed from here. RootView owns it: it is part of the screen the app reopens on.
+    @Binding private var list: LastScreen.StudyList?
     @Environment(AppUIState.self) private var ui
     @Environment(SubscriptionState.self) private var subscription
 
-    public init(model: StudyDashboardViewModel, caught: StudyListViewModel, studying: StudyListViewModel) {
+    public init(model: StudyDashboardViewModel, caught: StudyListViewModel, studying: StudyListViewModel,
+                list: Binding<LastScreen.StudyList?>) {
         self.model = model
         self.caught = caught
         self.studying = studying
+        self._list = list
     }
 
     public var body: some View {
@@ -42,10 +44,10 @@ public struct StudyDashboardView: View {
                             practiceCard(stats)
                             listRow(icon: "tray", title: Loc.t("Пойманные", "Caught"),
                                     subtitle: Loc.t("Сохранённые и распознанные фразы", "Saved and caught phrases"),
-                                    count: stats.caught, id: "study.caught") { showCaught = true }
+                                    count: stats.caught, id: "study.caught") { list = .caught }
                             listRow(icon: "rectangle.stack", title: Loc.t("Во флеш-картах", "In flashcards"),
                                     subtitle: Loc.t("Фразы, которые вы учите", "The phrases you're learning"),
-                                    count: stats.inStudy, id: "study.studying") { showStudying = true }
+                                    count: stats.inStudy, id: "study.studying") { list = .studying }
                             if stats.inStudy > 0 || stats.distribution.total > 0 || stats.reviewsByDay.contains(where: { $0.count > 0 }) {
                                 ReviewsCard(days: stats.reviewsByDay)
                                 DistributionCard(distribution: stats.distribution)
@@ -62,8 +64,8 @@ public struct StudyDashboardView: View {
             }
             .navigationTitle(Loc.t("Изучаю", "Study"))
             .settingsTrigger()
-            .navigationDestination(isPresented: $showCaught) { StudyListView(model: caught) }
-            .navigationDestination(isPresented: $showStudying) { StudyListView(model: studying) }
+            .navigationDestination(isPresented: shows(.caught)) { StudyListView(model: caught) }
+            .navigationDestination(isPresented: shows(.studying)) { StudyListView(model: studying) }
             // Every return here (launch, tab switch, back from a list, a closed session) re-counts.
             .onAppear { Task { await model.load() } }
             // The goal is set in Settings (a sheet over this screen): re-count when it closes.
@@ -106,7 +108,7 @@ public struct StudyDashboardView: View {
                 .accessibilityHidden(status == nil)
             if stats.inStudy == 0 {
                 EHButton(Loc.t("Открыть «Пойманные»", "Open Caught"), icon: "tray", kind: .tonal,
-                         fillWidth: true, accessibilityID: "flashcards.openCaught") { showCaught = true }
+                         fillWidth: true, accessibilityID: "flashcards.openCaught") { list = .caught }
             } else {
                 // The day is one practice: Start, then Continue after a pause; past the goal, more.
                 let more = plan.goalReached && plan.pending.total == 0
@@ -141,6 +143,14 @@ public struct StudyDashboardView: View {
     }
 
     // MARK: Lists
+
+    /// Whether `which` is the list pushed — going back clears it.
+    private func shows(_ which: LastScreen.StudyList) -> Binding<Bool> {
+        Binding(get: { list == which },
+                set: { shown in
+                    if shown { list = which } else if list == which { list = nil }
+                })
+    }
 
     private func listRow(icon: String, title: String, subtitle: String, count: Int, id: String,
                          action: @escaping () -> Void) -> some View {
