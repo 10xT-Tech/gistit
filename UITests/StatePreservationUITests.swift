@@ -8,6 +8,11 @@
 //  the tone. A spurious regeneration is caught two ways: the stub's 800 ms latency makes the
 //  processing state visible, and History (in-memory repo) counts exactly one row per real request.
 //
+//  And through ENDING THE APP AND OPENING IT AGAIN (GST-16): it opens on the screen it was closed on —
+//  the main tab, the list open on Study, the mode chosen on Get it / See it; a deep link wins over
+//  that screen; a practice session, Settings, the paywall, an open card and an Online session start
+//  fresh. `terminate()` ends the app the way iOS does behind the screen (no warning to the app).
+//
 
 import XCTest
 
@@ -19,7 +24,12 @@ final class StatePreservationUITests: XCTestCase {
 
     /// Launch with deterministic stubs, onboarding skipped, and a pinned EN interface so the
     /// label-based queries below are stable regardless of the simulator's locale.
-    private func launchApp() -> XCUIApplication {
+    /// - `reopening`: the app was ended and is opened AGAIN inside one test — what the launch before
+    ///   wrote is still there (`-uiTestKeepPrefs`; without it every launch starts from nothing).
+    /// - `pinModes: false`: the modes are read from what is stored, not pinned to the defaults.
+    /// - `link`: the app is opened by this deep link (a Lock Screen widget's tap).
+    private func launchApp(reopening: Bool = false, pinModes: Bool = true, extra: [String] = [],
+                           link: URL? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += [
             "-uiTestStubs",
@@ -29,15 +39,21 @@ final class StatePreservationUITests: XCTestCase {
             "-studiedLanguage", "english",
             "-targetLanguage", "russian",
             "-toneOfVoice", "casual",
+        ]
+        if pinModes {
             // Modes/tone are persisted; the argument domain pins each launch's READS to the defaults,
             // and under -uiTestStubs the app WRITES them to an ephemeral suite wiped every launch
             // (Presentation/Support/Prefs.swift) — so test taps never leak into the next test or
             // into the real app's saved preferences on this simulator.
-            "-sayItMode", "howToSay",
-            "-getItMode", "explain",
-            "-seeItMode", "explain",
-        ]
-        app.launch()
+            app.launchArguments += [
+                "-sayItMode", "howToSay",
+                "-getItMode", "explain",
+                "-seeItMode", "explain",
+            ]
+        }
+        if reopening { app.launchArguments.append("-uiTestKeepPrefs") }
+        app.launchArguments += extra
+        if let link { app.open(link) } else { app.launch() }
         return app
     }
 
@@ -212,5 +228,241 @@ final class StatePreservationUITests: XCTestCase {
         openTab(app, "See it")
 
         XCTAssertTrue(segment(app, "seeit.mode.translate").isSelected, "See-it mode was not preserved")
+    }
+
+    // MARK: Ending the app and opening it again (GST-16)
+
+    /// End the app (as iOS does behind the screen, or the user in the app switcher) and open it again.
+    private func reopen(_ app: XCUIApplication, pinModes: Bool = true, extra: [String] = [],
+                        link: URL? = nil) -> XCUIApplication {
+        app.terminate()
+        return launchApp(reopening: true, pinModes: pinModes, extra: extra, link: link)
+    }
+
+    /// The first row of the Caught list in the stub data — there once the list is loaded.
+    private func caughtRow(_ app: XCUIApplication) -> XCUIElement {
+        app.cells.containing(NSPredicate(format: "label BEGINSWITH 'I appreciate it'")).firstMatch
+    }
+
+    /// The Online transcript pane holding the stub session's first sentence.
+    private func liveText(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Mind the gap.'")).firstMatch
+    }
+
+    private func openCaught(_ app: XCUIApplication) {
+        openTab(app, "Study")
+        let caught = app.buttons["study.caught"]
+        XCTAssertTrue(caught.waitForExistence(timeout: 5), "the Study dashboard didn't load")
+        caught.tap()
+        XCTAssertTrue(app.navigationBars["Caught"].waitForExistence(timeout: 5), "Caught didn't open")
+    }
+
+    private func goBack(_ app: XCUIApplication, from title: String) {
+        app.navigationBars[title].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["study.caught"].waitForExistence(timeout: 5), "back didn't lead to the dashboard")
+    }
+
+    /// Closed on any main tab, the app opens on that tab. Say it — where a first launch starts — comes
+    /// last, after another tab was remembered: it is opened because it was left on, not by default.
+    @MainActor
+    func testEachMainTabIsReopened() throws {
+        var app = launchApp()
+        for name in ["Study", "See it", "Get it", "History", "Say it"] {
+            openTab(app, name)
+            app = reopen(app)
+            XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout: 10),
+                          "closed on \(name), the app opened on another screen")
+            XCTAssertTrue(app.tab(name).isSelected, "the tab bar doesn't show \(name) as selected")
+        }
+    }
+
+    /// Study: closed in Caught or In flashcards, the app opens in that list (filled, with a way back
+    /// to the dashboard); closed on the dashboard — on the dashboard; and a list left for another tab
+    /// isn't waiting on Study.
+    @MainActor
+    func testStudyListIsReopened() throws {
+        var app = launchApp()
+        openCaught(app)
+        app = reopen(app)
+        XCTAssertTrue(app.navigationBars["Caught"].waitForExistence(timeout: 10), "Caught was not reopened")
+        XCTAssertTrue(app.tab("Study").isSelected)
+        XCTAssertTrue(caughtRow(app).waitForExistence(timeout: 5), "the reopened list is empty")
+
+        goBack(app, from: "Caught")
+        app.buttons["study.studying"].tap()
+        XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 5))
+        app = reopen(app)
+        XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 10),
+                      "In flashcards was not reopened")
+
+        goBack(app, from: "In flashcards")
+        app = reopen(app)
+        XCTAssertTrue(app.buttons["study.caught"].waitForExistence(timeout: 10), "the dashboard was not reopened")
+        XCTAssertFalse(app.navigationBars["In flashcards"].exists, "a list the user went back from was reopened")
+
+        openCaught(app)
+        openTab(app, "Say it")
+        app = reopen(app)
+        XCTAssertTrue(app.navigationBars["Say it"].waitForExistence(timeout: 10))
+        openTab(app, "Study")
+        XCTAssertTrue(app.buttons["study.caught"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["Caught"].exists, "a list left for another tab came back")
+    }
+
+    /// Get it / See it: the mode chosen on the selector is the mode the screen opens in.
+    @MainActor
+    func testGetItAndSeeItModesAreReopened() throws {
+        var app = launchApp(pinModes: false)
+        openTab(app, "Get it")
+        let getItTranslate = segment(app, "getit.mode.translate")
+        XCTAssertTrue(getItTranslate.waitForExistence(timeout: 5))
+        XCTAssertFalse(getItTranslate.isSelected, "Explain is where Get it starts")
+        getItTranslate.tap()
+        openTab(app, "See it")
+        let seeItTranslate = segment(app, "seeit.mode.translate")
+        XCTAssertTrue(seeItTranslate.waitForExistence(timeout: 5))
+        seeItTranslate.tap()
+
+        app = reopen(app, pinModes: false)
+        XCTAssertTrue(app.navigationBars["See it"].waitForExistence(timeout: 10), "See it was not reopened")
+        XCTAssertTrue(segment(app, "seeit.mode.translate").isSelected, "See it didn't open in its mode")
+        openTab(app, "Get it")
+        XCTAssertTrue(segment(app, "getit.mode.translate").isSelected, "Get it didn't open in its mode")
+
+        app = reopen(app, pinModes: false)
+        XCTAssertTrue(app.navigationBars["Get it"].waitForExistence(timeout: 10), "Get it was not reopened")
+        XCTAssertTrue(segment(app, "getit.mode.translate").isSelected, "Get it didn't open in its mode")
+    }
+
+    /// A deep link wins over the remembered screen, on a cold start too: closed in Caught, opened by
+    /// the "Get it — Translate" widget, the app shows Get it in Translate — and Caught isn't waiting on
+    /// Study. The link's screen is then the one the next launch opens; its mode was the link's only.
+    @MainActor
+    func testDeepLinkWinsOverTheRememberedScreen() throws {
+        var app = launchApp()
+        openCaught(app)
+
+        app = reopen(app, link: URL(string: "englishhelper://getit-translate")!)
+        XCTAssertTrue(app.navigationBars["Get it"].waitForExistence(timeout: 10),
+                      "the link didn't open its screen")
+        XCTAssertTrue(app.tab("Get it").isSelected)
+        XCTAssertTrue(segment(app, "getit.mode.translate").isSelected, "the link didn't set its mode")
+        XCTAssertFalse(app.navigationBars["Caught"].exists, "the remembered screen is shown under a link")
+
+        app = reopen(app)
+        XCTAssertTrue(app.navigationBars["Get it"].waitForExistence(timeout: 10),
+                      "the screen a link opened was not the one reopened")
+        XCTAssertTrue(segment(app, "getit.mode.explain").isSelected, "a link's mode replaced the chosen one")
+        openTab(app, "Study")
+        XCTAssertTrue(app.buttons["study.caught"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["Caught"].exists, "the list closed by a link came back")
+    }
+
+    /// A practice session isn't reopened: closed in the middle of one, the app opens on the Study
+    /// dashboard.
+    @MainActor
+    func testPracticeSessionStartsFresh() throws {
+        var app = launchApp()
+        openCaught(app)
+        app.buttons["caught.moveAll"].tap()
+        XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
+        goBack(app, from: "Caught")
+        app.buttons["flashcards.start"].tap()
+        XCTAssertTrue(app.buttons["flashcards.reveal"].waitForExistence(timeout: 5), "practice didn't start")
+
+        app = reopen(app)
+        XCTAssertTrue(app.buttons["study.caught"].waitForExistence(timeout: 10), "Study was not reopened")
+        XCTAssertTrue(app.tab("Study").isSelected)
+        XCTAssertFalse(app.buttons["flashcards.reveal"].exists, "a practice session was reopened")
+    }
+
+    /// Settings and an open card aren't reopened: the app opens on the screen under them.
+    @MainActor
+    func testSettingsAndAnOpenCardStartFresh() throws {
+        var app = launchApp()
+        openTab(app, "History")
+        app.buttons["Settings"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "Settings didn't open")
+
+        app = reopen(app)
+        XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 10), "History was not reopened")
+        XCTAssertFalse(app.navigationBars["Settings"].exists, "Settings was reopened")
+
+        // A card opens from In flashcards: move the phrases there first.
+        openCaught(app)
+        app.buttons["caught.moveAll"].tap()
+        XCTAssertTrue(app.buttons["caught.empty.phrase"].waitForExistence(timeout: 10), "the move didn't finish")
+        goBack(app, from: "Caught")
+        app.buttons["study.studying"].tap()
+        let row = caughtRow(app)   // the same phrase, now in flashcards
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.buttons["cardPreview.done"].waitForExistence(timeout: 5), "the card didn't open")
+
+        app = reopen(app)
+        XCTAssertTrue(app.navigationBars["In flashcards"].waitForExistence(timeout: 10),
+                      "In flashcards was not reopened")
+        XCTAssertFalse(app.buttons["cardPreview.done"].exists, "an open card was reopened")
+    }
+
+    /// A running Online session isn't reopened: Get it opens in Online — the mode chosen — with the
+    /// microphone off.
+    @MainActor
+    func testOnlineSessionStartsFresh() throws {
+        var app = launchApp(pinModes: false)
+        openTab(app, "Get it")
+        let online = segment(app, "getit.mode.online")
+        XCTAssertTrue(online.waitForExistence(timeout: 5))
+        online.tap()
+        let listen = app.buttons["Listen"]
+        XCTAssertTrue(listen.waitForExistence(timeout: 5))
+        listen.tap()
+        XCTAssertTrue(liveText(app).waitForExistence(timeout: 10), "the session didn't start")
+        XCTAssertEqual(listen.value as? String, "Listening")
+
+        app = reopen(app, pinModes: false)
+        XCTAssertTrue(app.navigationBars["Get it"].waitForExistence(timeout: 10), "Get it was not reopened")
+        XCTAssertTrue(segment(app, "getit.mode.online").isSelected, "Get it didn't open in Online")
+        XCTAssertEqual(app.buttons["Listen"].value as? String, "Ready", "an Online session was reopened")
+        XCTAssertFalse(liveText(app).exists, "the ended session's text is back")
+    }
+
+    /// The paywall isn't reopened: the app opens on the screen it was over.
+    @MainActor
+    func testPaywallStartsFresh() throws {
+        let freePlan = ["-uiTestFreePlan"]
+        var app = launchApp(pinModes: false, extra: freePlan)
+        openTab(app, "Get it")
+        let online = segment(app, "getit.mode.online")
+        XCTAssertTrue(online.waitForExistence(timeout: 5))
+        online.tap()
+        app.buttons["Listen"].tap()   // Online is Pro: on the free plan Listen opens the offer
+        XCTAssertTrue(app.staticTexts["Gist It Pro"].firstMatch.waitForExistence(timeout: 5),
+                      "the paywall didn't open")
+
+        app = reopen(app, pinModes: false, extra: freePlan)
+        XCTAssertTrue(app.navigationBars["Get it"].waitForExistence(timeout: 10), "Get it was not reopened")
+        XCTAssertFalse(app.staticTexts["Gist It Pro"].exists, "the paywall was reopened")
+    }
+
+    /// A launch that shows onboarding doesn't open the remembered screen — and the stored value is
+    /// dropped. (Onboarding itself isn't completed here: that writes to the app's real preferences.)
+    @MainActor
+    func testOnboardingIsShownWhateverWasRemembered() throws {
+        var app = launchApp()
+        openTab(app, "History")
+        app.terminate()
+
+        app = XCUIApplication()
+        app.launchArguments += ["-uiTestStubs", "-uiTestKeepPrefs", "-didCompleteOnboarding", "NO",
+                                "-interfaceLanguage", "en"]
+        app.launch()
+        XCTAssertFalse(app.tab("History").waitForExistence(timeout: 3), "the main screens opened before onboarding")
+        app.terminate()
+
+        // With onboarding behind: the screen from before it is forgotten, the app starts on Say it.
+        app = launchApp(reopening: true)
+        XCTAssertTrue(app.navigationBars["Say it"].waitForExistence(timeout: 10),
+                      "the screen remembered before onboarding came back after it")
     }
 }

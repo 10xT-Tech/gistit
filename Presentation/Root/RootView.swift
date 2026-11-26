@@ -32,7 +32,13 @@ public struct RootView: View {
     @State private var ui = AppUIState()
     @State private var onboarding = OnboardingStore()
     @State private var network: NetworkMonitor
-    @State private var selection = "out"
+    /// The screen the app is on — the main tab and the list open on Study — kept for the next launch
+    /// (LastScreen.swift).
+    @State private var memory = ScreenMemory()
+    /// False until the launch's own destination (a widget link, a shared item) has been routed: no
+    /// screen is mounted before that, so the remembered screen never shows up — and never runs its
+    /// `onAppear` — under a link that replaces it.
+    @State private var launchRouted = false
     /// Swipe-between-tabs paging state (which screen follows the finger, and by how much).
     @State private var pager = TabPager()
     /// The keyboard covers the tab bar, as the system one did (the bar steps out of the safe area).
@@ -80,6 +86,12 @@ public struct RootView: View {
 
     // MARK: Main screens
 
+    /// The selected main tab — remembered between launches.
+    private var selection: String {
+        get { memory.tab }
+        nonmutating set { memory.tab = newValue }
+    }
+
     /// The tab bar items, left to right — the order MUST match `TabSwipe.order`.
     private var tabItems: [GlassTabBarItem] {
         [
@@ -96,15 +108,16 @@ public struct RootView: View {
     /// appear/disappear lifecycle); their state lives in the view models, which RootView owns.
     private var mainScreens: some View {
         ZStack {
+            if !launchRouted { ScreenBackground() }   // the launch surface, for one more moment
             ForEach(TabSwipe.order, id: \.self) { tab in
-                if tab == selection || tab == pager.revealed(under: selection) {
+                if launchRouted, tab == selection || tab == pager.revealed(under: selection) {
                     mainScreen(tab)
                 }
             }
         }
         .safeAreaInset(edge: .bottom) {
             if !keyboardVisible {
-                GlassTabBar(items: tabItems, selection: $selection)
+                GlassTabBar(items: tabItems, selection: Bindable(memory).tab)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -144,7 +157,8 @@ public struct RootView: View {
 
     @ViewBuilder private func screen(_ tab: String) -> some View {
         switch tab {
-        case "library": StudyDashboardView(model: study, caught: library, studying: studying)
+        case "library": StudyDashboardView(model: study, caught: library, studying: studying,
+                                           list: Bindable(memory).studyList)
         case "camera": PhotoTranslateView(model: photo)
         case "out": VoiceView(model: out)
         case "in": InView(model: inbound)
@@ -189,9 +203,11 @@ public struct RootView: View {
                 }
                 .task {
                     // Cold launch (onChange won't fire for the initial active state). A widget URL
-                    // that arrived while the boot splash was up is buffered by the App — route it now.
+                    // that arrived while the boot splash was up is buffered by the App — route it now,
+                    // BEFORE the first screen is mounted: a link wins over the remembered screen.
                     if let url = consumeLaunchURL() { handleURL(url) }
                     handleShared()
+                    launchRouted = true
                 }
                 // Rebuild ONLY the tab content when the interface language changes — re-running every
                 // screen's `Loc.t(...)`. Scoped here (not the whole body) so the Settings sheet and

@@ -146,6 +146,26 @@ read in Release. Credentials reach the adapters as `RequestAuthorizing` (Claude)
 
 ## Current Status
 
+**The app reopens on the screen it was closed on (GST-16, 2.0.2 (7)).** `Presentation/Root/LastScreen.swift`:
+`LastScreen` (a main tab + on Study the pushed list, `StudyList` `.caught` / `.studying`) and
+`ScreenMemory` (`@Observable`, RootView's one instance: `RootView.selection` and the Study dashboard's
+`list` binding are its `tab` / `studyList`). Stored in `Prefs.store` under `lastScreen` ("library/caught",
+"in") on EVERY change — UserDefaults, not `@SceneStorage`: iOS drops a scene's state when the user swipes
+the app away, the main case. `LastScreen.opening(stored:onboarded:tabs:)` is THE one place that decides
+the opening screen (a later "back to the start after a day away" goes there): nothing stored / onboarding
+not done / a tab id not in `TabSwipe.order` (the tab set changes — GST-15) → Say it; an unknown list → its
+tab's root; a value not used is overwritten at once, so it never comes back a launch later. RESTORED: the
+tab, the Study list, and the Say it / Get it / See it mode (the screens' own `selectMode` memory — nothing
+new). NOT restored, on purpose: a practice session, the paywall, Settings, an Online session (Get it opens
+in Online, microphone off), any sheet, an open card, a History detail, the request / result on screen.
+Leaving Study still closes its list (`ScreenMemory.tab` drops it — it used to be the view's own `@State`);
+re-selecting the shown tab keeps it. A DEEP LINK WINS by coming after: `RootView` mounts no screen until
+the launch's own link / shared item is routed (`launchRouted`, set at the end of the cold-launch `.task`),
+so the remembered screen never appears — nor runs `onAppear` — under a link; the link's tab is then the
+one remembered, its `routeMode` stays session-only. XCUI: `-uiTestKeepPrefs` keeps the test prefs suite
+across a relaunch inside one test (`StatePreservationUITests` "Ending the app and opening it again";
+`XCUIApplication.open(url)` cold-launches with the launch arguments). Unit: `LastScreenTests`.
+
 **Starter cards for an empty deck (2.0.2, the user's rule).** When the language pair is chosen (onboarding
 done) or changed (Settings — `RootView` `onChange` of the studied / native store) and flashcards hold NO
 card, the model suggests five idioms of the studied language (`StarterCardsTemplate`, `.standard`) and
@@ -179,7 +199,7 @@ opens `mergeOffer` (`MergeOfferSheet`) with the merged card worked out AT ONCE �
 look-alike as `NotDuplicatePair` — those pairs only); a failed check shows why, with Try again (or
 Subscribe) and still "separate".
 
-**v2.0.2 (on `main` — PR #13 merged `caught-marks`; 2.0.2 (1) uploaded to TestFlight 2026-11-19, 2.0.2 (2) — "Check all for merge (N)" — the same day, 2.0.2 (3) 2026-11-20 — final "not duplicates" marks, Fix cards counts, the incomplete cards; 2.0.2 (4) the same day — Caught marks only once checked; 2.0.2 (5) — articles inside a phrase ignored; 2.0.2 (6) 2026-11-23 — starter cards for an empty deck) — the
+**v2.0.2 (on `main` — PR #13 merged `caught-marks`; 2.0.2 (1) uploaded to TestFlight 2026-11-19, 2.0.2 (2) — "Check all for merge (N)" — the same day, 2.0.2 (3) 2026-11-20 — final "not duplicates" marks, Fix cards counts, the incomplete cards; 2.0.2 (4) the same day — Caught marks only once checked; 2.0.2 (5) — articles inside a phrase ignored; 2.0.2 (6) 2026-11-23 — starter cards for an empty deck; 2.0.2 (7) — the app reopens on the screen it was closed on (GST-16, PR #21; on `main` only, not uploaded)) — the
 Caught marks / moving by merge / strict verb-noun / duplicate statistics above, and the Paste slot.** Say it / Get it show ONE slot next to the mic: the mode's action,
 or — empty field + text on the clipboard — Paste (`PasteAction`, Presentation/Support, shared by both
 screens). Paste is normally the SYSTEM control (`EHPasteButton` = `UIPasteControl`: its tap is the consent,

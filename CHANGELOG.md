@@ -4,6 +4,13 @@ Release notes for **Gist It** (formerly EnglishHelper), written for the people w
 
 ## 2.0.2 — in development
 
+**Gist It opens where you left it.** Close the app on **Study**, **See it**, **Get it** or **History** —
+swiped away, or put aside for a long while — and next time it opens on that screen, not on **Say it**.
+If you were in **Caught** or **In flashcards**, it opens in that list; **Get it** and **See it** open in
+the mode you chose. A Lock Screen widget, the Share sheet or the Online banner still opens its own
+screen. What was only for the moment starts fresh: a practice session, Settings, the subscription
+offer, an open card, a running Online session.
+
 **A first set of cards.** Choose your languages — when you start, or later in Settings — and if you
 have no flashcards yet, Gist It puts five common idioms of the language you learn into flashcards, with
 their translation, an example, synonyms and a note, so your first practice can start right away. Your

@@ -125,7 +125,9 @@ public final class OnboardingStore {
         didSet { UserDefaults.standard.set(isComplete, forKey: Self.key) }
     }
     private static let key = "didCompleteOnboarding"
-    public init() { isComplete = UserDefaults.standard.bool(forKey: Self.key) }
+    /// Whether onboarding was completed in an earlier launch (what `init` starts from).
+    static var wasCompleted: Bool { UserDefaults.standard.bool(forKey: key) }
+    public init() { isComplete = Self.wasCompleted }
     public func complete() { isComplete = true }
 }
 
